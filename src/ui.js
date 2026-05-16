@@ -14,6 +14,12 @@ import {
 } from "./config/rarityConfig.js";
 import { MINIGAME_DEFINITIONS } from "./systems/games/gameDefinitions.js";
 import {
+  fetchSupabaseChatMessages,
+  isSupabaseChatEnabled,
+  sendSupabaseChatMessage,
+  subscribeSupabaseChat
+} from "./network/supabaseChat.js";
+import {
   buyMarketOffer,
   buyPrestigeNode,
   buyUpgrade,
@@ -394,6 +400,8 @@ export class CaseOpenerUI {
     this.chatOpen = false;
     this.chatPollTimer = null;
     this.chatBusy = false;
+    this.chatCloudEnabled = isSupabaseChatEnabled();
+    this.unsubscribeCloudChat = null;
     this.cookieConsent = this.readCookieConsent();
     this.legalModal = null;
     this.session = this.createSessionState();
@@ -404,11 +412,14 @@ export class CaseOpenerUI {
     this.renderShell();
     this.bindEvents();
     this.renderAll();
+    this.initCloudChat();
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 3500);
   }
 
   dispose() {
+    this.unsubscribeCloudChat?.();
+    this.unsubscribeCloudChat = null;
     if (this.chatPollTimer) {
       window.clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
@@ -5184,8 +5195,33 @@ export class CaseOpenerUI {
     this.save();
   }
 
+  async initCloudChat() {
+    if (!this.chatCloudEnabled || this.unsubscribeCloudChat) {
+      return;
+    }
+    try {
+      this.unsubscribeCloudChat = await subscribeSupabaseChat((message) => {
+        if (!message?.id || this.chatMessages.some((entry) => entry.id === message.id)) {
+          return;
+        }
+        this.chatMessages = [...this.chatMessages, message].slice(-80);
+        this.renderGlobalChatDock();
+      });
+    } catch (error) {
+      this.chatCloudEnabled = false;
+    }
+  }
+
   async refreshChat() {
     try {
+      if (this.chatCloudEnabled) {
+        const messages = await fetchSupabaseChatMessages();
+        if (messages) {
+          this.chatMessages = messages;
+          this.renderGlobalChatDock();
+        }
+        return;
+      }
       const response = await fetch("/api/chat", { cache: "no-cache" });
       if (!response.ok) {
         return;
@@ -5206,6 +5242,19 @@ export class CaseOpenerUI {
     this.chatBusy = true;
     this.renderGlobalChatDock();
     try {
+      if (this.chatCloudEnabled) {
+        const messages = await sendSupabaseChatMessage({
+          name: this.state.profile?.name || "Operatore",
+          team: this.getChatTeam(),
+          text
+        });
+        this.chatDraft = "";
+        if (messages) {
+          this.chatMessages = messages;
+        }
+        this.renderGlobalChatDock();
+        return;
+      }
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -5251,7 +5300,7 @@ export class CaseOpenerUI {
           <div class="chat-footer">
             <div class="chat-footer-panel">
               <div class="chat-footer-head">
-                <span>${iconMarkup("messages-square", "button-icon")} Chat</span>
+                <span>${iconMarkup("messages-square", "button-icon")} Chat ${this.chatCloudEnabled ? "Cloud" : "Locale"}</span>
                 <div class="chat-team-switch" aria-label="Team chat">
                   <button class="${team === "ct" ? "is-active" : ""}" data-action="set-chat-team" data-team="ct" type="button">CT</button>
                   <button class="${team === "t" ? "is-active" : ""}" data-action="set-chat-team" data-team="t" type="button">T</button>
