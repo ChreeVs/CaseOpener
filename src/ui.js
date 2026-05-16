@@ -211,6 +211,14 @@ function tabIcon(id) {
   return iconMarkup(icons[id] || "circle");
 }
 
+async function hashText(value) {
+  const bytes = new TextEncoder().encode(String(value || ""));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 const PROFILE_ICON_OPTIONS = [
   { id: "shield", label: "Shield" },
   { id: "crosshair", label: "Crosshair" },
@@ -228,6 +236,26 @@ const NAV_TABS = [
   ["prestige", "Prestige"],
   ["games", "Giochi"]
 ];
+
+const ADMIN_STORAGE_KEY = "case-opener-admin-session-v1";
+const ADMIN_USER_ID = "chreev";
+const ADMIN_PASSWORD_HASH = "ea4316cddd2476c44a32569ff56afea3cd808943f20f8ccfac01c56548e859fd";
+const ADMIN_ONLY_ACTIONS = new Set([
+  "toggle-session-panel",
+  "refresh-api",
+  "start-event",
+  "export-save",
+  "import-save",
+  "reset-save",
+  "cheat-add-credits",
+  "cheat-set-credits",
+  "cheat-add-prestige",
+  "cheat-add-shards",
+  "cheat-unlock-cases",
+  "cheat-max-upgrades",
+  "cheat-master-case",
+  "cheat-reset-cooldowns"
+]);
 
 const TAB_GROUPS = {
   cases: ["cases"],
@@ -421,6 +449,11 @@ export class CaseOpenerUI {
     this.cloudStatus = this.cloudAvailable ? "Cloud pronto" : "Cloud non configurato";
     this.authUsername = "";
     this.authPassword = "";
+    this.adminAuthenticated = this.readAdminSession();
+    this.adminGateOpen = false;
+    this.adminUserId = "";
+    this.adminPassword = "";
+    this.adminStatus = this.adminAuthenticated ? "Profilo admin attivo." : "";
     this.cookieConsent = this.readCookieConsent();
     this.legalModal = null;
     this.session = this.createSessionState();
@@ -833,7 +866,7 @@ export class CaseOpenerUI {
               <span class="player-avatar" id="playerAvatar"></span>
               <span class="player-copy">
                 <strong>Operatore</strong>
-                <small>Sessione e strumenti</small>
+                <small>Account e impostazioni</small>
               </span>
               <span class="player-more">${iconMarkup("chevron-down")}</span>
             </button>
@@ -969,6 +1002,12 @@ export class CaseOpenerUI {
       if (target.matches("#authPassword")) {
         this.authPassword = target.value;
       }
+      if (target.matches("#adminUserId")) {
+        this.adminUserId = target.value;
+      }
+      if (target.matches("#adminPassword")) {
+        this.adminPassword = target.value;
+      }
     });
 
     this.root.addEventListener("change", (event) => {
@@ -1063,6 +1102,10 @@ export class CaseOpenerUI {
         event.preventDefault();
         this.signInUsername();
       }
+      if (target.matches("#adminUserId, #adminPassword") && event.key === "Enter") {
+        event.preventDefault();
+        this.loginAdmin();
+      }
     });
   }
 
@@ -1076,6 +1119,10 @@ export class CaseOpenerUI {
   }
 
   handleAction(action, data, element) {
+    if ((ADMIN_ONLY_ACTIONS.has(action) || (action === "tab" && data.tab === "cheats")) && !this.isAdmin()) {
+      this.toast("Accesso admin richiesto.");
+      return;
+    }
     switch (action) {
       case "select-case":
         this.selectCase(data.id);
@@ -1336,6 +1383,16 @@ export class CaseOpenerUI {
       case "cloud-register-password":
         this.registerUsername();
         break;
+      case "toggle-admin-gate":
+        this.adminGateOpen = !this.adminGateOpen;
+        this.renderTechMenu();
+        break;
+      case "admin-login":
+        this.loginAdmin();
+        break;
+      case "admin-logout":
+        this.logoutAdmin();
+        break;
       case "cloud-save":
         this.saveToCloud();
         break;
@@ -1373,7 +1430,9 @@ export class CaseOpenerUI {
   renderApiStatus() {
     const status = this.root.querySelector("#apiStatus");
     const date = this.metadata.cachedAt ? new Date(this.metadata.cachedAt).toLocaleString("it-IT") : "ora";
-    status.textContent = `${this.skinData.skins.length.toLocaleString("it-IT")} skin reali - ${this.skinData.cases.length} casse - ${this.metadata.fromCache ? "cache locale" : "API live"} - ${date}`;
+    status.textContent = this.isAdmin()
+      ? `${this.skinData.skins.length.toLocaleString("it-IT")} skin reali - ${this.skinData.cases.length} casse - ${this.metadata.fromCache ? "cache locale" : "API live"} - ${date}`
+      : `${this.skinData.skins.length.toLocaleString("it-IT")} skin ufficiali - ${this.skinData.cases.length} casse`;
   }
 
   renderTopStats() {
@@ -1402,7 +1461,9 @@ export class CaseOpenerUI {
       playerCopyStrong.textContent = this.state.profile?.name || "Operatore";
     }
     if (playerCopySmall) {
-      playerCopySmall.textContent = `${this.state.profile?.title || "Case Runner"} · Sessione e strumenti`;
+      playerCopySmall.textContent = this.isAdmin()
+        ? `${this.state.profile?.title || "Case Runner"} · Admin attivo`
+        : `${this.state.profile?.title || "Case Runner"} · Account`;
     }
     topStats.innerHTML = `
       <article class="top-stat-card top-stat-balance">
@@ -1438,6 +1499,7 @@ export class CaseOpenerUI {
     if (!menu || !button) {
       return;
     }
+    const isAdmin = this.isAdmin();
     const audio = this.getAudioSettings();
     const profile = this.state.profile || {};
     const cloudUserId = this.cloudSession?.user?.id || "";
@@ -1454,10 +1516,11 @@ export class CaseOpenerUI {
       <div class="tech-menu-card">
         <div class="tech-menu-head">
           <strong>${escapeHtml(profile.name || "Operatore")}</strong>
-          <small>${escapeHtml(profile.title || "Case Runner")} · P${this.state.prestige.level} · Lv ${this.state.profile.level}</small>
+          <small>${escapeHtml(profile.title || "Case Runner")} · P${this.state.prestige.level} · Lv ${this.state.profile.level}${isAdmin ? " · Admin" : ""}</small>
         </div>
         <div class="tech-menu-actions">
           <button class="ghost-button tiny" data-action="open-profile-setup">${iconMarkup("user-round-cog", "button-icon")} Scheda</button>
+          ${isAdmin ? `
           <button class="ghost-button tiny ${this.sessionPanelOpen ? "is-active" : ""}" data-action="toggle-session-panel">
             ${iconMarkup("sliders-horizontal", "button-icon")} Sessione ${this.sessionPanelOpen ? "On" : "Off"}
           </button>
@@ -1467,6 +1530,7 @@ export class CaseOpenerUI {
           <button class="ghost-button tiny" data-action="export-save">${iconMarkup("download", "button-icon")} Export</button>
           <button class="ghost-button tiny" data-action="import-save">${iconMarkup("upload", "button-icon")} Import</button>
           <button class="ghost-button tiny danger" data-action="reset-save">${iconMarkup("rotate-ccw", "button-icon")} Reset save</button>
+          ` : ""}
         </div>
         <div class="tech-menu-cloud">
           <div class="tech-menu-subhead">
@@ -1503,9 +1567,9 @@ export class CaseOpenerUI {
             </div>
           `}
           <div class="tech-menu-actions compact">
-            <button class="ghost-button tiny" data-action="cloud-sign-in" ${this.cloudAvailable && !this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
+            ${isAdmin ? `<button class="ghost-button tiny" data-action="cloud-sign-in" ${this.cloudAvailable && !this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
               ${iconMarkup("log-in", "button-icon")} Accedi anon
-            </button>
+            </button>` : ""}
             <button class="ghost-button tiny" data-action="cloud-save" ${this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
               ${iconMarkup("cloud-upload", "button-icon")} Salva cloud
             </button>
@@ -1540,6 +1604,30 @@ export class CaseOpenerUI {
             <input id="audioDrop" type="range" min="0" max="100" step="1" value="${Math.round(audio.drop * 100)}" />
             <strong>${Math.round(audio.drop * 100)}%</strong>
           </label>
+        </div>
+        <div class="admin-gate ${isAdmin ? "is-active" : ""}">
+          <div class="tech-menu-subhead">
+            <strong>${iconMarkup("shield-check", "button-icon")} Staff</strong>
+            ${isAdmin
+              ? `<button class="ghost-button tiny" data-action="admin-logout">Logout</button>`
+              : `<button class="ghost-button tiny" data-action="toggle-admin-gate">${this.adminGateOpen ? "Chiudi" : "Admin"}</button>`}
+          </div>
+          ${isAdmin ? `
+            <small>Strumenti tecnici abilitati per questa sessione.</small>
+          ` : this.adminGateOpen ? `
+            <div class="tech-auth-form">
+              <label>
+                <span>ID staff</span>
+                <input id="adminUserId" value="${escapeHtml(this.adminUserId)}" autocomplete="username" placeholder="id" />
+              </label>
+              <label>
+                <span>Password</span>
+                <input id="adminPassword" type="password" value="${escapeHtml(this.adminPassword)}" autocomplete="current-password" placeholder="password" />
+              </label>
+              <button class="primary-button small" data-action="admin-login">${iconMarkup("key-round", "button-icon")} Entra admin</button>
+              ${this.adminStatus ? `<small>${escapeHtml(this.adminStatus)}</small>` : ""}
+            </div>
+          ` : ""}
         </div>
       </div>
     `;
@@ -1627,7 +1715,9 @@ export class CaseOpenerUI {
   }
 
   getAllowedTabIds() {
-    return Object.values(TAB_GROUPS).flat();
+    return Object.values(TAB_GROUPS)
+      .flat()
+      .filter((tabId) => this.isAdmin() || tabId !== "cheats");
   }
 
   renderSectionTabs(groupId) {
@@ -2140,6 +2230,10 @@ export class CaseOpenerUI {
     const content = this.root.querySelector("#tabContent");
     const workspace = this.root.querySelector("#workspace");
     const grid = this.root.querySelector(".main-grid");
+    if (this.activeTab === "cheats" && !this.isAdmin()) {
+      this.activeTab = "cases";
+      this.renderTabs();
+    }
     const isCases = this.activeTab === "cases";
     grid?.classList.toggle("is-workspace-mode", !isCases);
     workspace?.classList.toggle("is-collapsed", isCases);
@@ -5204,23 +5298,23 @@ export class CaseOpenerUI {
     const common = {
       privacy: {
         title: "Privacy Policy",
-        intro: "Questo progetto salva localmente progressi, preferenze, inventario di gioco e impostazioni profilo. Non e' un documento legale definitivo.",
+        intro: "Il gioco salva progressi, preferenze, inventario e impostazioni profilo per mantenere la tua esperienza tra una sessione e l'altra.",
         rows: [
-          ["Dati trattati", "Save locale, cache API ByMykel, preferenze cookie, profilo fittizio e messaggi chat se il server locale e' attivo."],
-          ["Finalita'", "Far funzionare il gioco, mantenere la progressione, mostrare inventario e preparare future funzioni online."],
-          ["Base tecnica", "Il gioco usa localStorage/IndexedDB per funzioni strettamente necessarie. Analytics e marketing non sono attivi."],
-          ["Futuro cloud", "TODO Supabase: account, inventario cloud, leaderboard, marketplace e chat dovranno avere informativa e consensi dedicati."],
-          ["Controllo dati", "Puoi usare Export, Import e Reset save dal menu profilo. In produzione andranno aggiunti contatti del titolare e procedure di cancellazione."]
+          ["Dati trattati", "Progressi di gioco, inventario virtuale, preferenze, profilo e messaggi chat quando usi le funzioni online."],
+          ["Finalita'", "Far funzionare il gioco, mantenere la progressione e mostrare correttamente inventario, chat e profilo."],
+          ["Salvataggi", "Il salvataggio locale resta sul tuo browser. Il salvataggio cloud viene usato solo dopo accesso account."],
+          ["Servizi esterni", "Le immagini e i dati delle skin arrivano dalla ByMykel CSGO API. Le funzioni account usano Supabase."],
+          ["Controllo dati", "Puoi uscire dall'account cloud e cancellare i dati locali dalle impostazioni del browser."]
         ]
       },
       cookies: {
         title: "Cookie Policy",
-        intro: "Il banner distingue tra storage tecnico necessario e consensi futuri. Al momento non installa cookie analytics o advertising.",
+        intro: "Il gioco usa solo storage necessario per salvataggi, preferenze e funzionamento dell'interfaccia.",
         rows: [
-          ["Necessari", "Save, cache API e preferenze consenso. Servono al funzionamento del gioco e non vengono usati per pubblicita'."],
-          ["Facoltativi", "Nessun cookie facoltativo e' attivo ora. TODO Supabase/analytics: aggiungere toggle separati prima di pubblicare."],
-          ["Revoca", "Puoi cancellare localStorage dal browser o resettare il save dal menu tecnico."],
-          ["Nota GDPR", "Il consenso, quando richiesto, deve essere libero, specifico, informato e revocabile."]
+          ["Necessari", "Save, cache dati e preferenze consenso. Servono al funzionamento del gioco."],
+          ["Facoltativi", "Al momento non sono attivi cookie pubblicitari o analytics."],
+          ["Revoca", "Puoi cancellare i dati locali dal browser in qualsiasi momento."],
+          ["Nota GDPR", "Quando saranno introdotti servizi opzionali, verranno richiesti consensi separati."]
         ]
       },
       terms: {
@@ -5230,8 +5324,8 @@ export class CaseOpenerUI {
           ["Natura del gioco", "Simulatore fan-made/incrementale. Le skin e i crediti sono virtuali e non hanno valore reale."],
           ["Uso corretto", "Non usare automazioni esterne, manipolazioni del save o exploit quando verranno introdotte funzioni online."],
           ["Contenuti CS2", "Immagini e metadata provengono dalla ByMykel CSGO API. Marchi e asset appartengono ai rispettivi titolari."],
-          ["Multiplayer futuro", "Le modalita' social dovranno essere server-authoritative, con audit anti-cheat e regole di fair play."],
-          ["Responsabilita'", "Prima della pubblicazione pubblica questi testi vanno sostituiti con documenti legali verificati."]
+          ["Funzioni online", "Eventuali modalita' social richiederanno regole chiare, controlli corretti e protezione degli account."],
+          ["Responsabilita'", "Questi testi sono una base informativa e andranno verificati prima di una pubblicazione ufficiale."]
         ]
       }
     };
@@ -5284,7 +5378,7 @@ export class CaseOpenerUI {
               `).join("")}
             </div>
             <footer>
-              <small>Riferimenti implementativi: storage tecnico, consenso esplicito e possibilita' di rifiuto/revoca. Testi da validare prima del lancio pubblico.</small>
+              <small>Testi informativi da verificare prima della pubblicazione ufficiale.</small>
             </footer>
           </article>
         </section>
@@ -5462,6 +5556,76 @@ export class CaseOpenerUI {
     }
   }
 
+  readAdminSession() {
+    try {
+      const raw = sessionStorage.getItem(ADMIN_STORAGE_KEY);
+      const session = raw ? JSON.parse(raw) : null;
+      return session?.user === ADMIN_USER_ID;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  isAdmin() {
+    return Boolean(this.adminAuthenticated);
+  }
+
+  getAdminCredentials() {
+    const userId = (this.root.querySelector("#adminUserId")?.value || this.adminUserId || "").trim().toLowerCase();
+    const password = this.root.querySelector("#adminPassword")?.value || this.adminPassword || "";
+    this.adminUserId = userId;
+    this.adminPassword = password;
+    return { userId, password };
+  }
+
+  async validateAdminCredentials(userId, password) {
+    if (userId !== ADMIN_USER_ID || !password || !globalThis.crypto?.subtle) {
+      return false;
+    }
+    return (await hashText(password)) === ADMIN_PASSWORD_HASH;
+  }
+
+  async loginAdmin() {
+    const { userId, password } = this.getAdminCredentials();
+    const ok = await this.validateAdminCredentials(userId, password);
+    if (!ok) {
+      this.adminStatus = "Credenziali admin non valide.";
+      this.toast("Accesso admin negato.");
+      this.renderTechMenu();
+      return false;
+    }
+    this.adminAuthenticated = true;
+    this.adminPassword = "";
+    this.adminStatus = "Profilo admin attivo.";
+    try {
+      sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+    } catch (error) {
+      // Admin mode still works for the current in-memory session.
+    }
+    this.toast("Profilo admin attivo.");
+    this.renderAll();
+    return true;
+  }
+
+  logoutAdmin() {
+    this.adminAuthenticated = false;
+    this.adminGateOpen = false;
+    this.adminUserId = "";
+    this.adminPassword = "";
+    this.adminStatus = "";
+    this.sessionPanelOpen = false;
+    if (this.activeTab === "cheats") {
+      this.activeTab = "cases";
+    }
+    try {
+      sessionStorage.removeItem(ADMIN_STORAGE_KEY);
+    } catch (error) {
+      // Session cleanup is best-effort.
+    }
+    this.toast("Profilo admin disattivato.");
+    this.renderAll();
+  }
+
   applyCloudIdentityProfile(session, { forceName = false } = {}) {
     const name = getSessionDisplayName(session).slice(0, 18);
     if (!name) {
@@ -5543,6 +5707,16 @@ export class CaseOpenerUI {
     try {
       this.cloudSession = await signInWithUsernamePassword(username, password);
       this.applyCloudIdentityProfile(this.cloudSession, { forceName: true });
+      if (await this.validateAdminCredentials(username.trim().toLowerCase(), password)) {
+        this.adminAuthenticated = true;
+        this.adminStatus = "Profilo admin attivo.";
+        try {
+          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+        } catch (error) {
+          // Admin mode still works for the current in-memory session.
+        }
+      }
+      this.authPassword = "";
       this.cloudStatus = "Account connesso. Puoi salvare o caricare dal cloud.";
       this.toast("Accesso completato.");
       await this.saveToCloud({ quiet: true });
@@ -5566,6 +5740,16 @@ export class CaseOpenerUI {
     try {
       this.cloudSession = await registerWithUsernamePassword(username, password);
       this.applyCloudIdentityProfile(this.cloudSession, { forceName: true });
+      if (await this.validateAdminCredentials(username.trim().toLowerCase(), password)) {
+        this.adminAuthenticated = true;
+        this.adminStatus = "Profilo admin attivo.";
+        try {
+          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+        } catch (error) {
+          // Admin mode still works for the current in-memory session.
+        }
+      }
+      this.authPassword = "";
       this.cloudStatus = "Account creato e collegato al cloud.";
       this.toast("Registrazione completata.");
       await this.saveToCloud({ quiet: true });

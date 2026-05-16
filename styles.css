@@ -3894,6 +3894,27 @@ body {
   background: rgba(78, 129, 255, 0.055);
 }
 
+.admin-gate {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126, 151, 179, 0.12);
+}
+
+.admin-gate.is-active {
+  color: #ffe08a;
+}
+
+.admin-gate > small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.admin-gate .primary-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .tech-menu-cloud small {
   color: var(--muted);
   line-height: 1.35;
