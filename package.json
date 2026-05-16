@@ -1,0 +1,10 @@
+{
+  "name": "case-opener-incremental",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.cjs",
+    "check": "node --check server.cjs && node --check src/config.js && node --check src/api.js && node --check src/store.js && node --check src/gameLogic.js && node --check src/ui.js && node --check src/main.js"
+  }
+}
