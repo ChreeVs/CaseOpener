@@ -173,6 +173,42 @@ create policy "stakes auth insert"
   for insert
   with check (auth.uid() = player_id);
 
+create table if not exists public.community_goal_contributions (
+  id uuid primary key default gen_random_uuid(),
+  goal_id text not null check (char_length(goal_id) between 1 and 48),
+  goal_key text not null check (char_length(goal_key) between 1 and 96),
+  scope text not null default 'community' check (scope = 'community'),
+  player_id uuid null references auth.users(id) on delete set null,
+  player_name text not null default 'Operatore' check (char_length(player_name) between 1 and 24),
+  amount numeric(12, 2) not null check (amount > 0 and amount <= 1000000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists community_goal_contributions_key_idx
+  on public.community_goal_contributions (goal_key, created_at desc);
+
+alter table public.community_goal_contributions enable row level security;
+
+drop policy if exists "community goals read public" on public.community_goal_contributions;
+create policy "community goals read public"
+  on public.community_goal_contributions
+  for select
+  using (true);
+
+drop policy if exists "community goals insert public" on public.community_goal_contributions;
+create policy "community goals insert public"
+  on public.community_goal_contributions
+  for insert
+  with check (
+    scope = 'community'
+    and amount > 0
+    and amount <= 1000000
+    and char_length(goal_id) between 1 and 48
+    and char_length(goal_key) between 1 and 96
+    and char_length(player_name) between 1 and 24
+    and (player_id is null or auth.uid() = player_id)
+  );
+
 do $$
 begin
   if exists (
@@ -182,6 +218,11 @@ begin
   ) then
     begin
       alter publication supabase_realtime add table public.chat_messages;
+    exception
+      when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.community_goal_contributions;
     exception
       when duplicate_object then null;
     end;

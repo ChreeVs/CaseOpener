@@ -2035,19 +2035,25 @@ function ensureGoalState(state) {
   return state.goals;
 }
 
-export function getCommunityGoals(state, now = Date.now()) {
+export function getCommunityGoals(state, now = Date.now(), sharedContributions = {}) {
   const goalsState = ensureGoalState(state);
   const discount = getProfileSkillBonus(state).goalDiscount;
   return COMMUNITY_GOAL_DEFINITIONS.map((goal) => {
     const key = goalWindowKey(goal, now);
     const target = Math.max(1, Math.round(goal.target * (goal.scope === "solo" ? 1 - discount : 1)));
-    const contributed = Number(goalsState.contributions[key] || 0);
+    const personalContributed = Number(goalsState.contributions[key] || 0);
+    const sharedContributed = goal.scope === "community" ? Number(sharedContributions?.[key] || 0) : 0;
+    const contributed = goal.scope === "community"
+      ? Math.max(personalContributed, sharedContributed)
+      : personalContributed;
     const progress = Math.min(1, contributed / target);
     return {
       ...goal,
       key,
       target,
       contributed,
+      personalContributed,
+      sharedContributed,
       progress,
       ready: contributed >= target,
       claimed: Boolean(goalsState.claimed[key]),
@@ -2071,13 +2077,16 @@ export function depositCommunityGoalCredits(state, goalId, amount) {
   return { ok: true, deposited: value, goal: getCommunityGoals(state).find((candidate) => candidate.id === goalId) };
 }
 
-export function claimCommunityGoalReward(state, goalId) {
-  const goal = getCommunityGoals(state).find((candidate) => candidate.id === goalId);
+export function claimCommunityGoalReward(state, goalId, now = Date.now(), sharedContributions = {}) {
+  const goal = getCommunityGoals(state, now, sharedContributions).find((candidate) => candidate.id === goalId);
   if (!goal) {
     return { ok: false, reason: "Goal non trovato." };
   }
   if (!goal.ready) {
     return { ok: false, reason: "Soglia non raggiunta." };
+  }
+  if (goal.scope === "community" && goal.personalContributed <= 0) {
+    return { ok: false, reason: "Devi contribuire almeno una volta a questo goal community." };
   }
   if (goal.claimed) {
     return { ok: false, reason: "Reward gia' riscattato." };

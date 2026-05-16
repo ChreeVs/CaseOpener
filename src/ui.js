@@ -20,6 +20,12 @@ import {
   subscribeSupabaseChat
 } from "./network/supabaseChat.js";
 import {
+  fetchCommunityGoalTotals,
+  isCommunityGoalsSyncAvailable,
+  submitCommunityGoalContribution,
+  subscribeCommunityGoalContributions
+} from "./network/communityGoals.js";
+import {
   getSessionDisplayName,
   getCloudSession,
   isCloudSaveAvailable,
@@ -438,6 +444,12 @@ export class CaseOpenerUI {
     this.gamesView = "roulette";
     this.promoCodeDraft = "";
     this.goalDepositAmounts = {};
+    this.goalSyncBusy = new Set();
+    this.sharedGoalTotals = {};
+    this.sharedGoalStatus = isCommunityGoalsSyncAvailable() ? "Sync community in attesa" : "Sync community non configurata";
+    this.lastSharedGoalSyncAt = 0;
+    this.unsubscribeCommunityGoals = null;
+    this.seenSharedGoalContributionIds = new Set();
     this.auctionItemId = "";
     this.auctionPrice = "";
     this.adminPromoCode = "";
@@ -516,6 +528,7 @@ export class CaseOpenerUI {
     this.renderShell();
     this.bindEvents();
     this.renderAll();
+    this.initCommunityGoalsSync();
     this.initCloudChat();
     this.refreshCloudSession();
     this.refreshChat();
@@ -525,6 +538,8 @@ export class CaseOpenerUI {
   dispose() {
     this.unsubscribeCloudChat?.();
     this.unsubscribeCloudChat = null;
+    this.unsubscribeCommunityGoals?.();
+    this.unsubscribeCommunityGoals = null;
     if (this.chatPollTimer) {
       window.clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
@@ -565,6 +580,79 @@ export class CaseOpenerUI {
 
   resetSessionState() {
     this.session = this.createSessionState();
+  }
+
+  getCommunityGoalRows(now = Date.now()) {
+    return getCommunityGoals(this.state, now, this.sharedGoalTotals);
+  }
+
+  getCommunityGoalKeys(now = Date.now()) {
+    return this.getCommunityGoalRows(now)
+      .filter((goal) => goal.scope === "community")
+      .map((goal) => goal.key);
+  }
+
+  mergeSharedGoalTotals(totals = {}) {
+    Object.entries(totals || {}).forEach(([key, value]) => {
+      this.sharedGoalTotals[key] = Number(Math.max(Number(this.sharedGoalTotals[key] || 0), Number(value || 0)).toFixed(2));
+    });
+  }
+
+  applySharedGoalContribution(entry) {
+    if (!entry?.goalKey || this.seenSharedGoalContributionIds.has(entry.id)) {
+      return;
+    }
+    this.seenSharedGoalContributionIds.add(entry.id);
+    this.sharedGoalTotals[entry.goalKey] = Number(((this.sharedGoalTotals[entry.goalKey] || 0) + Number(entry.amount || 0)).toFixed(2));
+  }
+
+  async refreshCommunityGoals({ silent = false } = {}) {
+    if (!isCommunityGoalsSyncAvailable()) {
+      this.sharedGoalStatus = "Sync community non configurata";
+      return;
+    }
+    const keys = this.getCommunityGoalKeys();
+    if (!keys.length) {
+      return;
+    }
+    try {
+      const totals = await fetchCommunityGoalTotals(keys);
+      if (totals) {
+        this.mergeSharedGoalTotals(totals);
+      }
+      this.lastSharedGoalSyncAt = Date.now();
+      this.sharedGoalStatus = "Sync community live";
+      if (this.activeTab === "community") {
+        this.renderTab();
+      }
+    } catch (error) {
+      this.sharedGoalStatus = "Sync community non disponibile";
+      if (!silent) {
+        this.toast("Goal community: tabella Supabase non pronta.");
+      }
+    }
+  }
+
+  async initCommunityGoalsSync() {
+    await this.refreshCommunityGoals({ silent: true });
+    if (!isCommunityGoalsSyncAvailable()) {
+      return;
+    }
+    try {
+      this.unsubscribeCommunityGoals = await subscribeCommunityGoalContributions((entry) => {
+        const activeKeys = new Set(this.getCommunityGoalKeys());
+        if (!activeKeys.has(entry.goalKey)) {
+          return;
+        }
+        this.applySharedGoalContribution(entry);
+        this.sharedGoalStatus = "Sync community live";
+        if (this.activeTab === "community") {
+          this.renderTab();
+        }
+      });
+    } catch (error) {
+      this.sharedGoalStatus = "Realtime community non disponibile";
+    }
   }
 
   attachSocialClient(client) {
@@ -3798,7 +3886,7 @@ export class CaseOpenerUI {
   }
 
   renderCommunityGoals() {
-    const goals = getCommunityGoals(this.state);
+    const goals = this.getCommunityGoalRows();
     const promoRedeemed = Object.keys(this.state.promoCodes?.redeemed || {}).length;
     return `
       <div class="community-page">
@@ -3806,6 +3894,7 @@ export class CaseOpenerUI {
           ${statTile("Codici riscattati", promoRedeemed, "promo")}
           ${statTile("Archivio collezioni", Math.floor(this.state.collections.archivePoints || 0), "punti assist")}
           ${statTile("Goal pronti", goals.filter((goal) => goal.ready && !goal.claimed).length, `${goals.length} attivi`)}
+          ${statTile("Sync", this.sharedGoalStatus.replace("Sync community ", ""), "Supabase community")}
           ${statTile("Reward case", this.state.inventory.filter((item) => item.type === "rewardCase").length, "in inventario")}
         </div>
         <article class="game-card full-width promo-card">
@@ -3822,7 +3911,11 @@ export class CaseOpenerUI {
           </div>
         </article>
         <div class="community-goal-grid">
-          ${goals.map((goal) => `
+          ${goals.map((goal) => {
+            const isShared = goal.scope === "community";
+            const busy = this.goalSyncBusy.has(goal.id);
+            const canClaim = goal.ready && !goal.claimed && (!isShared || goal.personalContributed > 0);
+            return `
             <article class="community-goal-card ${goal.ready ? "is-ready" : ""} ${goal.claimed ? "is-claimed" : ""}">
               <div>
                 <span>${goal.scope === "solo" ? "Singolo" : "Community"} · scade ${compactTime(goal.endsAt - Date.now())}</span>
@@ -3832,15 +3925,20 @@ export class CaseOpenerUI {
               <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
               <div class="community-goal-meta">
                 <strong>${formatCredits(goal.contributed, true)} / ${formatCredits(goal.target, true)}</strong>
-                <small>${goal.claimed ? "Reward ritirato" : goal.ready ? "Pronto da ritirare" : "In corso"}</small>
+                <small>${goal.claimed
+                  ? "Reward ritirato"
+                  : isShared
+                    ? `${formatCredits(goal.personalContributed, true)} tuoi · ${formatCredits(goal.sharedContributed, true)} community`
+                    : goal.ready ? "Pronto da ritirare" : "In corso"}</small>
               </div>
               <div class="game-controls compact-goal-controls">
                 <input data-goal-deposit-input="${goal.id}" value="${escapeHtml(this.goalDepositAmounts[goal.id] || "")}" placeholder="Crediti" />
-                <button class="ghost-button small" data-action="deposit-goal" data-id="${goal.id}" ${goal.claimed ? "disabled" : ""}>Deposita</button>
-                <button class="primary-button small" data-action="claim-goal" data-id="${goal.id}" ${goal.ready && !goal.claimed ? "" : "disabled"}>Ritira</button>
+                <button class="ghost-button small" data-action="deposit-goal" data-id="${goal.id}" ${goal.claimed || busy ? "disabled" : ""}>${busy ? "Sync..." : "Deposita"}</button>
+                <button class="primary-button small" data-action="claim-goal" data-id="${goal.id}" ${canClaim ? "" : "disabled"}>Ritira</button>
               </div>
             </article>
-          `).join("")}
+          `;
+          }).join("")}
         </div>
       </div>
     `;
@@ -5061,21 +5159,67 @@ export class CaseOpenerUI {
     }
   }
 
-  depositGoal(id) {
+  async depositGoal(id) {
+    if (this.goalSyncBusy.has(id)) {
+      return;
+    }
     const input = [...this.root.querySelectorAll("[data-goal-deposit-input]")]
       .find((node) => node.dataset.goalDepositInput === id);
     const amount = input?.value || this.goalDepositAmounts[id];
+    const currentGoal = this.getCommunityGoalRows().find((goal) => goal.id === id);
+    const beforeCredits = this.state.credits;
+    const beforeSpent = this.state.stats.totalSpent;
+    const beforeContribution = currentGoal?.key ? this.state.goals?.contributions?.[currentGoal.key] : undefined;
     const result = depositCommunityGoalCredits(this.state, id, amount);
-    this.toast(result.ok ? `Depositati ${formatCredits(result.deposited)} su ${result.goal.label}.` : result.reason);
-    if (result.ok) {
-      this.goalDepositAmounts[id] = "";
-      this.renderAll();
-      this.queueSocialProfileSync();
+    if (!result.ok) {
+      this.toast(result.reason);
+      return;
     }
+
+    if (result.goal.scope === "community") {
+      if (!isCommunityGoalsSyncAvailable()) {
+        this.toast("Goal community non sincronizzato: Supabase non configurato.");
+      } else {
+        this.goalSyncBusy.add(id);
+        this.renderTab();
+        try {
+          const contribution = await submitCommunityGoalContribution({
+            goal: result.goal,
+            amount: result.deposited,
+            playerName: this.state.profile?.name || "Operatore"
+          });
+          if (contribution) {
+            this.applySharedGoalContribution(contribution);
+            this.sharedGoalStatus = "Sync community live";
+          }
+        } catch (error) {
+          this.state.credits = beforeCredits;
+          this.state.stats.totalSpent = beforeSpent;
+          if (currentGoal?.key) {
+            if (beforeContribution === undefined) {
+              delete this.state.goals.contributions[currentGoal.key];
+            } else {
+              this.state.goals.contributions[currentGoal.key] = beforeContribution;
+            }
+          }
+          this.sharedGoalStatus = "Sync community non disponibile";
+          this.toast("Deposito annullato: tabella goal community non pronta su Supabase.");
+          this.goalSyncBusy.delete(id);
+          this.renderAll();
+          return;
+        }
+        this.goalSyncBusy.delete(id);
+      }
+    }
+
+    this.toast(`Depositati ${formatCredits(result.deposited)} su ${result.goal.label}.`);
+    this.goalDepositAmounts[id] = "";
+    this.renderAll();
+    this.queueSocialProfileSync();
   }
 
   claimGoal(id) {
-    const result = claimCommunityGoalReward(this.state, id);
+    const result = claimCommunityGoalReward(this.state, id, Date.now(), this.sharedGoalTotals);
     this.toast(result.ok ? `${result.goal.label}: ricevute ${result.rewardCases.length} casse reward.` : result.reason);
     if (result.ok) {
       this.renderAll();
@@ -5710,8 +5854,31 @@ export class CaseOpenerUI {
     this.renderAll();
   }
 
-  cheatCompleteGoals() {
+  async cheatCompleteGoals() {
+    const beforeGoals = this.getCommunityGoalRows();
     const goals = cheatCompleteCommunityGoals(this.state);
+    if (isCommunityGoalsSyncAvailable()) {
+      await Promise.all(beforeGoals
+        .filter((goal) => goal.scope === "community")
+        .map(async (goal) => {
+          const missing = Math.max(0, goal.target - Math.max(goal.sharedContributed, goal.personalContributed));
+          if (missing <= 0) {
+            return;
+          }
+          try {
+            const contribution = await submitCommunityGoalContribution({
+              goal,
+              amount: missing,
+              playerName: "Admin"
+            });
+            if (contribution) {
+              this.applySharedGoalContribution(contribution);
+            }
+          } catch (error) {
+            this.sharedGoalStatus = "Sync community non disponibile";
+          }
+        }));
+    }
     this.toast(`Goal pronti: ${goals.length}. Vai in Community per ritirare i reward.`);
     this.renderAll();
   }
@@ -5790,6 +5957,9 @@ export class CaseOpenerUI {
     }
     this.renderOpenerActions();
     this.renderHistory();
+    if (this.activeTab === "community" && Date.now() - this.lastSharedGoalSyncAt > 30000) {
+      this.refreshCommunityGoals({ silent: true });
+    }
     if (["stats", "prestige", "market", "collections", "achievements", "shop"].includes(this.activeTab)) {
       this.renderTab();
     }
