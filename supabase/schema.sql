@@ -127,7 +127,7 @@ create policy "market seller insert"
 
 create table if not exists public.game_lobbies (
   id uuid primary key default gen_random_uuid(),
-  game_type text not null check (game_type in ('coinflip', 'crash', 'jackpot', 'case_battle', 'upgrader')),
+  game_type text not null check (game_type in ('coinflip', 'crash', 'jackpot', 'upgrader')),
   created_by uuid null references auth.users(id) on delete set null,
   status text not null default 'open' check (status in ('open', 'locked', 'settled', 'cancelled')),
   config jsonb not null default '{}'::jsonb,
@@ -191,6 +191,5 @@ end $$;
 -- TODO Supabase Edge Functions:
 -- 1. settle_coinflip(lobby_id)
 -- 2. settle_jackpot(lobby_id)
--- 3. settle_case_battle(lobby_id)
--- 4. settle_upgrader(action_id)
+-- 3. settle_upgrader(action_id)
 -- These functions must lock stakes, resolve RNG server-side and apply inventory/credit deltas.

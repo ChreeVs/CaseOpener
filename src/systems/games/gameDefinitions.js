@@ -21,8 +21,8 @@ export const MINIGAME_DEFINITIONS = [
     id: "coinflip",
     name: "Coinflip",
     mode: "pvp-fast",
-    stake: "skin-or-credits",
-    reward: "opponent-pot",
+    stake: "credits",
+    reward: "credits",
     serverAuthoritative: true,
     description: "1v1 veloce testa/croce contro bot o player reale."
   },
@@ -39,18 +39,9 @@ export const MINIGAME_DEFINITIONS = [
     id: "jackpot",
     name: "Jackpot",
     mode: "pot",
-    stake: "skin-or-credits",
+    stake: "skin",
     reward: "pot",
     serverAuthoritative: true,
     description: "Ticket proporzionali al valore del piatto, un vincitore prende tutto."
-  },
-  {
-    id: "case-battle",
-    name: "Case Battle",
-    mode: "case-opening-pvp",
-    stake: "cases",
-    reward: "all-drops",
-    serverAuthoritative: true,
-    description: "2-8 giocatori aprono le stesse casse: vince il valore totale più alto."
   }
 ];

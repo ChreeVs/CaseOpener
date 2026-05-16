@@ -139,9 +139,11 @@ export const TAB_LABELS = {
   stats: "Statistiche",
   prestige: "Prestige",
   games: "Giochi",
+  community: "Community",
   achievements: "Achievement",
   contracts: "Contratti",
   collections: "Collezioni",
   market: "Marketplace",
+  admin: "Admin",
   cheats: "Cheat"
 };

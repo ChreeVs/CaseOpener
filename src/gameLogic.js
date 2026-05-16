@@ -122,7 +122,8 @@ export function createDefaultState() {
     collections: {
       claimed: {},
       discovered: {},
-      power: 0
+      power: 0,
+      archivePoints: 0
     },
     caseMastery: {},
     autoSell: {
@@ -184,10 +185,30 @@ export function createDefaultState() {
         autoPlay: false,
         roundDelay: 6
       },
+      upgrader: {
+        itemId: "",
+        targetMultiplier: 2
+      },
+      coinflip: {
+        bet: 4,
+        side: "ct"
+      },
       jackpot: {
         targetBots: 2
       },
       history: []
+    },
+    goals: {
+      contributions: {},
+      claimed: {}
+    },
+    promoCodes: {
+      redeemed: {},
+      custom: {}
+    },
+    auctions: {
+      listings: [],
+      lastRefreshAt: 0
     },
     dropHistory: [],
     lastSeenAt: Date.now()
@@ -221,6 +242,7 @@ export function normalizeState(raw) {
   state.collections = { ...createDefaultState().collections, ...(raw?.collections || {}) };
   state.collections.claimed = { ...(raw?.collections?.claimed || {}) };
   state.collections.discovered = { ...(raw?.collections?.discovered || {}) };
+  state.collections.archivePoints = Number(raw?.collections?.archivePoints || 0);
   state.caseMastery = { ...(raw?.caseMastery || {}) };
   state.autoSell = { ...createDefaultState().autoSell, ...(raw?.autoSell || {}) };
   state.automation = { ...createDefaultState().automation, ...(raw?.automation || {}) };
@@ -234,8 +256,18 @@ export function normalizeState(raw) {
   state.minigames.roulette = { ...createDefaultState().minigames.roulette, ...(raw?.minigames?.roulette || {}) };
   state.minigames.pachinko = { ...createDefaultState().minigames.pachinko, ...(raw?.minigames?.pachinko || {}) };
   state.minigames.crash = { ...createDefaultState().minigames.crash, ...(raw?.minigames?.crash || {}) };
+  state.minigames.upgrader = { ...createDefaultState().minigames.upgrader, ...(raw?.minigames?.upgrader || {}) };
+  state.minigames.coinflip = { ...createDefaultState().minigames.coinflip, ...(raw?.minigames?.coinflip || {}) };
   state.minigames.jackpot = { ...createDefaultState().minigames.jackpot, ...(raw?.minigames?.jackpot || {}) };
   state.minigames.history = Array.isArray(raw?.minigames?.history) ? raw.minigames.history.slice(0, 24) : [];
+  state.goals = { ...createDefaultState().goals, ...(raw?.goals || {}) };
+  state.goals.contributions = { ...(raw?.goals?.contributions || {}) };
+  state.goals.claimed = { ...(raw?.goals?.claimed || {}) };
+  state.promoCodes = { ...createDefaultState().promoCodes, ...(raw?.promoCodes || {}) };
+  state.promoCodes.redeemed = { ...(raw?.promoCodes?.redeemed || {}) };
+  state.promoCodes.custom = { ...(raw?.promoCodes?.custom || {}) };
+  state.auctions = { ...createDefaultState().auctions, ...(raw?.auctions || {}) };
+  state.auctions.listings = Array.isArray(raw?.auctions?.listings) ? raw.auctions.listings.slice(0, 50) : [];
   state.inventory = Array.isArray(raw?.inventory) ? raw.inventory : [];
   state.dropHistory = Array.isArray(raw?.dropHistory) ? raw.dropHistory.slice(0, 40) : [];
   return state;
@@ -315,9 +347,23 @@ export function getCollectionMultiplier(state) {
     (state.upgrades.collectionHunter || 0) * 0.006;
 }
 
+export function getProfileSkillBonus(state) {
+  const level = Math.max(1, Number(state.profile?.level || 1));
+  const skillPoints = Math.max(0, level - 1);
+  return {
+    level,
+    luck: Math.min(0.035, skillPoints * 0.001),
+    sellFeeReduction: Math.min(0.025, Math.floor(skillPoints / 3) * 0.002),
+    goalDiscount: Math.min(0.1, Math.floor(skillPoints / 5) * 0.01),
+    collectionAssist: Math.floor(skillPoints / 10),
+    auctionFeeReduction: Math.min(0.04, Math.floor(skillPoints / 4) * 0.004),
+    passiveBoost: Math.min(0.12, skillPoints * 0.003)
+  };
+}
+
 export function getSellReturn(state, item) {
   const marketAnalyst = state.upgrades.marketAnalyst || 0;
-  const fee = Math.max(0, ECONOMY_CONFIG.sellFee - getPrestigeNodeEffect(state, "sell") - marketAnalyst * 0.001);
+  const fee = Math.max(0, ECONOMY_CONFIG.sellFee - getPrestigeNodeEffect(state, "sell") - marketAnalyst * 0.001 - getProfileSkillBonus(state).sellFeeReduction);
   return Number(Math.max(0, (item.value || 0) * (1 - fee)).toFixed(2));
 }
 
@@ -451,7 +497,7 @@ export function getLuckMultiplier(state) {
   const eventBonus = isEventActive(state) ? state.event.multiplier : 1;
   const limited = getLimitedEventEffect(state);
   const comboBonus = Math.min(0.22, Math.max(0, state.combo.count - 1) * 0.008);
-  return (1 + (state.upgrades.luck || 0) * 0.045 + comboBonus + state.prestige.level * 0.01 + getPrestigeNodeEffect(state, "luck")) *
+  return (1 + (state.upgrades.luck || 0) * 0.045 + comboBonus + state.prestige.level * 0.01 + getPrestigeNodeEffect(state, "luck") + getProfileSkillBonus(state).luck) *
     eventBonus *
     (limited.luckMultiplier || 1);
 }
@@ -483,6 +529,7 @@ export function getPassiveRate(state) {
   return (0.22 * level + Math.pow(level, 1.18) * 0.12) *
     getPrestigeMultiplier(state) *
     (1 + getPrestigeNodeEffect(state, "passive")) *
+    (1 + getProfileSkillBonus(state).passiveBoost) *
     (limited.passiveMultiplier || 1);
 }
 
@@ -933,6 +980,13 @@ function rememberDrop(state, item) {
   state.dropHistory = [item, ...(state.dropHistory || [])].slice(0, 40);
 }
 
+function grantCollectionArchivePoints(state, rarity) {
+  state.collections ||= createDefaultState().collections;
+  const tier = RARITIES[rarity]?.tier || 1;
+  const amount = tier >= 5 ? 1.2 : tier >= 4 ? 0.8 : tier >= 3 ? 0.48 : 0.22;
+  state.collections.archivePoints = Number(((state.collections.archivePoints || 0) + amount).toFixed(2));
+}
+
 function recordCaseDropStats(state, caseDef, item, { autoSold = false, soldValue = 0 } = {}) {
   state.stats.caseStats ||= {};
   const record = getCaseStats(state, caseDef.id);
@@ -1024,6 +1078,7 @@ export function openCases(state, caseDef, skinData, requestedCount, source = "ma
       recordCaseDropStats(state, caseDef, item);
     }
     rememberDrop(state, item);
+    grantCollectionArchivePoints(state, rarity);
     state.stats.rarityCounts[rarity] = (state.stats.rarityCounts[rarity] || 0) + 1;
     state.stats.totalDropValue += item.value;
     const xpMultiplier = getLimitedEventEffect(state).xpMultiplier || 1;
@@ -1307,6 +1362,68 @@ export function playPachinko(state, { bet } = {}) {
     detail: `x${picked.multiplier.toFixed(2)} - ${path}`
   });
   return { ok: true, ...entry };
+}
+
+export function playCoinflip(state, { bet, side } = {}) {
+  const amount = normalizeBet(state, bet);
+  if (amount <= 0) {
+    return { ok: false, reason: "Crediti insufficienti." };
+  }
+  const chosenSide = side === "t" ? "t" : "ct";
+  state.credits -= amount;
+  const winnerSide = Math.random() < 0.5 ? "ct" : "t";
+  const won = chosenSide === winnerSide;
+  const rawPayout = won ? amount * 1.94 : 0;
+  const payout = applySoftCap(state, amount, rawPayout);
+  state.credits += payout;
+  state.minigames.coinflip = { bet: amount, side: chosenSide };
+  const entry = recordMinigame(state, {
+    game: "Coinflip",
+    bet: amount,
+    payout,
+    outcome: winnerSide,
+    label: chosenSide === "ct" ? "CT" : "T",
+    detail: `${winnerSide === "ct" ? "CT" : "T"} vince`,
+    playerWon: won
+  });
+  return { ok: true, ...entry };
+}
+
+export function playUpgrader(state, skinData, { itemId, targetMultiplier } = {}) {
+  const item = state.inventory.find((candidate) => candidate.id === itemId && !candidate.locked);
+  if (!item) {
+    return { ok: false, reason: "Seleziona una skin non bloccata." };
+  }
+  const multiplier = Math.max(1.25, Math.min(12, Number(targetMultiplier) || 2));
+  const winChance = Math.max(0.06, Math.min(0.72, (0.92 / multiplier) * (1 + getProfileSkillBonus(state).luck * 1.6)));
+  state.inventory = state.inventory.filter((candidate) => candidate.id !== item.id);
+  const won = Math.random() < winChance;
+  let upgraded = null;
+  if (won) {
+    const targetValue = item.value * multiplier;
+    const rarity = RARITY_ORDER.find((candidate) => RARITIES[candidate].baseValue >= RARITIES[item.rarity].baseValue * Math.min(4, multiplier)) ||
+      getNextRarity(item.rarity);
+    const pool = skinData.globalPool?.[rarity]?.length ? skinData.globalPool[rarity] : skinData.skins.filter((skin) => skin.rarity === rarity);
+    const skin = pool[Math.floor(Math.random() * pool.length)] || skinData.skins[Math.floor(Math.random() * skinData.skins.length)];
+    upgraded = createInventoryItem(skin, rarity, { id: "upgrader", name: "Upgrader", valueScale: 1.04 + multiplier * 0.035 }, state);
+    upgraded.value = Number(Math.max(upgraded.value, targetValue * (0.78 + Math.random() * 0.24)).toFixed(2));
+    upgraded.name = `Upgraded ${upgraded.name}`;
+    state.inventory.unshift(upgraded);
+    rememberDrop(state, upgraded);
+  }
+  state.minigames.upgrader = { itemId: "", targetMultiplier: multiplier };
+  const entry = recordMinigame(state, {
+    game: "Upgrader",
+    bet: getSellReturn(state, item),
+    payout: upgraded ? getSellReturn(state, upgraded) : 0,
+    outcome: won ? "win" : "loss",
+    label: `x${multiplier.toFixed(2)} · ${(winChance * 100).toFixed(1)}%`,
+    detail: won ? upgraded.name : `${item.name} bruciata`,
+    playerWon: won,
+    consumedItem: item,
+    upgradedItem: upgraded
+  });
+  return { ok: true, ...entry, chance: winChance };
 }
 
 function buildCrashPoint() {
@@ -1764,15 +1881,22 @@ export function getCollectionGoals(state, skinData) {
       const ownedCount = owned.get(name)?.size || 0;
       const total = ids.size;
       const target = Math.min(total, Math.max(6, Math.ceil(total * 0.4)));
+      const archiveAssist = Math.min(
+        Math.max(0, target - ownedCount),
+        Math.floor((state.collections.archivePoints || 0) / 42) + getProfileSkillBonus(state).collectionAssist
+      );
+      const effectiveOwned = Math.min(target, ownedCount + archiveAssist);
       const claimed = Boolean(state.collections.claimed[name]);
-      const progress = Math.min(1, ownedCount / target);
+      const progress = Math.min(1, effectiveOwned / target);
       return {
         name,
         owned: ownedCount,
+        assisted: archiveAssist,
+        effectiveOwned,
         total,
         target,
         progress,
-        ready: ownedCount >= target && !claimed,
+        ready: effectiveOwned >= target && !claimed,
         claimed,
         reward: Math.round((ECONOMY_CONFIG.collectionCreditBase + target * 185) *
           (1 + getPrestigeNodeEffect(state, "collection") + (state.upgrades.collectionHunter || 0) * 0.04))
@@ -1865,4 +1989,258 @@ export function buyMarketOffer(state, offerId) {
   state.inventory.unshift(item);
   state.market.offers = state.market.offers.filter((candidate) => candidate.id !== offerId);
   return { ok: true, offer };
+}
+
+export const COMMUNITY_GOAL_DEFINITIONS = [
+  { id: "solo-12h", label: "Rush personale", scope: "solo", durationMs: 12 * 60 * 60 * 1000, target: 450, rewardTier: 1, rewardCount: 1 },
+  { id: "community-24h", label: "Drop della community", scope: "community", durationMs: 24 * 60 * 60 * 1000, target: 2600, rewardTier: 2, rewardCount: 1 },
+  { id: "community-3d", label: "Operazione 3 giorni", scope: "community", durationMs: 3 * 24 * 60 * 60 * 1000, target: 9000, rewardTier: 3, rewardCount: 2 },
+  { id: "community-7d", label: "Vault settimanale", scope: "community", durationMs: 7 * 24 * 60 * 60 * 1000, target: 22000, rewardTier: 4, rewardCount: 2 },
+  { id: "solo-10d", label: "Contratto personale", scope: "solo", durationMs: 10 * 24 * 60 * 60 * 1000, target: 12500, rewardTier: 5, rewardCount: 3 }
+];
+
+const PROMO_CODE_REWARDS = {
+  MARCUS: { credits: 10000, label: "MARCUS launch bonus" }
+};
+
+function goalWindowKey(goal, now = Date.now()) {
+  return `${goal.id}:${Math.floor(now / goal.durationMs)}`;
+}
+
+function createRewardCase(goal, index = 0) {
+  const names = ["Bronze", "Community", "Operation", "Elite", "Mythic"];
+  const rarity = ["Mil-Spec", "Restricted", "Classified", "Covert", "Rare Special Item"][Math.max(0, Math.min(4, goal.rewardTier - 1))];
+  return {
+    id: `reward-case-${goal.id}-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+    type: "rewardCase",
+    rewardTier: goal.rewardTier,
+    name: `${names[Math.max(0, Math.min(4, goal.rewardTier - 1))]} Reward Case`,
+    image: "",
+    rarity,
+    rarityColor: RARITIES[rarity].color,
+    value: Math.round(60 * Math.pow(2.35, goal.rewardTier - 1)),
+    caseName: goal.label,
+    wear: "Sealed",
+    float: 0,
+    locked: false,
+    favorite: false,
+    obtainedAt: Date.now()
+  };
+}
+
+function ensureGoalState(state) {
+  state.goals ||= createDefaultState().goals;
+  state.goals.contributions ||= {};
+  state.goals.claimed ||= {};
+  return state.goals;
+}
+
+export function getCommunityGoals(state, now = Date.now()) {
+  const goalsState = ensureGoalState(state);
+  const discount = getProfileSkillBonus(state).goalDiscount;
+  return COMMUNITY_GOAL_DEFINITIONS.map((goal) => {
+    const key = goalWindowKey(goal, now);
+    const target = Math.max(1, Math.round(goal.target * (goal.scope === "solo" ? 1 - discount : 1)));
+    const contributed = Number(goalsState.contributions[key] || 0);
+    const progress = Math.min(1, contributed / target);
+    return {
+      ...goal,
+      key,
+      target,
+      contributed,
+      progress,
+      ready: contributed >= target,
+      claimed: Boolean(goalsState.claimed[key]),
+      endsAt: (Math.floor(now / goal.durationMs) + 1) * goal.durationMs
+    };
+  });
+}
+
+export function depositCommunityGoalCredits(state, goalId, amount) {
+  const goal = getCommunityGoals(state).find((candidate) => candidate.id === goalId);
+  if (!goal) {
+    return { ok: false, reason: "Goal non trovato." };
+  }
+  const value = Math.max(1, Math.min(Math.floor(Number(amount) || 0), Math.floor(state.credits)));
+  if (value <= 0) {
+    return { ok: false, reason: "Crediti insufficienti." };
+  }
+  state.credits -= value;
+  state.stats.totalSpent += value;
+  ensureGoalState(state).contributions[goal.key] = Number(((state.goals.contributions[goal.key] || 0) + value).toFixed(2));
+  return { ok: true, deposited: value, goal: getCommunityGoals(state).find((candidate) => candidate.id === goalId) };
+}
+
+export function claimCommunityGoalReward(state, goalId) {
+  const goal = getCommunityGoals(state).find((candidate) => candidate.id === goalId);
+  if (!goal) {
+    return { ok: false, reason: "Goal non trovato." };
+  }
+  if (!goal.ready) {
+    return { ok: false, reason: "Soglia non raggiunta." };
+  }
+  if (goal.claimed) {
+    return { ok: false, reason: "Reward gia' riscattato." };
+  }
+  const rewardCases = Array.from({ length: goal.rewardCount }, (_, index) => createRewardCase(goal, index));
+  state.inventory.unshift(...rewardCases);
+  state.goals.claimed[goal.key] = Date.now();
+  return { ok: true, goal, rewardCases };
+}
+
+export function cheatCompleteCommunityGoals(state) {
+  const goals = getCommunityGoals(state);
+  goals.forEach((goal) => {
+    ensureGoalState(state).contributions[goal.key] = Math.max(goal.target, Number(state.goals.contributions[goal.key] || 0));
+  });
+  return getCommunityGoals(state);
+}
+
+export function openRewardCase(state, itemId, skinData) {
+  const rewardCase = state.inventory.find((item) => item.id === itemId && item.type === "rewardCase");
+  if (!rewardCase) {
+    return { ok: false, reason: "Cassa reward non trovata." };
+  }
+  state.inventory = state.inventory.filter((item) => item.id !== itemId);
+  const tier = Math.max(1, Math.min(5, Number(rewardCase.rewardTier || 1)));
+  const profiles = {
+    1: [["Consumer Grade", 42], ["Industrial Grade", 33], ["Mil-Spec", 18], ["Restricted", 5.5], ["Classified", 1.3], ["Covert", 0.2]],
+    2: [["Industrial Grade", 32], ["Mil-Spec", 38], ["Restricted", 20], ["Classified", 7], ["Covert", 2.4], ["Rare Special Item", 0.6]],
+    3: [["Mil-Spec", 36], ["Restricted", 31], ["Classified", 18], ["Covert", 11], ["Rare Special Item", 4]],
+    4: [["Restricted", 28], ["Classified", 32], ["Covert", 26], ["Rare Special Item", 14]],
+    5: [["Classified", 28], ["Covert", 42], ["Rare Special Item", 30]]
+  };
+  const rarity = weightedPick(profiles[tier].map(([value, weight]) => ({ value, weight })));
+  const pool = skinData.globalPool?.[rarity]?.length ? skinData.globalPool[rarity] : skinData.skins.filter((skin) => skin.rarity === rarity);
+  const skin = pool[Math.floor(Math.random() * pool.length)] || skinData.skins[Math.floor(Math.random() * skinData.skins.length)];
+  const item = createInventoryItem(skin, rarity, {
+    id: `reward-${rewardCase.id}`,
+    name: rewardCase.name,
+    valueScale: 1 + tier * 0.08
+  }, state);
+  item.name = `${rewardCase.name} ${item.name}`;
+  state.inventory.unshift(item);
+  rememberDrop(state, item);
+  state.stats.rarityCounts[rarity] = (state.stats.rarityCounts[rarity] || 0) + 1;
+  state.stats.totalDropValue += item.value;
+  if (!state.stats.bestDrop || item.value > state.stats.bestDrop.value) {
+    state.stats.bestDrop = item;
+  }
+  return { ok: true, rewardCase, item };
+}
+
+export function deleteRewardCase(state, itemId) {
+  const item = state.inventory.find((candidate) => candidate.id === itemId && candidate.type === "rewardCase");
+  if (!item) {
+    return { ok: false, reason: "Cassa non trovata." };
+  }
+  state.inventory = state.inventory.filter((candidate) => candidate.id !== itemId);
+  return { ok: true, item };
+}
+
+export function redeemPromoCode(state, code, skinData = null) {
+  const normalized = String(code || "").trim().toUpperCase();
+  const reward = PROMO_CODE_REWARDS[normalized] || state.promoCodes?.custom?.[normalized];
+  if (!reward) {
+    return { ok: false, reason: "Codice promo non valido." };
+  }
+  state.promoCodes ||= createDefaultState().promoCodes;
+  state.promoCodes.redeemed ||= {};
+  if (state.promoCodes.redeemed[normalized]) {
+    return { ok: false, reason: "Codice promo gia' usato." };
+  }
+  const credits = Math.max(0, Number(reward.credits || 0));
+  state.credits += credits;
+  state.promoCodes.redeemed[normalized] = Date.now();
+  const cases = Array.from({ length: Math.max(0, Number(reward.cases || 0)) }, (_, index) => createRewardCase({
+    id: `promo-${normalized}`,
+    label: reward.label || normalized,
+    rewardTier: Math.max(1, Number(reward.rewardTier || 2)),
+    rewardCount: 1
+  }, index));
+  if (cases.length) {
+    state.inventory.unshift(...cases);
+  }
+  const weapons = [];
+  if (skinData && Number(reward.weapons || 0) > 0) {
+    const rarity = RARITIES[reward.weaponRarity] ? reward.weaponRarity : "Mil-Spec";
+    const pool = skinData.globalPool?.[rarity]?.length ? skinData.globalPool[rarity] : skinData.skins.filter((skin) => skin.rarity === rarity);
+    for (let index = 0; index < Math.min(12, Number(reward.weapons || 0)); index += 1) {
+      const skin = pool[Math.floor(Math.random() * pool.length)] || skinData.skins[Math.floor(Math.random() * skinData.skins.length)];
+      const item = createInventoryItem(skin, rarity, { id: `promo-${normalized}`, name: `Promo ${normalized}`, valueScale: 1 }, state);
+      item.name = `Promo ${item.name}`;
+      weapons.push(item);
+    }
+    state.inventory.unshift(...weapons);
+  }
+  return { ok: true, code: normalized, credits, cases, weapons, label: reward.label || normalized };
+}
+
+export function createPromoCode(state, { code, credits = 0, cases = 0, rewardTier = 2, weapons = 0, weaponRarity = "Mil-Spec" } = {}) {
+  const normalized = String(code || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 24);
+  if (normalized.length < 3) {
+    return { ok: false, reason: "Codice troppo corto." };
+  }
+  state.promoCodes ||= createDefaultState().promoCodes;
+  state.promoCodes.custom ||= {};
+  state.promoCodes.custom[normalized] = {
+    credits: Math.max(0, Math.floor(Number(credits) || 0)),
+    cases: Math.max(0, Math.floor(Number(cases) || 0)),
+    rewardTier: Math.max(1, Math.min(5, Math.floor(Number(rewardTier) || 2))),
+    weapons: Math.max(0, Math.floor(Number(weapons) || 0)),
+    weaponRarity: RARITIES[weaponRarity] ? weaponRarity : "Mil-Spec",
+    label: `Admin promo ${normalized}`,
+    createdAt: Date.now()
+  };
+  return { ok: true, code: normalized, reward: state.promoCodes.custom[normalized] };
+}
+
+export function createAuctionListing(state, itemId, price) {
+  const item = state.inventory.find((candidate) => candidate.id === itemId && !candidate.locked && candidate.type !== "rewardCase");
+  if (!item) {
+    return { ok: false, reason: "Seleziona una skin non bloccata." };
+  }
+  const fair = getSellReturn(state, item);
+  const min = Number((fair * 0.82).toFixed(2));
+  const max = Number((fair * 1.28).toFixed(2));
+  const listingPrice = Number(price || 0);
+  if (listingPrice < min || listingPrice > max) {
+    return { ok: false, reason: `Prezzo valido: ${formatCredits(min)} - ${formatCredits(max)}.` };
+  }
+  state.inventory = state.inventory.filter((candidate) => candidate.id !== itemId);
+  state.auctions ||= createDefaultState().auctions;
+  const listing = {
+    id: `auction-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    item,
+    price: listingPrice,
+    min,
+    max,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 1000 * 60 * 45,
+    status: "active"
+  };
+  state.auctions.listings.unshift(listing);
+  return { ok: true, listing };
+}
+
+export function settleAuctionListing(state, listingId) {
+  const listing = state.auctions?.listings?.find((candidate) => candidate.id === listingId);
+  if (!listing || listing.status !== "active") {
+    return { ok: false, reason: "Asta non trovata." };
+  }
+  const fair = getSellReturn(state, listing.item);
+  const saleChance = Math.max(0.12, Math.min(0.92, 0.72 - (listing.price - fair) / Math.max(1, fair) * 0.85));
+  const sold = Math.random() < saleChance || Date.now() >= listing.expiresAt;
+  if (!sold) {
+    listing.expiresAt = Date.now() + 1000 * 60 * 15;
+    return { ok: true, sold: false, listing, chance: saleChance };
+  }
+  const fee = Math.max(0.03, 0.09 - getProfileSkillBonus(state).auctionFeeReduction);
+  const payout = Number((listing.price * (1 - fee)).toFixed(2));
+  state.credits += payout;
+  state.stats.totalEarned += payout;
+  listing.status = "sold";
+  listing.soldAt = Date.now();
+  listing.payout = payout;
+  return { ok: true, sold: true, listing, payout, chance: saleChance };
 }

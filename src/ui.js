@@ -42,10 +42,16 @@ import {
   cheatMaxUpgrades,
   cheatSetCaseMastery,
   cheatSetCredits,
+  cheatCompleteCommunityGoals,
   cheatUnlockAllCases,
   claimCollectionReward,
+  claimCommunityGoalReward,
   claimDailyReward,
+  createAuctionListing,
+  createPromoCode,
   clearExpiredEvent,
+  deleteRewardCase,
+  depositCommunityGoalCredits,
   formatCredits,
   getAchievementProgress,
   getAutoInterval,
@@ -54,6 +60,7 @@ import {
   getCaseStats,
   getCollectionGoals,
   getCollectionMultiplier,
+  getCommunityGoals,
   getDropInsuranceRate,
   getDropValueMultiplier,
   getInventoryValue,
@@ -68,6 +75,7 @@ import {
   getPrestigeNodeLevel,
   getPrestigeMultiplier,
   getPrestigeRequirement,
+  getProfileSkillBonus,
   getSellReturn,
   getTradeUpInputCount,
   getUpgradeCost,
@@ -77,6 +85,9 @@ import {
   isLimitedEventActive,
   maybeStartLimitedEvent,
   openCases,
+  openRewardCase,
+  playCoinflip,
+  playUpgrader,
   playJackpot,
   playPachinko,
   playRoulette,
@@ -87,7 +98,9 @@ import {
   runTradeUpContract,
   sellItem,
   sellItems,
+  settleAuctionListing,
   setAutoOpenerEnabled,
+  redeemPromoCode,
   syncAchievements,
   toggleItemFlag,
   updateAutoSell,
@@ -202,10 +215,12 @@ function tabIcon(id) {
     stats: "bar-chart-3",
     prestige: "crown",
     games: "dice-5",
+    community: "users-round",
     achievements: "trophy",
     contracts: "scroll-text",
     collections: "layers-3",
     market: "candlestick-chart",
+    admin: "shield-check",
     cheats: "wrench"
   };
   return iconMarkup(icons[id] || "circle");
@@ -234,12 +249,14 @@ const NAV_TABS = [
   ["shop", "Economia"],
   ["stats", "Progress"],
   ["prestige", "Prestige"],
-  ["games", "Giochi"]
+  ["games", "Giochi"],
+  ["community", "Community"],
+  ["admin", "Admin"]
 ];
 
 const ADMIN_STORAGE_KEY = "case-opener-admin-session-v1";
-const ADMIN_USER_ID = "chreev";
-const ADMIN_PASSWORD_HASH = "ea4316cddd2476c44a32569ff56afea3cd808943f20f8ccfac01c56548e859fd";
+const ADMIN_USER_ID = "salernitana";
+const ADMIN_PASSWORD_HASH = "9a2f5ce537e75c7c3daab92f3cff16791dff672efadbc4f6deb92c6a920daeeb";
 const ADMIN_ONLY_ACTIONS = new Set([
   "toggle-session-panel",
   "refresh-api",
@@ -254,7 +271,9 @@ const ADMIN_ONLY_ACTIONS = new Set([
   "cheat-unlock-cases",
   "cheat-max-upgrades",
   "cheat-master-case",
-  "cheat-reset-cooldowns"
+  "cheat-reset-cooldowns",
+  "cheat-complete-goals",
+  "admin-create-promo"
 ]);
 
 const TAB_GROUPS = {
@@ -264,6 +283,8 @@ const TAB_GROUPS = {
   stats: ["stats", "achievements"],
   prestige: ["prestige"],
   games: ["games"],
+  community: ["community"],
+  admin: ["admin"],
   cheats: ["cheats"]
 };
 
@@ -308,6 +329,27 @@ function upgradeEffectText(state, upgrade) {
 }
 
 function itemCard(item, { compact = false, withSell = false, selectable = false, selected = false, state = null } = {}) {
+  if (item.type === "rewardCase") {
+    return `
+      <article class="item-card reward-case-card ${rarityClass(item.rarity)} ${item.locked ? "is-locked" : ""}" style="--rarity:${item.rarityColor}">
+        <div class="item-art">
+          ${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />` : `<div class="reward-case-icon">${iconMarkup("package-open")}</div>`}
+        </div>
+        <div class="item-info">
+          <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+          <span>Cassa speciale · Tier ${Number(item.rewardTier || 1)}</span>
+          <span class="item-meta">${escapeHtml(item.caseName || "Reward")}</span>
+        </div>
+        <div class="item-value">${formatCredits(item.value || 0, compact)}</div>
+        ${withSell ? `
+          <div class="item-actions">
+            <button class="primary-button tiny" data-action="open-owned-case" data-id="${item.id}">Apri</button>
+            <button class="ghost-button tiny danger" data-action="delete-owned-case" data-id="${item.id}">Elimina</button>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  }
   const sellValue = state ? getSellReturn(state, item) : item.value;
   return `
     <article class="item-card ${rarityClass(item.rarity)} ${item.crit ? "is-crit" : ""} ${item.locked ? "is-locked" : ""} ${item.favorite ? "is-favorite" : ""}" style="--rarity:${item.rarityColor}">
@@ -393,7 +435,17 @@ export class CaseOpenerUI {
     this.techMenuOpen = false;
     this.openerSettingsOpen = false;
     this.profileSetupOpen = !this.state.profile?.configured;
-    this.gamesView = "social";
+    this.gamesView = "roulette";
+    this.promoCodeDraft = "";
+    this.goalDepositAmounts = {};
+    this.auctionItemId = "";
+    this.auctionPrice = "";
+    this.adminPromoCode = "";
+    this.adminPromoCredits = "1000";
+    this.adminPromoCases = "0";
+    this.adminPromoTier = "2";
+    this.adminPromoWeapons = "0";
+    this.adminPromoRarity = "Mil-Spec";
     this.jackpotSelection = new Set();
     this.isAnimating = false;
     this.pendingRevealIds = [];
@@ -855,7 +907,6 @@ export class CaseOpenerUI {
         <div class="brand">
           <div class="brand-mark">CS2</div>
           <div>
-            <h1>Case Opener</h1>
             <p id="apiStatus"></p>
           </div>
         </div>
@@ -996,6 +1047,37 @@ export class CaseOpenerUI {
       if (target.matches("#socialMarketPrice")) {
         this.socialMarketPrice = target.value;
       }
+      if (target.matches("#promoCodeInput")) {
+        this.promoCodeDraft = target.value;
+      }
+      if (target.matches("[data-goal-deposit-input]")) {
+        this.goalDepositAmounts[target.dataset.goalDepositInput] = target.value;
+      }
+      if (target.matches("#upgraderMultiplier")) {
+        this.state.minigames.upgrader.targetMultiplier = target.value;
+        this.renderTab();
+      }
+      if (target.matches("#coinflipBet")) {
+        this.state.minigames.coinflip.bet = target.value;
+      }
+      if (target.matches("#auctionPrice")) {
+        this.auctionPrice = target.value;
+      }
+      if (target.matches("#adminPromoCode")) {
+        this.adminPromoCode = target.value;
+      }
+      if (target.matches("#adminPromoCredits")) {
+        this.adminPromoCredits = target.value;
+      }
+      if (target.matches("#adminPromoCases")) {
+        this.adminPromoCases = target.value;
+      }
+      if (target.matches("#adminPromoTier")) {
+        this.adminPromoTier = target.value;
+      }
+      if (target.matches("#adminPromoWeapons")) {
+        this.adminPromoWeapons = target.value;
+      }
       if (target.matches("#authUsername")) {
         this.authUsername = target.value;
       }
@@ -1036,6 +1118,9 @@ export class CaseOpenerUI {
         this.caseSort = target.value;
         this.caseCarouselPage = 0;
         this.renderCases();
+      }
+      if (target.matches("#adminPromoRarity")) {
+        this.adminPromoRarity = target.value;
       }
       if (target.matches("#contractRarity")) {
         this.contractRarity = target.value;
@@ -1090,6 +1175,24 @@ export class CaseOpenerUI {
       if (target.matches("#socialTradeOfferItem")) {
         this.socialTradeOfferItemId = target.value || "";
       }
+      if (target.matches("#rouletteChoice")) {
+        this.state.minigames.roulette.choice = target.value || "red";
+      }
+      if (target.matches("#upgraderItem")) {
+        this.state.minigames.upgrader.itemId = target.value || "";
+        this.renderTab();
+      }
+      if (target.matches("#coinflipSide")) {
+        this.state.minigames.coinflip.side = target.value === "t" ? "t" : "ct";
+      }
+      if (target.matches("#auctionItem")) {
+        this.auctionItemId = target.value || "";
+        const item = this.state.inventory.find((candidate) => candidate.id === this.auctionItemId);
+        if (item) {
+          this.auctionPrice = getSellReturn(this.state, item).toFixed(2);
+        }
+        this.renderTab();
+      }
     });
 
     this.root.addEventListener("keydown", (event) => {
@@ -1119,7 +1222,7 @@ export class CaseOpenerUI {
   }
 
   handleAction(action, data, element) {
-    if ((ADMIN_ONLY_ACTIONS.has(action) || (action === "tab" && data.tab === "cheats")) && !this.isAdmin()) {
+    if ((ADMIN_ONLY_ACTIONS.has(action) || (action === "tab" && ["cheats", "admin"].includes(data.tab))) && !this.isAdmin()) {
       this.toast("Accesso admin richiesto.");
       return;
     }
@@ -1310,6 +1413,69 @@ export class CaseOpenerUI {
         refreshMarket(this.state, this.skinData, this.selectedCase);
         this.renderTab();
         break;
+      case "games-view":
+        this.gamesView = data.view || "roulette";
+        this.renderTab();
+        break;
+      case "play-roulette":
+        this.playRouletteGame();
+        break;
+      case "play-pachinko":
+        this.playPachinkoGame();
+        break;
+      case "play-upgrader":
+        this.playUpgraderGame();
+        break;
+      case "play-coinflip":
+        this.playCoinflipGame();
+        break;
+      case "play-crash":
+        this.playCrashGame();
+        break;
+      case "cashout-crash":
+        this.cashOutActiveCrash(false);
+        break;
+      case "toggle-crash-autoplay":
+        this.state.minigames.crash.autoPlay = true;
+        this.scheduleCrashLoop();
+        this.renderTab();
+        break;
+      case "stop-crash-autoplay":
+        this.state.minigames.crash.autoPlay = false;
+        this.cancelCrashLoop();
+        this.renderTab();
+        break;
+      case "toggle-jackpot-item":
+        this.toggleJackpotItem(data.id);
+        break;
+      case "clear-jackpot-selection":
+        this.jackpotSelection.clear();
+        this.renderTab();
+        break;
+      case "play-jackpot":
+        this.playJackpotGame();
+        break;
+      case "redeem-promo":
+        this.redeemPromo();
+        break;
+      case "deposit-goal":
+        this.depositGoal(data.id);
+        break;
+      case "claim-goal":
+        this.claimGoal(data.id);
+        break;
+      case "open-owned-case":
+        this.openOwnedCase(data.id);
+        break;
+      case "delete-owned-case":
+        this.deleteOwnedCase(data.id);
+        break;
+      case "create-auction":
+        this.createAuction();
+        break;
+      case "settle-auction":
+        this.settleAuction(data.id);
+        break;
       case "toggle-chat":
         this.chatOpen = !this.chatOpen;
         this.renderGlobalChatDock();
@@ -1358,6 +1524,12 @@ export class CaseOpenerUI {
         break;
       case "cheat-reset-cooldowns":
         this.cheatResetCooldowns();
+        break;
+      case "cheat-complete-goals":
+        this.cheatCompleteGoals();
+        break;
+      case "admin-create-promo":
+        this.adminCreatePromo();
         break;
       case "export-save":
         this.showExport(element);
@@ -1462,8 +1634,8 @@ export class CaseOpenerUI {
     }
     if (playerCopySmall) {
       playerCopySmall.textContent = this.isAdmin()
-        ? `${this.state.profile?.title || "Case Runner"} · Admin attivo`
-        : `${this.state.profile?.title || "Case Runner"} · Account`;
+        ? `Lv ${level} · ${levelXp.toLocaleString("it-IT")}/${levelXpNeed.toLocaleString("it-IT")} XP · Admin`
+        : `Lv ${level} · ${levelXp.toLocaleString("it-IT")}/${levelXpNeed.toLocaleString("it-IT")} XP`;
     }
     topStats.innerHTML = `
       <article class="top-stat-card top-stat-balance">
@@ -1483,11 +1655,11 @@ export class CaseOpenerUI {
       </article>
       <article class="top-stat-card top-stat-level">
         <div class="top-level-head">
-          <span>${iconMarkup("shield", "top-stat-mini")} Profilo</span>
-          <small>${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</small>
+          <span>${iconMarkup("shield", "top-stat-mini")} Profilo Lv ${level}</span>
+          <small>${this.state.profile?.title || "Case Runner"}</small>
         </div>
-        <strong>Lv ${level}</strong>
         <div class="top-level-bar"><i style="width:${percent(levelProgress)}"></i></div>
+        <small>${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</small>
       </article>
     `;
     this.refreshIcons();
@@ -1564,6 +1736,7 @@ export class CaseOpenerUI {
                   ${iconMarkup("user-plus", "button-icon")} Registrati
                 </button>
               </div>
+              <small>Recupero password: usa Discord se vuoi recupero account. Username/password senza email richiede reset manuale admin.</small>
             </div>
           `}
           <div class="tech-menu-actions compact">
@@ -1717,7 +1890,7 @@ export class CaseOpenerUI {
   getAllowedTabIds() {
     return Object.values(TAB_GROUPS)
       .flat()
-      .filter((tabId) => this.isAdmin() || tabId !== "cheats");
+      .filter((tabId) => this.isAdmin() || !["cheats", "admin"].includes(tabId));
   }
 
   renderSectionTabs(groupId) {
@@ -2221,6 +2394,7 @@ export class CaseOpenerUI {
     const tabs = this.root.querySelector("#tabs");
     const activePrimary = this.getPrimaryTab();
     tabs.innerHTML = NAV_TABS
+      .filter(([id]) => this.isAdmin() || id !== "admin")
       .map(([id, label]) => `<button class="${activePrimary === id ? "is-active" : ""}" data-action="tab" data-tab="${id}" title="${escapeHtml(label)}"><span>${tabIcon(id)}</span><em>${escapeHtml(label)}</em></button>`)
       .join("");
     this.refreshIcons();
@@ -2230,7 +2404,7 @@ export class CaseOpenerUI {
     const content = this.root.querySelector("#tabContent");
     const workspace = this.root.querySelector("#workspace");
     const grid = this.root.querySelector(".main-grid");
-    if (this.activeTab === "cheats" && !this.isAdmin()) {
+    if (["cheats", "admin"].includes(this.activeTab) && !this.isAdmin()) {
       this.activeTab = "cases";
       this.renderTabs();
     }
@@ -2248,10 +2422,12 @@ export class CaseOpenerUI {
       stats: () => this.renderStats(),
       prestige: () => this.renderPrestige(),
       games: () => this.renderGames(),
+      community: () => this.renderCommunityGoals(),
       achievements: () => this.renderAchievements(),
       contracts: () => this.renderContracts(),
       collections: () => this.renderCollections(),
       market: () => this.renderMarket(),
+      admin: () => this.renderAdminPanel(),
       cheats: () => this.renderCheats()
     };
     content.innerHTML = renderers[this.activeTab]?.() || "";
@@ -2397,6 +2573,7 @@ export class CaseOpenerUI {
       .sort((a, b) => b.mastery.level - a.mastery.level || b.mastery.opens - a.mastery.opens)
       .slice(0, 8);
     const maxMastery = topMastery[0]?.mastery.level || 0;
+    const skill = getProfileSkillBonus(this.state);
     return `
       ${this.renderSectionTabs("stats")}
       <div class="stats-grid">
@@ -2411,6 +2588,15 @@ export class CaseOpenerUI {
         ${statTile("Mastery casse", `Lv ${maxMastery}`, `${topMastery.length} casse allenate`)}
       </div>
       <div class="split-layout">
+        <section class="data-panel">
+          <h3>Skill profilo</h3>
+          <div class="rarity-bars">
+            <div class="rarity-row"><span>Fortuna</span><div><i style="width:${percent(skill.luck / 0.035)}"></i></div><strong>+${(skill.luck * 100).toFixed(1)}%</strong></div>
+            <div class="rarity-row"><span>Fee vendita</span><div><i style="width:${percent(skill.sellFeeReduction / 0.025)}"></i></div><strong>-${(skill.sellFeeReduction * 100).toFixed(1)}%</strong></div>
+            <div class="rarity-row"><span>Goal solo</span><div><i style="width:${percent(skill.goalDiscount / 0.1)}"></i></div><strong>-${(skill.goalDiscount * 100).toFixed(0)}%</strong></div>
+            <div class="rarity-row"><span>Archivio</span><div><i style="width:${percent(Math.min(1, skill.collectionAssist / 5))}"></i></div><strong>+${skill.collectionAssist}</strong></div>
+          </div>
+        </section>
         <section class="data-panel">
           <h3>Conteggio rarita'</h3>
           <div class="rarity-bars">
@@ -2570,7 +2756,7 @@ export class CaseOpenerUI {
             <div>
               <span>${goal.claimed ? "Completata" : goal.ready ? "Pronta" : "In corso"}</span>
               <strong>${escapeHtml(goal.name)}</strong>
-              <p>${goal.owned}/${goal.target} skin uniche richieste - ${goal.total} nel pool API</p>
+              <p>${goal.effectiveOwned}/${goal.target} progressi (${goal.owned} skin${goal.assisted ? ` + ${goal.assisted} archivio` : ""}) - ${goal.total} nel pool</p>
             </div>
             <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
             <button class="primary-button small" data-action="claim-collection" data-name="${escapeHtml(goal.name)}" ${goal.ready ? "" : "disabled"}>
@@ -2719,6 +2905,143 @@ export class CaseOpenerUI {
     `;
   }
 
+  renderGamesHeader() {
+    const minigames = this.state.minigames || {};
+    return `
+      <div class="games-header">
+        ${statTile("Saldo minigiochi", `${minigames.earned >= 0 ? "+" : ""}${formatCredits(minigames.earned || 0)}`, `${minigames.played || 0} partite`)}
+        ${statTile("Miglior vincita", formatCredits(minigames.bestWin || 0), "singolo colpo")}
+        ${statTile("Soft cap oggi", formatCredits(Math.max(0, ECONOMY_CONFIG.minigameDailySoftCap - (minigames.dailyEarned || 0))), "profit pieno rimasto")}
+        ${statTile("Totale payout", formatCredits(this.state.stats.minigameEarned || 0), `${formatCredits(this.state.stats.minigameSpent || 0)} puntati`)}
+      </div>
+    `;
+  }
+
+  renderGameModeTabs() {
+    const modes = [
+      ["roulette", "Roulette"],
+      ["pachinko", "Pachinko"],
+      ["upgrader", "Upgrader"],
+      ["coinflip", "Coinflip"],
+      ["crash", "Crash"],
+      ["jackpot", "Jackpot"],
+      ["market", "Aste"]
+    ];
+    return `
+      <div class="workspace-tabs game-mode-tabs">
+        ${modes.map(([id, label]) => `
+          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""}" data-action="games-view" data-view="${id}">
+            ${escapeHtml(label)}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  renderUpgraderGame() {
+    const candidates = this.getSocialLockerCandidates().filter((item) => item.type !== "rewardCase").slice(0, 60);
+    const selectedId = this.state.minigames.upgrader?.itemId || candidates[0]?.id || "";
+    const selected = candidates.find((item) => item.id === selectedId);
+    const multiplier = Math.max(1.25, Math.min(12, Number(this.state.minigames.upgrader?.targetMultiplier || 2)));
+    const chance = Math.max(6, Math.min(72, (92 / multiplier) * (1 + getProfileSkillBonus(this.state).luck * 1.6)));
+    return `
+      <article class="game-card full-width upgrader-card">
+        <div class="social-card-head">
+          <div>
+            <span>${iconMarkup("arrow-up-circle", "button-icon")} Upgrader</span>
+            <h3>Rischia una skin per moltiplicarla</h3>
+            <p>La skin viene consumata. Se vinci ricevi una skin migliore, se perdi sparisce.</p>
+          </div>
+          <div class="social-chip-stack">
+            ${statTile("Chance", `${chance.toFixed(1)}%`, `x${multiplier.toFixed(2)}`)}
+            ${statTile("Target", selected ? formatCredits(selected.value * multiplier, true) : "-", "valore stimato")}
+          </div>
+        </div>
+        <div class="game-controls social-inline-controls">
+          <select id="upgraderItem">
+            ${candidates.map((item) => `<option value="${item.id}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.name)} - ${formatCredits(item.value, true)}</option>`).join("")}
+          </select>
+          <label class="field-inline">
+            <span>Moltiplicatore</span>
+            <input id="upgraderMultiplier" type="range" min="1.25" max="12" step="0.25" value="${multiplier}" />
+          </label>
+          <button class="primary-button" data-action="play-upgrader" ${selected ? "" : "disabled"}>${iconMarkup("sparkles", "button-icon")} Upgrade</button>
+        </div>
+        <div class="upgrader-preview">
+          ${selected ? itemCard(selected, { compact: true }) : `<div class="empty-state">Serve almeno una skin non bloccata.</div>`}
+        </div>
+      </article>
+    `;
+  }
+
+  renderCoinflipGame() {
+    const coin = this.state.minigames.coinflip || {};
+    return `
+      <article class="game-card full-width coinflip-card">
+        <div class="social-card-head">
+          <div>
+            <span>${iconMarkup("coins", "button-icon")} Coinflip</span>
+            <h3>CT o T, round rapido</h3>
+            <p>Payout x1.94 con fee leggera. Utile early game senza rompere l'economia.</p>
+          </div>
+          <div class="social-chip-stack">
+            ${statTile("Puntata", formatCredits(coin.bet || 4), "crediti")}
+            ${statTile("Scelta", (coin.side || "ct").toUpperCase(), "lato")}
+          </div>
+        </div>
+        <div class="game-controls social-inline-controls">
+          <input id="coinflipBet" type="text" inputmode="decimal" value="${escapeHtml(coin.bet || 4)}" />
+          <select id="coinflipSide">
+            <option value="ct" ${coin.side !== "t" ? "selected" : ""}>CT</option>
+            <option value="t" ${coin.side === "t" ? "selected" : ""}>T</option>
+          </select>
+          <button class="primary-button" data-action="play-coinflip">${iconMarkup("rotate-3d", "button-icon")} Lancia</button>
+        </div>
+      </article>
+    `;
+  }
+
+  renderAuctionHouse() {
+    const items = this.getSocialLockerCandidates().filter((item) => item.type !== "rewardCase").slice(0, 80);
+    const selected = items.find((item) => item.id === this.auctionItemId) || items[0];
+    const fair = selected ? getSellReturn(this.state, selected) : 0;
+    const min = fair * 0.82;
+    const max = fair * 1.28;
+    const listings = this.state.auctions?.listings || [];
+    return `
+      <article class="game-card full-width auction-card">
+        <div class="social-card-head">
+          <div>
+            <span>${iconMarkup("gavel", "button-icon")} Aste</span>
+            <h3>Vendi skin con range anti-transfer</h3>
+            <p>Il prezzo deve stare vicino al fair value per evitare trasferimenti di crediti.</p>
+          </div>
+          <div class="social-chip-stack">
+            ${statTile("Range", selected ? `${formatCredits(min, true)} - ${formatCredits(max, true)}` : "-", "prezzo valido")}
+            ${statTile("Fee", `${Math.round((0.09 - getProfileSkillBonus(this.state).auctionFeeReduction) * 100)}%`, "ridotta dai livelli")}
+          </div>
+        </div>
+        <div class="game-controls social-inline-controls">
+          <select id="auctionItem">
+            ${items.map((item) => `<option value="${item.id}" ${item.id === selected?.id ? "selected" : ""}>${escapeHtml(item.name)} - ${formatCredits(item.value, true)}</option>`).join("")}
+          </select>
+          <input id="auctionPrice" type="text" inputmode="decimal" value="${escapeHtml(this.auctionPrice || (fair ? fair.toFixed(2) : ""))}" placeholder="Prezzo" />
+          <button class="primary-button" data-action="create-auction" ${selected ? "" : "disabled"}>${iconMarkup("plus", "button-icon")} Crea asta</button>
+        </div>
+        <div class="mini-game-history">
+          ${listings.length ? listings.slice(0, 12).map((listing) => `
+            <div class="game-history-row ${listing.status === "sold" ? "is-win" : ""}">
+              <span>${escapeHtml(listing.status)}</span>
+              <strong>${escapeHtml(listing.item.name)}</strong>
+              <em>${formatCredits(listing.price, true)}</em>
+              <button class="ghost-button tiny" data-action="settle-auction" data-id="${listing.id}" ${listing.status === "active" ? "" : "disabled"}>Simula esito</button>
+            </div>
+          `).join("") : `<div class="empty-state small">Nessuna asta creata.</div>`}
+        </div>
+      </article>
+    `;
+  }
+
   renderGames() {
     const minigames = this.state.minigames || {};
     const history = minigames.history || [];
@@ -2730,26 +3053,28 @@ export class CaseOpenerUI {
     const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
     const pachinko = this.pachinkoAnimation;
     const pachinkoProfit = pachinko ? pachinko.payout - pachinko.bet : 0;
+    const gameNav = this.renderGameModeTabs();
+    if (this.gamesView === "upgrader") {
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderUpgraderGame()}</div>`;
+    }
+    if (this.gamesView === "coinflip") {
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderCoinflipGame()}</div>`;
+    }
+    if (this.gamesView === "crash") {
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderMultiplayerCrash()}</div>`;
+    }
+    if (this.gamesView === "jackpot") {
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderMultiplayerJackpot()}</div>`;
+    }
+    if (this.gamesView === "market") {
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderAuctionHouse()}</div>`;
+    }
 
     return `
       ${this.renderSectionTabs("games")}
       <div class="games-shell">
-      <div class="games-header">
-        ${statTile("Saldo minigiochi", `${minigames.earned >= 0 ? "+" : ""}${formatCredits(minigames.earned || 0)}`, `${minigames.played || 0} partite`)}
-        ${statTile("Miglior vincita", formatCredits(minigames.bestWin || 0), "singolo colpo")}
-        ${statTile("Soft cap oggi", formatCredits(Math.max(0, ECONOMY_CONFIG.minigameDailySoftCap - (minigames.dailyEarned || 0))), "profit pieno rimasto")}
-        ${statTile("Totale payout", formatCredits(this.state.stats.minigameEarned || 0), `${formatCredits(this.state.stats.minigameSpent || 0)} puntati`)}
-      </div>
-      <div class="minigame-roadmap-grid">
-        ${MINIGAME_DEFINITIONS.map((game) => `
-          <article class="minigame-roadmap-card ${game.serverAuthoritative ? "needs-server" : "local-ready"}">
-            <span>${escapeHtml(game.serverAuthoritative ? "Server-authoritative" : "Locale")}</span>
-            <strong>${escapeHtml(game.name)}</strong>
-            <p>${escapeHtml(game.description)}</p>
-            <small>Stake: ${escapeHtml(game.stake)} - Reward: ${escapeHtml(game.reward)}</small>
-          </article>
-        `).join("")}
-      </div>
+      ${this.renderGamesHeader()}
+      ${gameNav}
       <div class="games-grid">
         <article class="game-card roulette-card">
           <div>
@@ -3472,6 +3797,99 @@ export class CaseOpenerUI {
     `;
   }
 
+  renderCommunityGoals() {
+    const goals = getCommunityGoals(this.state);
+    const promoRedeemed = Object.keys(this.state.promoCodes?.redeemed || {}).length;
+    return `
+      <div class="community-page">
+        <div class="games-header">
+          ${statTile("Codici riscattati", promoRedeemed, "promo")}
+          ${statTile("Archivio collezioni", Math.floor(this.state.collections.archivePoints || 0), "punti assist")}
+          ${statTile("Goal pronti", goals.filter((goal) => goal.ready && !goal.claimed).length, `${goals.length} attivi`)}
+          ${statTile("Reward case", this.state.inventory.filter((item) => item.type === "rewardCase").length, "in inventario")}
+        </div>
+        <article class="game-card full-width promo-card">
+          <div class="social-card-head">
+            <div>
+              <span>${iconMarkup("ticket", "button-icon")} Promo code</span>
+              <h3>Riscatta codici evento</h3>
+              <p>Il codice MARCUS assegna 10.000 crediti una sola volta per save.</p>
+            </div>
+          </div>
+          <div class="game-controls social-inline-controls">
+            <input id="promoCodeInput" value="${escapeHtml(this.promoCodeDraft)}" placeholder="Inserisci codice" />
+            <button class="primary-button" data-action="redeem-promo">${iconMarkup("gift", "button-icon")} Riscatta</button>
+          </div>
+        </article>
+        <div class="community-goal-grid">
+          ${goals.map((goal) => `
+            <article class="community-goal-card ${goal.ready ? "is-ready" : ""} ${goal.claimed ? "is-claimed" : ""}">
+              <div>
+                <span>${goal.scope === "solo" ? "Singolo" : "Community"} · scade ${compactTime(goal.endsAt - Date.now())}</span>
+                <h3>${escapeHtml(goal.label)}</h3>
+                <p>Deposita crediti per sbloccare ${goal.rewardCount} cassa/e reward Tier ${goal.rewardTier}.</p>
+              </div>
+              <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
+              <div class="community-goal-meta">
+                <strong>${formatCredits(goal.contributed, true)} / ${formatCredits(goal.target, true)}</strong>
+                <small>${goal.claimed ? "Reward ritirato" : goal.ready ? "Pronto da ritirare" : "In corso"}</small>
+              </div>
+              <div class="game-controls compact-goal-controls">
+                <input data-goal-deposit-input="${goal.id}" value="${escapeHtml(this.goalDepositAmounts[goal.id] || "")}" placeholder="Crediti" />
+                <button class="ghost-button small" data-action="deposit-goal" data-id="${goal.id}" ${goal.claimed ? "disabled" : ""}>Deposita</button>
+                <button class="primary-button small" data-action="claim-goal" data-id="${goal.id}" ${goal.ready && !goal.claimed ? "" : "disabled"}>Ritira</button>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  renderAdminPanel() {
+    if (!this.isAdmin()) {
+      return `<div class="empty-state">Accesso admin richiesto.</div>`;
+    }
+    const customCodes = Object.entries(this.state.promoCodes?.custom || {});
+    return `
+      <div class="admin-panel">
+        <div class="cheat-console">
+          <div class="cheat-header">
+            <span>Staff</span>
+            <h3>Pannello admin</h3>
+            <p>Cheat, promo code, test goal e strumenti di bilanciamento restano separati dalla UI giocatore.</p>
+          </div>
+          ${this.renderCheats()}
+          <div class="cheat-grid">
+            <section class="cheat-card">
+              <span>Goal</span>
+              <h4>Test reward</h4>
+              <div class="cheat-controls">
+                <button class="primary-button small" data-action="cheat-complete-goals">Completa/scade goal</button>
+              </div>
+            </section>
+            <section class="cheat-card">
+              <span>Promo code</span>
+              <h4>Crea codice</h4>
+              <div class="cheat-controls vertical">
+                <input id="adminPromoCode" value="${escapeHtml(this.adminPromoCode)}" placeholder="CODICE" />
+                <input id="adminPromoCredits" type="number" min="0" step="100" value="${escapeHtml(this.adminPromoCredits)}" placeholder="Crediti" />
+                <input id="adminPromoCases" type="number" min="0" step="1" value="${escapeHtml(this.adminPromoCases)}" placeholder="Casse" />
+                <input id="adminPromoTier" type="number" min="1" max="5" step="1" value="${escapeHtml(this.adminPromoTier)}" placeholder="Tier casse" />
+                <input id="adminPromoWeapons" type="number" min="0" max="12" step="1" value="${escapeHtml(this.adminPromoWeapons)}" placeholder="Armi" />
+                <select id="adminPromoRarity">
+                  ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.adminPromoRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
+                </select>
+                <button class="primary-button small" data-action="admin-create-promo">Crea promo</button>
+              </div>
+              <small>${customCodes.length ? customCodes.map(([code, reward]) => `${code}: ${formatCredits(reward.credits || 0, true)} + ${reward.cases || 0} casse + ${reward.weapons || 0} armi`).join(" · ") : "Nessun codice custom."}</small>
+            </section>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   renderCheats() {
     const selectedMastery = getCaseMastery(this.state, this.selectedCase.id);
     const maxUnlock = Math.max(0, ...this.skinData.cases.map((caseDef) => caseDef.unlockPrestige || 0));
@@ -3653,6 +4071,7 @@ export class CaseOpenerUI {
       .sort((a, b) => b.mastery.level - a.mastery.level || b.mastery.opens - a.mastery.opens)
       .slice(0, 8);
     const maxMastery = topMastery[0]?.mastery.level || 0;
+    const skill = getProfileSkillBonus(this.state);
     return `
       ${this.renderSectionTabs("stats")}
       <div class="stats-grid">
@@ -3667,6 +4086,15 @@ export class CaseOpenerUI {
         ${statTile("Sessione", session.opens, `${session.opensPerMinute.toFixed(1)}/min - ${compactTime(session.durationMs)}`)}
       </div>
       <div class="split-layout">
+        <section class="data-panel">
+          <h3>Skill profilo</h3>
+          <div class="rarity-bars">
+            <div class="rarity-row"><span>Fortuna</span><div><i style="width:${percent(skill.luck / 0.035)}"></i></div><strong>+${(skill.luck * 100).toFixed(1)}%</strong></div>
+            <div class="rarity-row"><span>Fee vendita</span><div><i style="width:${percent(skill.sellFeeReduction / 0.025)}"></i></div><strong>-${(skill.sellFeeReduction * 100).toFixed(1)}%</strong></div>
+            <div class="rarity-row"><span>Goal solo</span><div><i style="width:${percent(skill.goalDiscount / 0.1)}"></i></div><strong>-${(skill.goalDiscount * 100).toFixed(0)}%</strong></div>
+            <div class="rarity-row"><span>Archivio</span><div><i style="width:${percent(Math.min(1, skill.collectionAssist / 5))}"></i></div><strong>+${skill.collectionAssist}</strong></div>
+          </div>
+        </section>
         <section class="data-panel">
           <h3>Conteggio rarita'</h3>
           <div class="rarity-bars">
@@ -4583,6 +5011,124 @@ export class CaseOpenerUI {
     }, 2300);
   }
 
+  playUpgraderGame() {
+    const itemId = this.root.querySelector("#upgraderItem")?.value || this.state.minigames.upgrader.itemId;
+    const targetMultiplier = this.root.querySelector("#upgraderMultiplier")?.value || this.state.minigames.upgrader.targetMultiplier;
+    const result = playUpgrader(this.state, this.skinData, { itemId, targetMultiplier });
+    if (!result.ok) {
+      this.toast(result.reason);
+      return;
+    }
+    this.selectedInventory.delete(result.consumedItem?.id);
+    this.playUiPulse(result.playerWon ? "jackpot" : "warning", 0.78);
+    this.session.spent += Number(result.bet || 0);
+    this.session.earned += Number(result.payout || 0);
+    this.recordSessionEvent("game", result.game, result.detail, result.profit);
+    this.toast(result.playerWon ? `Upgrader: ${result.upgradedItem.name}.` : `Upgrader fallito: ${result.consumedItem.name} persa.`);
+    syncAchievements(this.state);
+    this.renderAll();
+    this.queueSocialProfileSync();
+  }
+
+  playCoinflipGame() {
+    const bet = this.root.querySelector("#coinflipBet")?.value ?? this.state.minigames.coinflip.bet;
+    const side = this.root.querySelector("#coinflipSide")?.value ?? this.state.minigames.coinflip.side;
+    const result = playCoinflip(this.state, { bet, side });
+    if (!result.ok) {
+      this.toast(result.reason);
+      return;
+    }
+    this.playUiPulse(result.playerWon ? "jackpot" : "warning", 0.54);
+    this.session.spent += Number(result.bet || 0);
+    this.session.earned += Number(result.payout || 0);
+    this.recordSessionEvent("game", result.game, result.detail, result.profit);
+    this.toast(`Coinflip: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
+    syncAchievements(this.state);
+    this.renderAll();
+    this.queueSocialProfileSync();
+  }
+
+  redeemPromo() {
+    const code = this.root.querySelector("#promoCodeInput")?.value || this.promoCodeDraft;
+    const result = redeemPromoCode(this.state, code, this.skinData);
+    this.toast(result.ok
+      ? `${result.code}: +${formatCredits(result.credits)}${result.cases?.length ? `, ${result.cases.length} casse reward` : ""}${result.weapons?.length ? `, ${result.weapons.length} armi` : ""}.`
+      : result.reason);
+    if (result.ok) {
+      this.promoCodeDraft = "";
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  depositGoal(id) {
+    const input = [...this.root.querySelectorAll("[data-goal-deposit-input]")]
+      .find((node) => node.dataset.goalDepositInput === id);
+    const amount = input?.value || this.goalDepositAmounts[id];
+    const result = depositCommunityGoalCredits(this.state, id, amount);
+    this.toast(result.ok ? `Depositati ${formatCredits(result.deposited)} su ${result.goal.label}.` : result.reason);
+    if (result.ok) {
+      this.goalDepositAmounts[id] = "";
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  claimGoal(id) {
+    const result = claimCommunityGoalReward(this.state, id);
+    this.toast(result.ok ? `${result.goal.label}: ricevute ${result.rewardCases.length} casse reward.` : result.reason);
+    if (result.ok) {
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  openOwnedCase(id) {
+    const result = openRewardCase(this.state, id, this.skinData);
+    this.toast(result.ok ? `${result.rewardCase.name}: ${result.item.name}.` : result.reason);
+    if (result.ok) {
+      this.noteSessionBestDrop(result.item);
+      syncAchievements(this.state);
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  deleteOwnedCase(id) {
+    const result = deleteRewardCase(this.state, id);
+    this.toast(result.ok ? `${result.item.name} eliminata.` : result.reason);
+    if (result.ok) {
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  createAuction() {
+    const itemId = this.root.querySelector("#auctionItem")?.value || this.auctionItemId;
+    const price = this.root.querySelector("#auctionPrice")?.value || this.auctionPrice;
+    const result = createAuctionListing(this.state, itemId, Number(String(price).replace(",", ".")));
+    this.toast(result.ok ? `Asta creata a ${formatCredits(result.listing.price)}.` : result.reason);
+    if (result.ok) {
+      this.auctionItemId = "";
+      this.auctionPrice = "";
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
+  settleAuction(id) {
+    const result = settleAuctionListing(this.state, id);
+    this.toast(result.ok
+      ? result.sold
+        ? `Asta venduta: +${formatCredits(result.payout)}.`
+        : "Nessun acquirente ancora: asta estesa."
+      : result.reason);
+    if (result.ok) {
+      this.renderAll();
+      this.queueSocialProfileSync();
+    }
+  }
+
   saveProfileCard() {
     const name = (this.root.querySelector("#profileName")?.value || "").trim().slice(0, 18) || "Operatore";
     const title = (this.root.querySelector("#profileTitle")?.value || "").trim().slice(0, 28) || "Case Runner";
@@ -4651,7 +5197,7 @@ export class CaseOpenerUI {
         this.socialState = response.snapshot;
       }
       this.renderGlobalChatDock();
-      if (this.isMultiplayerTabActive()) {
+      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
         this.renderTab();
       }
     } catch (error) {
@@ -4835,7 +5381,7 @@ export class CaseOpenerUI {
       });
       this.socialState = response?.snapshot || this.socialState;
       this.toast("Trade rifiutata.");
-      if (this.isMultiplayerTabActive()) {
+      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
         this.renderTab();
       }
     } catch (error) {
@@ -4861,7 +5407,7 @@ export class CaseOpenerUI {
         const sign = response.delta > 0 ? "+" : "";
         this.toast(`Rank ${sign}${response.delta} pt · ${response?.rank?.name || "ladder"}.`);
       }
-      if (this.isMultiplayerTabActive()) {
+      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
         this.renderTab();
       }
     }).catch(() => {});
@@ -5085,7 +5631,7 @@ export class CaseOpenerUI {
       if (tick % 2 === 0) {
         this.playUiPulse("tick", 0.14 + tick / totalTicks * 0.12);
       }
-      if (this.isMultiplayerTabActive()) {
+      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
         this.renderTab();
       }
       if (tick >= totalTicks) {
@@ -5162,6 +5708,29 @@ export class CaseOpenerUI {
     this.state.event.expiresAt = 0;
     this.toast("Cheat: cooldown daily/eventi resettati.");
     this.renderAll();
+  }
+
+  cheatCompleteGoals() {
+    const goals = cheatCompleteCommunityGoals(this.state);
+    this.toast(`Goal pronti: ${goals.length}. Vai in Community per ritirare i reward.`);
+    this.renderAll();
+  }
+
+  adminCreatePromo() {
+    const result = createPromoCode(this.state, {
+      code: this.adminPromoCode,
+      credits: this.adminPromoCredits,
+      cases: this.adminPromoCases,
+      rewardTier: this.adminPromoTier,
+      weapons: this.adminPromoWeapons,
+      weaponRarity: this.adminPromoRarity
+    });
+    this.toast(result.ok ? `Promo ${result.code} creata.` : result.reason);
+    if (result.ok) {
+      this.adminPromoCode = "";
+      this.adminPromoWeapons = "0";
+      this.renderAll();
+    }
   }
 
   showExport(button) {
@@ -5303,11 +5872,13 @@ export class CaseOpenerUI {
           ["Titolare e contatti", "Prima della pubblicazione ufficiale vanno indicati nome o ragione sociale del titolare, contatto email e canale per richieste privacy."],
           ["Dati account", "Se accedi con username/password vengono usati username tecnico, identificativo account Supabase e dati di sessione. Se accedi con Discord vengono letti nome/username Discord e identificativo provider forniti tramite Supabase Auth."],
           ["Dati di gioco", "Il gioco può salvare crediti virtuali, inventario virtuale, progressione, casse aperte, statistiche, preferenze audio/UI e profilo giocatore."],
+          ["Economia virtuale", "Promo code, aste, goal community, reward case e minigiochi usano solo dati virtuali interni al gioco e possono essere ribilanciati o resettati per sicurezza tecnica."],
           ["Chat", "I messaggi chat possono includere nome profilo, team scelto, testo del messaggio, identificativo tecnico e data/ora. La chat è visibile agli altri utenti del gioco."],
           ["Finalità", "I dati servono per autenticazione, salvataggio cloud, salvataggio locale, continuità della progressione, chat globale, sicurezza base e corretto funzionamento del gioco."],
           ["Base giuridica", "Le funzioni essenziali sono trattate per fornire il servizio richiesto. Eventuali funzioni facoltative come analytics, pubblicità o marketing richiederanno consenso separato prima dell'attivazione."],
           ["Conservazione", "I dati locali restano nel browser finché non vengono cancellati. I dati cloud restano associati all'account finché l'account o il relativo salvataggio non vengono rimossi."],
           ["Servizi esterni", "Supabase fornisce autenticazione, database e realtime. Discord può essere usato come provider di login. ByMykel CSGO API fornisce metadata e immagini delle skin."],
+          ["Recupero account", "Il login username/password senza email non consente recupero automatico della password. Per recupero autonomo va usato Discord o va aggiunta una procedura email prima della pubblicazione."],
           ["Diritti utente", "Puoi chiedere accesso, rettifica, cancellazione, limitazione o portabilità dei dati quando applicabile. Prima del lancio pubblico va aggiunto il canale ufficiale per queste richieste."]
         ]
       },
@@ -5328,6 +5899,7 @@ export class CaseOpenerUI {
         rows: [
           ["Oggetti virtuali", "Crediti, casse, skin, inventario e ricompense sono solo elementi virtuali di gioco. Non hanno valore monetario reale, non sono riscattabili e non costituiscono prodotti Steam."],
           ["Niente gioco d'azzardo reale", "Il gioco non permette depositi o prelievi in denaro reale. Eventuali acquisti, pubblicità o monetizzazione futura dovranno mantenere separati denaro reale e ricompense virtuali."],
+          ["Aste e promo", "Aste, promo code e goal community sono sistemi di progressione virtuale. Le fasce prezzo possono bloccare trasferimenti anomali e le ricompense possono essere annullate in caso di exploit."],
           ["Account", "Se crei un account, sei responsabile della sicurezza delle credenziali. Non condividere password e non usare account di altri utenti."],
           ["Fair play", "Non usare bot esterni, exploit, manipolazioni del client, abuso di bug o comportamenti che danneggiano altri utenti."],
           ["Chat e condotta", "Non pubblicare spam, insulti, dati personali, contenuti illegali o contenuti che violano diritti altrui. I messaggi possono essere rimossi in caso di abuso."],

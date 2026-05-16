@@ -81,7 +81,6 @@ Implemented as definitions first:
 - Coinflip: fast 1v1 bot/player
 - Crash: credits in, credits out
 - Jackpot: skin/credit pot, winner takes pot
-- Case Battle: 2-8 players, same case set, highest total wins
 
 Before real multiplayer, each game must expose:
 

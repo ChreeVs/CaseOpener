@@ -3915,6 +3915,89 @@ body {
   justify-content: center;
 }
 
+.game-mode-tabs {
+  margin: 0 0 12px;
+  overflow-x: auto;
+}
+
+.reward-case-card {
+  background:
+    radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--rarity), transparent 58%), transparent 42%),
+    linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(8, 12, 18, 0.96));
+}
+
+.reward-case-icon {
+  width: 100%;
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+  color: var(--rarity);
+}
+
+.reward-case-icon .ui-icon {
+  width: 46px;
+  height: 46px;
+}
+
+.community-page,
+.admin-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.community-goal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.community-goal-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(17, 22, 31, 0.94), rgba(9, 13, 19, 0.96));
+}
+
+.community-goal-card.is-ready {
+  border-color: rgba(255, 209, 102, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.08);
+}
+
+.community-goal-card.is-claimed {
+  opacity: 0.72;
+}
+
+.community-goal-card h3,
+.community-goal-card p {
+  margin: 0;
+}
+
+.community-goal-card span,
+.community-goal-card small {
+  color: var(--muted);
+}
+
+.community-goal-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.compact-goal-controls {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.upgrader-preview {
+  margin-top: 12px;
+}
+
+.cheat-controls.vertical {
+  grid-template-columns: 1fr;
+}
+
 .tech-menu-cloud small {
   color: var(--muted);
   line-height: 1.35;
