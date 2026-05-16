@@ -61,7 +61,50 @@ Enable anonymous sign-ins. This gives every browser a lightweight Supabase user 
 
 If this is disabled, the game still works locally but the `Cloud save -> Accedi anon` button will fail.
 
-## 5. Configure Frontend
+## 5. Enable Account Login
+
+### Username + Password
+
+The game supports username/password by using Supabase email/password auth with a technical email:
+
+```text
+username@caseopener.local
+```
+
+In Supabase:
+
+```text
+Authentication -> Providers -> Email
+```
+
+Enable Email provider and disable email confirmation for this prototype. If email confirmation stays enabled, users created with `username@caseopener.local` cannot confirm the account.
+
+### Discord
+
+In Supabase:
+
+```text
+Authentication -> Providers -> Discord
+```
+
+Enable Discord and add the Discord OAuth credentials from a Discord Developer Portal application.
+
+Add the site URL and redirect URL in Supabase Auth settings. For GitHub Pages:
+
+```text
+Site URL: https://chreevs.github.io/CaseOpener/
+Redirect URL: https://chreevs.github.io/CaseOpener/
+```
+
+For local tests, add:
+
+```text
+http://localhost:5173/
+```
+
+When Discord login succeeds, the game reads the Discord display name from Supabase user metadata and applies it to the player profile.
+
+## 6. Configure Frontend
 
 Edit:
 
@@ -87,7 +130,7 @@ git commit -m "Configure Supabase free backend"
 git push
 ```
 
-## 6. Current Free Online Features
+## 7. Current Free Online Features
 
 After this setup:
 
@@ -95,9 +138,10 @@ After this setup:
 - Supabase stores chat messages.
 - Supabase Realtime updates chat across users.
 - Anonymous cloud accounts can save/load `player_states`.
+- Discord and username/password accounts can save/load `player_states`.
 - Future server inventory, marketplace and multiplayer can use the prepared tables.
 
-## 7. Multiplayer Security Rule
+## 8. Multiplayer Security Rule
 
 Client-side multiplayer is only a preview. Real rewards must be server-authoritative:
 

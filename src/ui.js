@@ -20,10 +20,14 @@ import {
   subscribeSupabaseChat
 } from "./network/supabaseChat.js";
 import {
+  getSessionDisplayName,
   getCloudSession,
   isCloudSaveAvailable,
   loadCloudState,
+  registerWithUsernamePassword,
   saveCloudState,
+  signInWithDiscord,
+  signInWithUsernamePassword,
   signInCloudAnonymously,
   signOutCloud
 } from "./network/cloudSave.js";
@@ -415,6 +419,8 @@ export class CaseOpenerUI {
     this.cloudSession = null;
     this.cloudBusy = false;
     this.cloudStatus = this.cloudAvailable ? "Cloud pronto" : "Cloud non configurato";
+    this.authUsername = "";
+    this.authPassword = "";
     this.cookieConsent = this.readCookieConsent();
     this.legalModal = null;
     this.session = this.createSessionState();
@@ -957,6 +963,12 @@ export class CaseOpenerUI {
       if (target.matches("#socialMarketPrice")) {
         this.socialMarketPrice = target.value;
       }
+      if (target.matches("#authUsername")) {
+        this.authUsername = target.value;
+      }
+      if (target.matches("#authPassword")) {
+        this.authPassword = target.value;
+      }
     });
 
     this.root.addEventListener("change", (event) => {
@@ -1046,6 +1058,10 @@ export class CaseOpenerUI {
       if (target.matches("#footerChatInput") && event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         this.sendChat();
+      }
+      if (target.matches("#authUsername, #authPassword") && event.key === "Enter") {
+        event.preventDefault();
+        this.signInUsername();
       }
     });
   }
@@ -1311,6 +1327,15 @@ export class CaseOpenerUI {
       case "cloud-sign-in":
         this.signInCloud();
         break;
+      case "cloud-discord":
+        this.signInDiscord();
+        break;
+      case "cloud-login-password":
+        this.signInUsername();
+        break;
+      case "cloud-register-password":
+        this.registerUsername();
+        break;
       case "cloud-save":
         this.saveToCloud();
         break;
@@ -1421,6 +1446,8 @@ export class CaseOpenerUI {
       : this.cloudSession?.user
         ? `Connesso ${cloudUserId.slice(0, 8)}`
         : "Non connesso";
+    const accountName = getSessionDisplayName(this.cloudSession) || profile.name || "Operatore";
+    const accountProvider = this.cloudSession?.user?.app_metadata?.provider || "";
     button.setAttribute("aria-expanded", this.techMenuOpen ? "true" : "false");
     menu.hidden = !this.techMenuOpen;
     menu.innerHTML = `
@@ -1443,10 +1470,38 @@ export class CaseOpenerUI {
         </div>
         <div class="tech-menu-cloud">
           <div class="tech-menu-subhead">
-            <strong>${iconMarkup("cloud", "button-icon")} Cloud save</strong>
+            <strong>${iconMarkup("cloud", "button-icon")} Account cloud</strong>
             <span class="cloud-status ${this.cloudSession?.user ? "is-online" : ""}">${escapeHtml(cloudLabel)}</span>
           </div>
           <small>${escapeHtml(this.cloudStatus)}</small>
+          ${this.cloudSession?.user ? `
+            <div class="tech-account-card">
+              <strong>${escapeHtml(accountName)}</strong>
+              <span>${escapeHtml(accountProvider ? `Login ${accountProvider}` : "Sessione attiva")}</span>
+            </div>
+          ` : `
+            <button class="discord-button" data-action="cloud-discord" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("message-circle", "button-icon")} Accedi con Discord
+            </button>
+            <div class="tech-auth-form">
+              <label>
+                <span>Username</span>
+                <input id="authUsername" value="${escapeHtml(this.authUsername)}" maxlength="24" autocomplete="username" placeholder="nomeutente" ${this.cloudBusy ? "disabled" : ""} />
+              </label>
+              <label>
+                <span>Password</span>
+                <input id="authPassword" type="password" value="${escapeHtml(this.authPassword)}" autocomplete="current-password" placeholder="min. 6 caratteri" ${this.cloudBusy ? "disabled" : ""} />
+              </label>
+              <div class="tech-menu-actions compact">
+                <button class="ghost-button tiny" data-action="cloud-login-password" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+                  ${iconMarkup("log-in", "button-icon")} Accedi
+                </button>
+                <button class="ghost-button tiny" data-action="cloud-register-password" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+                  ${iconMarkup("user-plus", "button-icon")} Registrati
+                </button>
+              </div>
+            </div>
+          `}
           <div class="tech-menu-actions compact">
             <button class="ghost-button tiny" data-action="cloud-sign-in" ${this.cloudAvailable && !this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
               ${iconMarkup("log-in", "button-icon")} Accedi anon
@@ -5395,6 +5450,9 @@ export class CaseOpenerUI {
     try {
       this.cloudSession = await getCloudSession();
       this.cloudStatus = this.cloudSession?.user ? "Sessione cloud attiva." : "Accedi per salvare online.";
+      if (this.cloudSession?.user) {
+        this.applyCloudIdentityProfile(this.cloudSession);
+      }
       this.renderTechMenu();
       return this.cloudSession;
     } catch (error) {
@@ -5402,6 +5460,28 @@ export class CaseOpenerUI {
       this.renderTechMenu();
       return null;
     }
+  }
+
+  applyCloudIdentityProfile(session, { forceName = false } = {}) {
+    const name = getSessionDisplayName(session).slice(0, 18);
+    if (!name) {
+      return false;
+    }
+    const provider = session?.user?.app_metadata?.provider || "";
+    const shouldApply = forceName || provider === "discord" || !this.state.profile?.configured || this.state.profile?.name === "Operatore";
+    if (!shouldApply) {
+      return false;
+    }
+    this.state.profile = {
+      ...this.state.profile,
+      name,
+      title: provider === "discord" ? "Discord Player" : (this.state.profile?.title || "Case Runner"),
+      configured: true
+    };
+    this.save();
+    this.renderTopStats();
+    this.renderProfileSetup();
+    return true;
   }
 
   async signInCloud() {
@@ -5420,6 +5500,77 @@ export class CaseOpenerUI {
       this.cloudStatus = error.message?.includes("Anonymous sign-ins are disabled")
         ? "Abilita Anonymous Sign-Ins in Supabase Auth."
         : (error.message || "Accesso cloud fallito.");
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  getAuthCredentials() {
+    const username = (this.root.querySelector("#authUsername")?.value || this.authUsername || "").trim();
+    const password = this.root.querySelector("#authPassword")?.value || this.authPassword || "";
+    this.authUsername = username;
+    this.authPassword = password;
+    return { username, password };
+  }
+
+  async signInDiscord() {
+    if (!this.cloudAvailable || this.cloudBusy) {
+      return;
+    }
+    this.cloudBusy = true;
+    this.cloudStatus = "Redirect Discord in corso...";
+    this.renderTechMenu();
+    try {
+      await signInWithDiscord();
+    } catch (error) {
+      this.cloudStatus = error.message || "Login Discord fallito.";
+      this.toast(this.cloudStatus);
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  async signInUsername() {
+    if (!this.cloudAvailable || this.cloudBusy) {
+      return;
+    }
+    const { username, password } = this.getAuthCredentials();
+    this.cloudBusy = true;
+    this.cloudStatus = "Accesso username in corso...";
+    this.renderTechMenu();
+    try {
+      this.cloudSession = await signInWithUsernamePassword(username, password);
+      this.applyCloudIdentityProfile(this.cloudSession, { forceName: true });
+      this.cloudStatus = "Account connesso. Puoi salvare o caricare dal cloud.";
+      this.toast("Accesso completato.");
+      await this.saveToCloud({ quiet: true });
+    } catch (error) {
+      this.cloudStatus = error.message || "Accesso username fallito.";
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  async registerUsername() {
+    if (!this.cloudAvailable || this.cloudBusy) {
+      return;
+    }
+    const { username, password } = this.getAuthCredentials();
+    this.cloudBusy = true;
+    this.cloudStatus = "Registrazione username in corso...";
+    this.renderTechMenu();
+    try {
+      this.cloudSession = await registerWithUsernamePassword(username, password);
+      this.applyCloudIdentityProfile(this.cloudSession, { forceName: true });
+      this.cloudStatus = "Account creato e collegato al cloud.";
+      this.toast("Registrazione completata.");
+      await this.saveToCloud({ quiet: true });
+    } catch (error) {
+      this.cloudStatus = error.message || "Registrazione fallita.";
       this.toast(this.cloudStatus);
     } finally {
       this.cloudBusy = false;

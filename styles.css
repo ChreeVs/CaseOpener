@@ -3899,6 +3899,82 @@ body {
   line-height: 1.35;
 }
 
+.tech-account-card {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.tech-account-card strong,
+.tech-account-card span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tech-account-card strong {
+  font-size: 13px;
+}
+
+.tech-account-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.discord-button {
+  width: 100%;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(88, 101, 242, 0.48);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.28), rgba(88, 101, 242, 0.12));
+  color: #f4f6ff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.discord-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tech-auth-form {
+  display: grid;
+  gap: 8px;
+}
+
+.tech-auth-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.tech-auth-form label span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tech-auth-form input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(126, 151, 179, 0.18);
+  border-radius: 9px;
+  background: rgba(5, 8, 12, 0.72);
+  color: var(--text);
+  font: inherit;
+}
+
 .tech-menu-actions.compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
