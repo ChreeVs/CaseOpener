@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "start": "node server.cjs",
-    "check": "node --check server.cjs && node --check src/config.js && node --check src/api.js && node --check src/store.js && node --check src/gameLogic.js && node --check src/ui.js && node --check src/main.js"
+    "check": "node --check server.cjs && node --check src/config.js && node --check src/config/supabaseConfig.js && node --check src/api.js && node --check src/store.js && node --check src/gameLogic.js && node --check src/network/supabaseClient.js && node --check src/network/supabaseChat.js && node --check src/network/cloudSave.js && node --check src/ui.js && node --check src/main.js"
   }
 }

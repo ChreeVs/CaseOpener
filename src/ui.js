@@ -20,6 +20,14 @@ import {
   subscribeSupabaseChat
 } from "./network/supabaseChat.js";
 import {
+  getCloudSession,
+  isCloudSaveAvailable,
+  loadCloudState,
+  saveCloudState,
+  signInCloudAnonymously,
+  signOutCloud
+} from "./network/cloudSave.js";
+import {
   buyMarketOffer,
   buyPrestigeNode,
   buyUpgrade,
@@ -78,7 +86,8 @@ import {
   setAutoOpenerEnabled,
   syncAchievements,
   toggleItemFlag,
-  updateAutoSell
+  updateAutoSell,
+  normalizeState
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
@@ -402,6 +411,10 @@ export class CaseOpenerUI {
     this.chatBusy = false;
     this.chatCloudEnabled = isSupabaseChatEnabled();
     this.unsubscribeCloudChat = null;
+    this.cloudAvailable = isCloudSaveAvailable();
+    this.cloudSession = null;
+    this.cloudBusy = false;
+    this.cloudStatus = this.cloudAvailable ? "Cloud pronto" : "Cloud non configurato";
     this.cookieConsent = this.readCookieConsent();
     this.legalModal = null;
     this.session = this.createSessionState();
@@ -413,6 +426,7 @@ export class CaseOpenerUI {
     this.bindEvents();
     this.renderAll();
     this.initCloudChat();
+    this.refreshCloudSession();
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 3500);
   }
@@ -1294,6 +1308,18 @@ export class CaseOpenerUI {
       case "refresh-api":
         window.dispatchEvent(new CustomEvent("force-api-refresh"));
         break;
+      case "cloud-sign-in":
+        this.signInCloud();
+        break;
+      case "cloud-save":
+        this.saveToCloud();
+        break;
+      case "cloud-load":
+        this.loadFromCloud();
+        break;
+      case "cloud-sign-out":
+        this.signOutFromCloud();
+        break;
       default:
         break;
     }
@@ -1389,6 +1415,12 @@ export class CaseOpenerUI {
     }
     const audio = this.getAudioSettings();
     const profile = this.state.profile || {};
+    const cloudUserId = this.cloudSession?.user?.id || "";
+    const cloudLabel = !this.cloudAvailable
+      ? "Non configurato"
+      : this.cloudSession?.user
+        ? `Connesso ${cloudUserId.slice(0, 8)}`
+        : "Non connesso";
     button.setAttribute("aria-expanded", this.techMenuOpen ? "true" : "false");
     menu.hidden = !this.techMenuOpen;
     menu.innerHTML = `
@@ -1408,6 +1440,27 @@ export class CaseOpenerUI {
           <button class="ghost-button tiny" data-action="export-save">${iconMarkup("download", "button-icon")} Export</button>
           <button class="ghost-button tiny" data-action="import-save">${iconMarkup("upload", "button-icon")} Import</button>
           <button class="ghost-button tiny danger" data-action="reset-save">${iconMarkup("rotate-ccw", "button-icon")} Reset save</button>
+        </div>
+        <div class="tech-menu-cloud">
+          <div class="tech-menu-subhead">
+            <strong>${iconMarkup("cloud", "button-icon")} Cloud save</strong>
+            <span class="cloud-status ${this.cloudSession?.user ? "is-online" : ""}">${escapeHtml(cloudLabel)}</span>
+          </div>
+          <small>${escapeHtml(this.cloudStatus)}</small>
+          <div class="tech-menu-actions compact">
+            <button class="ghost-button tiny" data-action="cloud-sign-in" ${this.cloudAvailable && !this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("log-in", "button-icon")} Accedi anon
+            </button>
+            <button class="ghost-button tiny" data-action="cloud-save" ${this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("cloud-upload", "button-icon")} Salva cloud
+            </button>
+            <button class="ghost-button tiny" data-action="cloud-load" ${this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("cloud-download", "button-icon")} Carica cloud
+            </button>
+            <button class="ghost-button tiny" data-action="cloud-sign-out" ${this.cloudSession?.user && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("log-out", "button-icon")} Logout
+            </button>
+          </div>
         </div>
         <div class="tech-menu-audio">
           <div class="tech-menu-subhead">
@@ -5332,6 +5385,125 @@ export class CaseOpenerUI {
     const log = node.querySelector(".chat-footer-log");
     if (log) {
       log.scrollTop = log.scrollHeight;
+    }
+  }
+
+  async refreshCloudSession() {
+    if (!this.cloudAvailable) {
+      return null;
+    }
+    try {
+      this.cloudSession = await getCloudSession();
+      this.cloudStatus = this.cloudSession?.user ? "Sessione cloud attiva." : "Accedi per salvare online.";
+      this.renderTechMenu();
+      return this.cloudSession;
+    } catch (error) {
+      this.cloudStatus = error.message || "Cloud non disponibile.";
+      this.renderTechMenu();
+      return null;
+    }
+  }
+
+  async signInCloud() {
+    if (!this.cloudAvailable || this.cloudBusy) {
+      return;
+    }
+    this.cloudBusy = true;
+    this.cloudStatus = "Accesso cloud in corso...";
+    this.renderTechMenu();
+    try {
+      this.cloudSession = await signInCloudAnonymously();
+      this.cloudStatus = "Account anonimo cloud creato. Puoi salvare online.";
+      this.toast("Cloud connesso.");
+      await this.saveToCloud({ quiet: true });
+    } catch (error) {
+      this.cloudStatus = error.message?.includes("Anonymous sign-ins are disabled")
+        ? "Abilita Anonymous Sign-Ins in Supabase Auth."
+        : (error.message || "Accesso cloud fallito.");
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  async saveToCloud({ quiet = false } = {}) {
+    if (this.cloudBusy && !quiet) {
+      return;
+    }
+    this.cloudBusy = true;
+    this.cloudStatus = "Salvataggio cloud...";
+    this.renderTechMenu();
+    try {
+      this.save();
+      const result = await saveCloudState(this.state);
+      this.cloudStatus = `Salvato cloud rev ${result.revision}.`;
+      this.save();
+      if (!quiet) {
+        this.toast("Salvataggio cloud completato.");
+      }
+    } catch (error) {
+      this.cloudStatus = error.message || "Salvataggio cloud fallito.";
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  async loadFromCloud() {
+    if (this.cloudBusy) {
+      return;
+    }
+    this.cloudBusy = true;
+    this.cloudStatus = "Caricamento cloud...";
+    this.renderTechMenu();
+    try {
+      const cloud = await loadCloudState();
+      if (!cloud?.state) {
+        this.cloudStatus = "Nessun salvataggio cloud trovato.";
+        this.toast(this.cloudStatus);
+        return;
+      }
+      const loaded = normalizeState(cloud.state);
+      this.state = loaded;
+      this.selectedInventory.clear();
+      this.jackpotSelection.clear();
+      this.selectedCase = this.getInitialCase();
+      this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
+      this.lastOpenedDropIds = [];
+      this.resetSessionState();
+      this.cloudStatus = `Caricato cloud rev ${cloud.revision}.`;
+      saveState(this.state);
+      this.toast("Salvataggio cloud caricato.");
+      this.renderAll();
+    } catch (error) {
+      this.cloudStatus = error.message || "Caricamento cloud fallito.";
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
+    }
+  }
+
+  async signOutFromCloud() {
+    if (this.cloudBusy) {
+      return;
+    }
+    this.cloudBusy = true;
+    this.cloudStatus = "Logout cloud...";
+    this.renderTechMenu();
+    try {
+      await signOutCloud();
+      this.cloudSession = null;
+      this.cloudStatus = "Logout completato. Il save locale resta disponibile.";
+      this.toast("Cloud disconnesso.");
+    } catch (error) {
+      this.cloudStatus = error.message || "Logout cloud fallito.";
+      this.toast(this.cloudStatus);
+    } finally {
+      this.cloudBusy = false;
+      this.renderTechMenu();
     }
   }
 

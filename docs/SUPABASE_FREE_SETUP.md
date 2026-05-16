@@ -49,7 +49,19 @@ chat_messages
 
 Supabase Realtime/Postgres changes are disabled by default on new projects, so this step is required for live chat updates.
 
-## 4. Configure Frontend
+## 4. Enable Anonymous Auth
+
+In Supabase:
+
+```text
+Authentication -> Providers -> Anonymous Sign-Ins
+```
+
+Enable anonymous sign-ins. This gives every browser a lightweight Supabase user without email/password and lets the game write only that user's `player_states` row through RLS.
+
+If this is disabled, the game still works locally but the `Cloud save -> Accedi anon` button will fail.
+
+## 5. Configure Frontend
 
 Edit:
 
@@ -75,16 +87,17 @@ git commit -m "Configure Supabase free backend"
 git push
 ```
 
-## 5. Current Free Online Features
+## 6. Current Free Online Features
 
 After this setup:
 
 - GitHub Pages hosts the game.
 - Supabase stores chat messages.
 - Supabase Realtime updates chat across users.
-- Future cloud save, inventory, marketplace and multiplayer can use the prepared tables.
+- Anonymous cloud accounts can save/load `player_states`.
+- Future server inventory, marketplace and multiplayer can use the prepared tables.
 
-## 6. Multiplayer Security Rule
+## 7. Multiplayer Security Rule
 
 Client-side multiplayer is only a preview. Real rewards must be server-authoritative:
 
