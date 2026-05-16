@@ -4029,6 +4029,457 @@ body {
   font-size: 11px;
 }
 
+.modern-roulette-card,
+.upgrader-card,
+.auction-card,
+.coinflip-card {
+  gap: 16px;
+}
+
+.roulette-modern-visual {
+  position: relative;
+  min-height: 210px;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 209, 102, 0.14), transparent 34%),
+    linear-gradient(135deg, rgba(25, 32, 44, 0.94), rgba(6, 9, 14, 0.96));
+}
+
+.roulette-modern-visual::before,
+.roulette-modern-visual::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 18%;
+  pointer-events: none;
+}
+
+.roulette-modern-visual::before {
+  left: 0;
+  background: linear-gradient(90deg, #070a0f, transparent);
+}
+
+.roulette-modern-visual::after {
+  right: 0;
+  background: linear-gradient(270deg, #070a0f, transparent);
+}
+
+.roulette-scanline {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  bottom: 20px;
+  z-index: 4;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, #ffd166, transparent);
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.75);
+}
+
+.roulette-number-strip {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  width: max-content;
+  transform: translateX(var(--roulette-offset));
+}
+
+.roulette-modern-visual.is-spinning .roulette-number-strip {
+  animation: rouletteScanner 1900ms cubic-bezier(.1,.82,.12,1) both;
+}
+
+@keyframes rouletteScanner {
+  from {
+    transform: translateX(-80px);
+  }
+  62% {
+    transform: translateX(calc(var(--roulette-offset) - 260px));
+  }
+  to {
+    transform: translateX(var(--roulette-offset));
+  }
+}
+
+.roulette-number-strip span {
+  width: 50px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #f5f8ff;
+  font-size: 24px;
+  font-weight: 1000;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.roulette-number-strip span.red {
+  border-color: rgba(235, 75, 75, 0.45);
+  background: linear-gradient(180deg, rgba(235, 75, 75, 0.22), rgba(235, 75, 75, 0.06));
+}
+
+.roulette-number-strip span.black {
+  border-color: rgba(126, 151, 179, 0.22);
+  background: linear-gradient(180deg, rgba(28, 35, 47, 0.94), rgba(8, 10, 14, 0.9));
+}
+
+.roulette-number-strip span.green {
+  border-color: rgba(92, 211, 132, 0.45);
+  background: linear-gradient(180deg, rgba(92, 211, 132, 0.24), rgba(92, 211, 132, 0.08));
+}
+
+.roulette-modern-readout {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.roulette-modern-readout strong {
+  color: #fff4cf;
+  font-size: 18px;
+}
+
+.roulette-modern-readout small {
+  color: var(--muted);
+}
+
+.pachinko-classic-board {
+  position: relative;
+  min-height: 390px;
+  padding: 28px 18px 62px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 215, 227, 0.18);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(100, 215, 227, 0.13), transparent 35%),
+    linear-gradient(180deg, rgba(16, 23, 31, 0.96), rgba(7, 10, 15, 0.96));
+}
+
+.pachinko-funnel {
+  width: 96px;
+  height: 28px;
+  margin: 0 auto 8px;
+  border: 1px solid rgba(100, 215, 227, 0.28);
+  border-radius: 0 0 40px 40px;
+  background: rgba(100, 215, 227, 0.08);
+}
+
+.pachinko-peg-field {
+  display: grid;
+  gap: 15px;
+  justify-items: center;
+}
+
+.pachinko-peg-row {
+  display: flex;
+  gap: 30px;
+  justify-content: center;
+}
+
+.pachinko-peg-row i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(244, 247, 251, 0.7);
+  box-shadow: 0 0 14px rgba(100, 215, 227, 0.35);
+}
+
+.pachinko-classic-board .pachinko-chip {
+  top: 14%;
+}
+
+.pachinko-classic-board.is-dropping .pachinko-chip {
+  animation: pachinkoClassicDrop 1900ms cubic-bezier(.18,.78,.2,1) both;
+}
+
+@keyframes pachinkoClassicDrop {
+  0% {
+    top: 10%;
+    left: 50%;
+  }
+  14% {
+    top: 22%;
+    left: 46%;
+  }
+  28% {
+    top: 34%;
+    left: 56%;
+  }
+  42% {
+    top: 46%;
+    left: 42%;
+  }
+  58% {
+    top: 58%;
+    left: 61%;
+  }
+  76% {
+    top: 72%;
+    left: calc(var(--chip-left) - 5%);
+  }
+  100% {
+    top: 86%;
+    left: var(--chip-left);
+  }
+}
+
+.upgrader-layout,
+.auction-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.35fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.upgrader-inventory-panel,
+.upgrader-target-panel,
+.auction-inventory-panel,
+.auction-live-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.compact-head {
+  margin-bottom: 10px;
+}
+
+.compact-head h3 {
+  font-size: 18px;
+}
+
+.upgrade-item-grid,
+.auction-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.upgrade-item-card {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--rarity), transparent 50%);
+  border-radius: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rarity), transparent 88%), rgba(255, 255, 255, 0.025));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.upgrade-item-card.is-selected {
+  border-color: var(--rarity);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rarity), transparent 52%);
+}
+
+.upgrade-item-card img {
+  width: 100%;
+  height: 58px;
+  object-fit: contain;
+}
+
+.upgrade-item-card strong,
+.upgrade-item-card span {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-item-card strong {
+  font-size: 11px;
+}
+
+.upgrade-item-card span {
+  color: #fff1ba;
+  font-size: 12px;
+}
+
+.upgrader-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.upgrade-side > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.upgrade-core {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.upgrade-energy {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffd166;
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.26), rgba(255, 255, 255, 0.035));
+  box-shadow: 0 0 28px rgba(255, 209, 102, 0.25);
+}
+
+.upgrader-stage.is-upgrading .upgrade-energy {
+  animation: upgradePulse 900ms ease-in-out infinite;
+}
+
+@keyframes upgradePulse {
+  50% {
+    transform: scale(1.12) rotate(18deg);
+    box-shadow: 0 0 42px rgba(255, 209, 102, 0.55);
+  }
+}
+
+.upgrader-stage.is-win .upgrade-energy {
+  color: #7fe37c;
+}
+
+.upgrader-stage.is-loss .upgrade-energy {
+  color: #ff6b6b;
+}
+
+.upgrader-controls,
+.auction-create-controls {
+  margin-top: 12px;
+}
+
+.coinflip-stage {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 14px;
+  background: radial-gradient(circle at center, rgba(255, 209, 102, 0.13), rgba(255, 255, 255, 0.02));
+}
+
+.coinflip-coin {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  transform-style: preserve-3d;
+}
+
+.coinflip-stage.is-flipping .coinflip-coin {
+  animation: coinflipSpin 1400ms cubic-bezier(.16,.82,.2,1) both;
+}
+
+@keyframes coinflipSpin {
+  from {
+    transform: rotateY(0deg) rotateX(0deg);
+  }
+  to {
+    transform: rotateY(1620deg) rotateX(540deg);
+  }
+}
+
+.coinflip-coin span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 209, 102, 0.55);
+  border-radius: 999px;
+  color: #101318;
+  background: linear-gradient(135deg, #ffd166, #7fe37c);
+  font-size: 34px;
+  font-weight: 1000;
+  backface-visibility: hidden;
+}
+
+.coinflip-coin span + span {
+  color: #fff;
+  background: linear-gradient(135deg, #f2a541, #eb4b4b);
+  transform: rotateY(180deg);
+}
+
+.coinflip-readout {
+  display: grid;
+  justify-items: center;
+}
+
+.coinflip-readout strong {
+  color: #fff4cf;
+  font-size: 22px;
+}
+
+.coinflip-readout small {
+  color: var(--muted);
+}
+
+.auction-listing-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--rarity), transparent 56%);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.auction-listing-card img {
+  width: 58px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.auction-listing-card strong,
+.auction-listing-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auction-listing-card em {
+  color: #fff1ba;
+  font-weight: 900;
+  font-style: normal;
+}
+
+.auction-listing-card button {
+  grid-column: 1 / -1;
+}
+
+.shared-game-feed {
+  margin-top: 12px;
+}
+
+@media (max-width: 980px) {
+  .upgrader-layout,
+  .auction-layout,
+  .upgrader-stage {
+    grid-template-columns: 1fr;
+  }
+}
+
 .discord-button {
   width: 100%;
   min-height: 38px;

@@ -209,6 +209,82 @@ create policy "community goals insert public"
     and (player_id is null or auth.uid() = player_id)
   );
 
+create table if not exists public.shared_game_events (
+  id uuid primary key default gen_random_uuid(),
+  mode text not null check (char_length(mode) between 1 and 32),
+  game text not null check (char_length(game) between 1 and 48),
+  player_name text not null default 'Operatore' check (char_length(player_name) between 1 and 24),
+  detail text not null default '' check (char_length(detail) <= 180),
+  stake numeric(12, 2) not null default 0,
+  payout numeric(12, 2) not null default 0,
+  profit numeric(12, 2) not null default 0,
+  outcome text not null default '' check (char_length(outcome) <= 64),
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists shared_game_events_created_at_idx
+  on public.shared_game_events (created_at desc);
+
+alter table public.shared_game_events enable row level security;
+
+drop policy if exists "shared game events read public" on public.shared_game_events;
+create policy "shared game events read public"
+  on public.shared_game_events
+  for select
+  using (true);
+
+drop policy if exists "shared game events insert public" on public.shared_game_events;
+create policy "shared game events insert public"
+  on public.shared_game_events
+  for insert
+  with check (
+    char_length(mode) between 1 and 32
+    and char_length(game) between 1 and 48
+    and char_length(player_name) between 1 and 24
+    and char_length(detail) <= 180
+  );
+
+create table if not exists public.global_auction_listings (
+  id uuid primary key default gen_random_uuid(),
+  seller_name text not null default 'Operatore' check (char_length(seller_name) between 1 and 24),
+  buyer_name text not null default '' check (char_length(buyer_name) <= 24),
+  item jsonb not null,
+  price numeric(12, 2) not null check (price > 0 and price <= 1000000),
+  status text not null default 'active' check (status in ('active', 'sold', 'cancelled')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists global_auction_listings_status_idx
+  on public.global_auction_listings (status, created_at desc);
+
+alter table public.global_auction_listings enable row level security;
+
+drop policy if exists "global auctions read public" on public.global_auction_listings;
+create policy "global auctions read public"
+  on public.global_auction_listings
+  for select
+  using (true);
+
+drop policy if exists "global auctions insert public" on public.global_auction_listings;
+create policy "global auctions insert public"
+  on public.global_auction_listings
+  for insert
+  with check (
+    status = 'active'
+    and price > 0
+    and price <= 1000000
+    and char_length(seller_name) between 1 and 24
+  );
+
+drop policy if exists "global auctions update public" on public.global_auction_listings;
+create policy "global auctions update public"
+  on public.global_auction_listings
+  for update
+  using (status = 'active')
+  with check (status in ('sold', 'cancelled'));
+
 do $$
 begin
   if exists (
@@ -223,6 +299,16 @@ begin
     end;
     begin
       alter publication supabase_realtime add table public.community_goal_contributions;
+    exception
+      when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.shared_game_events;
+    exception
+      when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.global_auction_listings;
     exception
       when duplicate_object then null;
     end;
