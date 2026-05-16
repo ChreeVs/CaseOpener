@@ -89,6 +89,12 @@ Authentication -> Providers -> Discord
 
 Enable Discord and add the Discord OAuth credentials from a Discord Developer Portal application.
 
+In the Discord Developer Portal OAuth2 settings, add the Supabase callback URL:
+
+```text
+https://bupggkmnepkupxitnelg.supabase.co/auth/v1/callback
+```
+
 Add the site URL and redirect URL in Supabase Auth settings. For GitHub Pages:
 
 ```text
