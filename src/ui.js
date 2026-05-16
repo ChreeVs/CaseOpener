@@ -5298,34 +5298,42 @@ export class CaseOpenerUI {
     const common = {
       privacy: {
         title: "Privacy Policy",
-        intro: "Il gioco salva progressi, preferenze, inventario e impostazioni profilo per mantenere la tua esperienza tra una sessione e l'altra.",
+        intro: "Questa informativa descrive quali dati vengono usati dal gioco per account, salvataggi, chat e funzionamento dell'interfaccia.",
         rows: [
-          ["Dati trattati", "Progressi di gioco, inventario virtuale, preferenze, profilo e messaggi chat quando usi le funzioni online."],
-          ["Finalita'", "Far funzionare il gioco, mantenere la progressione e mostrare correttamente inventario, chat e profilo."],
-          ["Salvataggi", "Il salvataggio locale resta sul tuo browser. Il salvataggio cloud viene usato solo dopo accesso account."],
-          ["Servizi esterni", "Le immagini e i dati delle skin arrivano dalla ByMykel CSGO API. Le funzioni account usano Supabase."],
-          ["Controllo dati", "Puoi uscire dall'account cloud e cancellare i dati locali dalle impostazioni del browser."]
+          ["Titolare e contatti", "Prima della pubblicazione ufficiale vanno indicati nome o ragione sociale del titolare, contatto email e canale per richieste privacy."],
+          ["Dati account", "Se accedi con username/password vengono usati username tecnico, identificativo account Supabase e dati di sessione. Se accedi con Discord vengono letti nome/username Discord e identificativo provider forniti tramite Supabase Auth."],
+          ["Dati di gioco", "Il gioco può salvare crediti virtuali, inventario virtuale, progressione, casse aperte, statistiche, preferenze audio/UI e profilo giocatore."],
+          ["Chat", "I messaggi chat possono includere nome profilo, team scelto, testo del messaggio, identificativo tecnico e data/ora. La chat è visibile agli altri utenti del gioco."],
+          ["Finalità", "I dati servono per autenticazione, salvataggio cloud, salvataggio locale, continuità della progressione, chat globale, sicurezza base e corretto funzionamento del gioco."],
+          ["Base giuridica", "Le funzioni essenziali sono trattate per fornire il servizio richiesto. Eventuali funzioni facoltative come analytics, pubblicità o marketing richiederanno consenso separato prima dell'attivazione."],
+          ["Conservazione", "I dati locali restano nel browser finché non vengono cancellati. I dati cloud restano associati all'account finché l'account o il relativo salvataggio non vengono rimossi."],
+          ["Servizi esterni", "Supabase fornisce autenticazione, database e realtime. Discord può essere usato come provider di login. ByMykel CSGO API fornisce metadata e immagini delle skin."],
+          ["Diritti utente", "Puoi chiedere accesso, rettifica, cancellazione, limitazione o portabilità dei dati quando applicabile. Prima del lancio pubblico va aggiunto il canale ufficiale per queste richieste."]
         ]
       },
       cookies: {
         title: "Cookie Policy",
-        intro: "Il gioco usa solo storage necessario per salvataggi, preferenze e funzionamento dell'interfaccia.",
+        intro: "Il gioco usa storage locale e dati di sessione necessari. Non sono attivi cookie pubblicitari o analytics.",
         rows: [
-          ["Necessari", "Save, cache dati e preferenze consenso. Servono al funzionamento del gioco."],
-          ["Facoltativi", "Al momento non sono attivi cookie pubblicitari o analytics."],
-          ["Revoca", "Puoi cancellare i dati locali dal browser in qualsiasi momento."],
-          ["Nota GDPR", "Quando saranno introdotti servizi opzionali, verranno richiesti consensi separati."]
+          ["Storage necessario", "LocalStorage e IndexedDB possono salvare progressi, preferenze, cache delle skin, consenso cookie e impostazioni dell'interfaccia."],
+          ["Sessione account", "Supabase può salvare token di sessione nel browser per mantenere l'accesso all'account e permettere cloud save e chat."],
+          ["Terze parti", "Discord viene usato solo se scegli il login Discord. Le immagini e i metadata delle skin vengono caricati dalla ByMykel CSGO API."],
+          ["Nessun tracking", "Non sono installati cookie di profilazione, advertising o analytics. Se verranno aggiunti in futuro, saranno disattivati finché non dai consenso esplicito."],
+          ["Gestione", "Puoi uscire dall'account dal menu profilo e cancellare storage/cookie dalle impostazioni del browser. La cancellazione locale può rimuovere save e sessione."]
         ]
       },
       terms: {
         title: "Terms of Service",
-        intro: "Termini placeholder per una demo web non affiliata a Valve, Steam o Counter-Strike.",
+        intro: "Regole d'uso del simulatore Case Opener. Il gioco è fan-made e non è affiliato a Valve, Steam o Counter-Strike.",
         rows: [
-          ["Natura del gioco", "Simulatore fan-made/incrementale. Le skin e i crediti sono virtuali e non hanno valore reale."],
-          ["Uso corretto", "Non usare automazioni esterne, manipolazioni del save o exploit quando verranno introdotte funzioni online."],
-          ["Contenuti CS2", "Immagini e metadata provengono dalla ByMykel CSGO API. Marchi e asset appartengono ai rispettivi titolari."],
-          ["Funzioni online", "Eventuali modalita' social richiederanno regole chiare, controlli corretti e protezione degli account."],
-          ["Responsabilita'", "Questi testi sono una base informativa e andranno verificati prima di una pubblicazione ufficiale."]
+          ["Oggetti virtuali", "Crediti, casse, skin, inventario e ricompense sono solo elementi virtuali di gioco. Non hanno valore monetario reale, non sono riscattabili e non costituiscono prodotti Steam."],
+          ["Niente gioco d'azzardo reale", "Il gioco non permette depositi o prelievi in denaro reale. Eventuali acquisti, pubblicità o monetizzazione futura dovranno mantenere separati denaro reale e ricompense virtuali."],
+          ["Account", "Se crei un account, sei responsabile della sicurezza delle credenziali. Non condividere password e non usare account di altri utenti."],
+          ["Fair play", "Non usare bot esterni, exploit, manipolazioni del client, abuso di bug o comportamenti che danneggiano altri utenti."],
+          ["Chat e condotta", "Non pubblicare spam, insulti, dati personali, contenuti illegali o contenuti che violano diritti altrui. I messaggi possono essere rimossi in caso di abuso."],
+          ["Disponibilità", "Il gioco può cambiare, andare offline o perdere dati locali/cloud in caso di errori, reset tecnici o limiti dei servizi gratuiti utilizzati."],
+          ["Contenuti e marchi", "Metadata e immagini provengono dalla ByMykel CSGO API. Marchi, nomi e asset collegati a Counter-Strike, Steam e Valve appartengono ai rispettivi titolari."],
+          ["Aggiornamenti", "Regole, bilanciamento, economia virtuale e testi legali possono essere aggiornati. Continuando a usare il gioco accetti la versione più recente mostrata nell'interfaccia."]
         ]
       }
     };
@@ -5348,12 +5356,12 @@ export class CaseOpenerUI {
         <section class="cookie-banner" role="dialog" aria-label="Cookie banner">
           <div>
             <strong>Cookie e salvataggi locali</strong>
-            <p>Usiamo solo storage tecnico per save, cache e preferenze. Nessun tracking pubblicitario e' attivo.</p>
+            <p>Usiamo storage necessario per save, sessione account e preferenze. Nessun tracking pubblicitario e' attivo.</p>
           </div>
           <div class="cookie-actions">
-            <button class="ghost-button small" data-action="reject-cookies" type="button">Rifiuta extra</button>
+            <button class="ghost-button small" data-action="reject-cookies" type="button">Solo necessari</button>
             <button class="ghost-button small" data-action="open-legal" data-page="cookies" type="button">Dettagli</button>
-            <button class="primary-button small" data-action="accept-cookies" type="button">Accetta</button>
+            <button class="primary-button small" data-action="accept-cookies" type="button">Ho capito</button>
           </div>
         </section>
       ` : ""}
@@ -5378,7 +5386,7 @@ export class CaseOpenerUI {
               `).join("")}
             </div>
             <footer>
-              <small>Testi informativi da verificare prima della pubblicazione ufficiale.</small>
+              <small>Questi testi sono una base informativa e non sostituiscono una revisione legale prima della pubblicazione ufficiale.</small>
             </footer>
           </article>
         </section>
