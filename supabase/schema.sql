@@ -173,6 +173,21 @@ create policy "stakes auth insert"
   for insert
   with check (auth.uid() = player_id);
 
+do $$
+begin
+  if exists (
+    select 1
+    from pg_publication
+    where pubname = 'supabase_realtime'
+  ) then
+    begin
+      alter publication supabase_realtime add table public.chat_messages;
+    exception
+      when duplicate_object then null;
+    end;
+  end if;
+end $$;
+
 -- TODO Supabase Edge Functions:
 -- 1. settle_coinflip(lobby_id)
 -- 2. settle_jackpot(lobby_id)
