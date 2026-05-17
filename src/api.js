@@ -381,10 +381,20 @@ function createSyntheticCase(blueprint, globalPool, crateMap) {
     addMany("Rare Special Item", 120);
   }
 
-  const preferredImage =
+  if (blueprint.synthetic === "prestige14") {
+    addMany("Mil-Spec", 120);
+    addMany("Restricted", 220);
+    addMany("Classified", 190);
+    addMany("Covert", 150);
+    addMany("Rare Special Item", 105);
+  }
+
+  const preferredImage = blueprint.preferredImage || (
     blueprint.synthetic === "jackpot" ? "Glove Case" :
+    blueprint.synthetic === "prestige14" ? "CS:GO Weapon Case 2" :
     blueprint.synthetic === "free" ? "Gallery Case" :
-    "Recoil Case";
+    "Recoil Case"
+  );
   const image = pickCaseImage(crateMap, preferredImage);
   return toCaseDefinition(blueprint, {
     id: blueprint.id,

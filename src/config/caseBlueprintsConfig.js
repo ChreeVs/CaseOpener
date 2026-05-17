@@ -97,5 +97,31 @@ export const CASE_BLUEPRINTS = [
     profile: "jackpot",
     unlockPrestige: 4,
     accent: "#ffd166"
+  },
+  {
+    id: "prestige-14-relic",
+    name: "Prestige 14 Relic Case",
+    description: "Late prestige crate with a high-tier pool and controlled P14 economy.",
+    synthetic: "prestige14",
+    preferredImage: "CS:GO Weapon Case 2",
+    price: 128000,
+    profile: "collector",
+    unlockPrestige: 14,
+    accent: "#a77cff",
+    valueScale: 2650,
+    alwaysAvailable: true
+  },
+  {
+    id: "prestige-14-apex",
+    name: "Prestige 14 Apex Case",
+    description: "Top-end P14 crate tuned below final prestige case pricing.",
+    synthetic: "prestige14",
+    preferredImage: "CS:GO Weapon Case 2",
+    price: 188000,
+    profile: "jackpot",
+    unlockPrestige: 14,
+    accent: "#64d7e3",
+    valueScale: 2850,
+    alwaysAvailable: true
   }
 ];

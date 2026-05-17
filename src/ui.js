@@ -276,6 +276,7 @@ const NAV_TABS = [
   ["cases", "Cases"],
   ["inventory", "Locker"],
   ["shop", "Economia"],
+  ["market", "Marketplace"],
   ["stats", "Progress"],
   ["achievements", "Achievements"],
   ["prestige", "Prestige"],
@@ -326,7 +327,8 @@ const LOGIN_GATE_ACTIONS = new Set([
 const TAB_GROUPS = {
   cases: ["cases"],
   inventory: ["inventory", "contracts", "collections"],
-  shop: ["shop", "market"],
+  shop: ["shop"],
+  market: ["market"],
   stats: ["stats"],
   achievements: ["achievements"],
   prestige: ["prestige"],
@@ -812,7 +814,7 @@ export class CaseOpenerUI {
         localListing.payout = payout;
         this.state.credits += payout;
         this.state.stats.totalEarned += payout;
-        this.toast(`Market Place venduto: +${formatCredits(payout)}.`);
+        this.toast(`Marketplace venduto: +${formatCredits(payout)}.`);
         this.queueSocialProfileSync();
       }
     }
@@ -1371,9 +1373,6 @@ export class CaseOpenerUI {
       }
       if (target.matches("#crashRoundDelay")) {
         this.state.minigames.crash.roundDelay = target.value;
-      }
-      if (target.matches("#jackpotBots")) {
-        this.state.minigames.jackpot.targetBots = Math.max(1, Math.min(4, Number(target.value) || 1));
       }
       if (target.matches("#socialChatInput, #footerChatInput")) {
         this.chatDraft = target.value.slice(0, 180);
@@ -3307,25 +3306,44 @@ export class CaseOpenerUI {
     const offers = refreshMarket(this.state, this.skinData, this.selectedCase);
     const trend = getMarketTrend(this.state);
     return `
-      ${this.renderSectionTabs("shop")}
-      <div class="toolbar">
-        <button class="ghost-button" data-action="refresh-market">Refresh offerte</button>
-        <span class="hint">${trend.name}: x${trend.multiplier.toFixed(2)} - refresh ${compactTime(Math.max(0, this.state.market.lastRefreshAt + ECONOMY_CONFIG.marketplaceRefreshMs - Date.now()))}</span>
-      </div>
-      <div class="market-grid">
-        ${offers.map((offer) => `
-          <article class="market-card">
-            ${itemCard(offer.item, { compact: true })}
-            <div class="market-meta">
-              <span>Fair ${formatCredits(offer.fairValue, true)}</span>
-              <span class="${offer.edge >= 0 ? "positive" : "negative"}">${offer.edge >= 0 ? "+" : ""}${offer.edge}% edge</span>
-              <span>Bot ${offer.botInterest}%</span>
+      <div class="marketplace-page">
+        <div class="marketplace-hero">
+          <div>
+            <span class="marketplace-kicker">${iconMarkup("store", "button-icon")} Marketplace</span>
+            <h2>Marketplace</h2>
+            <p>Offerte economy e mercato globale dei giocatori in un'unica area.</p>
+          </div>
+          <div class="social-chip-stack">
+            ${statTile("Trend", `x${trend.multiplier.toFixed(2)}`, trend.name)}
+            ${statTile("Refresh", compactTime(Math.max(0, this.state.market.lastRefreshAt + ECONOMY_CONFIG.marketplaceRefreshMs - Date.now())), "offerte economy")}
+            ${statTile("Globali", this.sharedAuctions.filter((listing) => listing.status === "active").length, "inserzioni live")}
+          </div>
+        </div>
+        <section class="marketplace-economy-card">
+          <div class="social-card-head">
+            <div>
+              <span class="marketplace-kicker">${iconMarkup("candlestick-chart", "button-icon")} Offerte economy</span>
+              <h3>Marketplace economy</h3>
             </div>
-            <button class="primary-button small" data-action="buy-offer" data-id="${offer.id}" ${this.state.credits < offer.price ? "disabled" : ""}>
-              Compra ${formatCredits(offer.price)}
-            </button>
-          </article>
-        `).join("")}
+            <button class="ghost-button" data-action="refresh-market">Refresh offerte</button>
+          </div>
+          <div class="market-grid">
+            ${offers.map((offer) => `
+              <article class="market-card">
+                ${itemCard(offer.item, { compact: true })}
+                <div class="market-meta">
+                  <span>Fair ${formatCredits(offer.fairValue, true)}</span>
+                  <span class="${offer.edge >= 0 ? "positive" : "negative"}">${offer.edge >= 0 ? "+" : ""}${offer.edge}% edge</span>
+                  <span>Bot ${offer.botInterest}%</span>
+                </div>
+                <button class="primary-button small" data-action="buy-offer" data-id="${offer.id}" ${this.state.credits < offer.price ? "disabled" : ""}>
+                  Compra ${formatCredits(offer.price)}
+                </button>
+              </article>
+            `).join("")}
+          </div>
+        </section>
+        ${this.renderAuctionHouse()}
       </div>
     `;
   }
@@ -3400,6 +3418,57 @@ export class CaseOpenerUI {
 
   getSelectedTradeTarget() {
     return (this.socialState?.players || []).find((player) => player.id === this.socialTradeTargetId) || null;
+  }
+
+  getJackpotPresencePlayers() {
+    const players = Array.isArray(this.socialState?.players) ? this.socialState.players : [];
+    const seen = new Set();
+    const normalized = [];
+    players.forEach((player) => {
+      if (!player?.id || seen.has(player.id)) {
+        return;
+      }
+      seen.add(player.id);
+      normalized.push(player);
+    });
+    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id;
+    if (this.socialConnection?.connected && currentId && !seen.has(currentId)) {
+      normalized.unshift({
+        id: currentId,
+        name: this.state.profile?.name || this.socialState?.currentPlayer?.name || "Tu",
+        accent: this.state.profile?.accent || this.socialState?.currentPlayer?.accent || "#7fe37c"
+      });
+    }
+    return normalized;
+  }
+
+  getJackpotOpponents() {
+    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id;
+    const liveParticipants = Array.isArray(this.socialState?.jackpot?.participants)
+      ? this.socialState.jackpot.participants
+      : [];
+    const liveOpponents = liveParticipants
+      .filter((participant) => participant?.id && participant.id !== currentId)
+      .map((participant) => ({
+        id: participant.id,
+        name: participant.name,
+        accent: participant.accent,
+        total: participant.total || participant.value,
+        itemCount: participant.itemCount || participant.itemsCount || participant.entries?.length || participant.items?.length,
+        entries: participant.entries,
+        items: participant.items
+      }));
+    if (liveOpponents.length) {
+      return liveOpponents;
+    }
+    return this.getJackpotPresencePlayers()
+      .filter((player) => player.id !== currentId)
+      .map((player) => ({
+        id: player.id,
+        name: player.name,
+        accent: player.accent,
+        itemCount: 1
+      }));
   }
 
   getSingleplayerGoals() {
@@ -3479,7 +3548,7 @@ export class CaseOpenerUI {
     return `
       <div class="games-header">
         ${statTile("Rete giochi", this.sharedGamesStatus.replace("Sync giochi ", ""), `${this.sharedGameEvents.length} eventi live`)}
-        ${statTile("Modalita'", "7", "roulette, pachinko, upgrader, coinflip, crash, jackpot, market")}
+        ${statTile("Modalita'", "6", "roulette, pachinko, upgrader, coinflip, crash, jackpot")}
       </div>
     `;
   }
@@ -3491,8 +3560,7 @@ export class CaseOpenerUI {
       ["upgrader", "Upgrader"],
       ["coinflip", "Coinflip"],
       ["crash", "Crash"],
-      ["jackpot", "Jackpot"],
-      ["market", "Market Place"]
+      ["jackpot", "Jackpot"]
     ];
     return `
       <div class="workspace-tabs game-mode-tabs">
@@ -3695,8 +3763,8 @@ export class CaseOpenerUI {
       <article class="game-card full-width auction-card">
         <div class="social-card-head">
           <div>
-            <span>${iconMarkup("store", "button-icon")} Market Place</span>
-            <h3>Market Place globale</h3>
+            <span>${iconMarkup("store", "button-icon")} Marketplace</span>
+            <h3>Marketplace globale</h3>
             <p>Scegli una skin, imposta liberamente il prezzo e pubblicala nel mercato globale. Puoi tenere massimo 5 item attivi alla volta.</p>
           </div>
           <div class="social-chip-stack">
@@ -3709,7 +3777,7 @@ export class CaseOpenerUI {
           <section class="auction-inventory-panel">
             <div class="social-card-head compact-head">
               <div>
-                <h3>Metti sul Market Place</h3>
+                <h3>Metti sul Marketplace</h3>
               </div>
             </div>
             ${this.renderGameInventoryFilters()}
@@ -3904,9 +3972,6 @@ export class CaseOpenerUI {
     }
     if (this.gamesView === "jackpot") {
       return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderMultiplayerJackpot()}</div>`;
-    }
-    if (this.gamesView === "market") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderAuctionHouse()}</div>`;
     }
     return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderRouletteGame()}</div>`;
   }
@@ -4275,8 +4340,10 @@ export class CaseOpenerUI {
     const jackpotAnimation = this.jackpotAnimation;
     const liveParticipants = jackpotAnimation?.participants || jackpotPreview?.participants || [];
     const highlighted = jackpotAnimation?.highlightIndex ?? -1;
-    const potItemCount = liveParticipants.reduce((sum, participant) => sum + (participant.entries?.length || 0), 0);
-    const targetBots = Math.max(1, Math.min(4, Number(this.state.minigames?.jackpot?.targetBots || 1)));
+    const potItemCount = liveParticipants.reduce((sum, participant) => sum + (participant.itemCount || participant.entries?.length || 0), 0);
+    const onlinePlayers = this.getJackpotPresencePlayers();
+    const jackpotOpponents = this.getJackpotOpponents();
+    const jackpotReady = onlinePlayers.length >= 2 && jackpotOpponents.length >= 1;
     return `
       <article class="game-card jackpot-card social-card full-width">
         <div class="social-card-head">
@@ -4287,16 +4354,13 @@ export class CaseOpenerUI {
           <div class="social-chip-stack">
             ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
             ${statTile("Pot", potItemCount || 0, "skin nel round")}
-            ${statTile("Giocatori", targetBots + 1, "tu + avversari")}
+            ${statTile("Utenti", `${onlinePlayers.length}/2`, jackpotReady ? `${jackpotOpponents.length} avversari online` : "in attesa")}
           </div>
         </div>
         <div class="game-controls social-inline-controls">
-          <label class="field-inline">
-            <span>Avversari</span>
-            <input id="jackpotBots" type="number" min="1" max="4" step="1" value="${targetBots}" ${jackpotAnimation?.spinning ? "disabled" : ""} />
-          </label>
           <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
-          <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("flame", "button-icon")} Avvia jackpot</button>
+          <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && jackpotReady && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("flame", "button-icon")} Avvia jackpot</button>
+          <span class="hint">${jackpotReady ? "Pronto: almeno 2 utenti online." : "Il jackpot parte solo con almeno 2 utenti online."}</span>
         </div>
         ${this.renderGameInventoryFilters()}
         <div class="jackpot-item-grid">
@@ -4326,7 +4390,7 @@ export class CaseOpenerUI {
               <div class="jackpot-pot-row ${index === highlighted ? "is-highlighted" : ""}" style="--player-accent:${participant.accent}">
                 <span>${escapeHtml(participant.name)}</span>
                 <div><i style="width:${Math.max(6, (participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}%"></i></div>
-                <strong>${jackpotAnimation?.spinning ? `${participant.entries?.length || 0} skin` : `${formatCredits(participant.total, true)} - ${participant.entries?.length || 0} skin`}</strong>
+                <strong>${jackpotAnimation?.spinning ? `${participant.itemCount || participant.entries?.length || 0} item` : `${formatCredits(participant.total, true)} - ${participant.itemCount || participant.entries?.length || 0} item`}</strong>
               </div>
             `).join("") : `<div class="empty-state small">Nessun pot recente.</div>`}
           </div>
@@ -6093,7 +6157,7 @@ export class CaseOpenerUI {
     const itemId = this.auctionItemId || fallback?.id;
     const price = this.root.querySelector("#auctionPrice")?.value || this.auctionPrice;
     const result = createAuctionListing(this.state, itemId, Number(String(price).replace(",", ".")));
-    this.toast(result.ok ? `Inserzione Market Place creata a ${formatCredits(result.listing.price)}.` : result.reason);
+    this.toast(result.ok ? `Inserzione Marketplace creata a ${formatCredits(result.listing.price)}.` : result.reason);
     if (result.ok) {
       createGlobalAuction({
         sellerName: this.state.profile?.name || "Operatore",
@@ -6106,7 +6170,7 @@ export class CaseOpenerUI {
           this.renderAll();
         }
       }).catch(() => {
-        this.sharedGamesStatus = "Market Place globale non disponibile";
+        this.sharedGamesStatus = "Marketplace globale non disponibile";
       });
       this.auctionItemId = "";
       this.auctionPrice = "";
@@ -6155,17 +6219,17 @@ export class CaseOpenerUI {
       this.state.credits -= sold.price;
       this.state.inventory.unshift(item);
       this.session.spent += Number(sold.price || 0);
-      this.recordSessionEvent("market", item.name || "Market Place globale", "Acquisto Market Place globale", -Number(sold.price || 0));
+      this.recordSessionEvent("market", item.name || "Marketplace globale", "Acquisto Marketplace globale", -Number(sold.price || 0));
       this.applySharedAuction(sold);
       this.publishSharedGameResult("auction", {
-        game: "Market Place globale",
+        game: "Marketplace globale",
         detail: `${item.name || "Skin"} acquistata`,
         bet: sold.price,
         payout: 0,
         profit: -sold.price,
         outcome: "sold"
       });
-      this.toast(`Market Place: ${item.name || "skin"} acquistata per ${formatCredits(sold.price)}.`);
+      this.toast(`Marketplace: ${item.name || "skin"} acquistata per ${formatCredits(sold.price)}.`);
       this.renderAll();
       this.queueSocialProfileSync();
     } catch (error) {
@@ -6279,7 +6343,7 @@ export class CaseOpenerUI {
     const openListings = (this.socialState?.market?.listings || [])
       .filter((listing) => listing.sellerId === this.socialConnection?.clientId).length;
     if (openListings >= 5) {
-      this.toast("Puoi avere massimo 5 item attivi sul Market Place.");
+      this.toast("Puoi avere massimo 5 item attivi sul Marketplace.");
       return;
     }
     const requestedPrice = Number(String(this.socialMarketPrice || selectedItem.value || 0).replace(",", "."));
@@ -6675,9 +6739,16 @@ export class CaseOpenerUI {
   }
 
   playJackpotGame() {
+    const onlinePlayers = this.getJackpotPresencePlayers();
+    const opponents = this.getJackpotOpponents();
+    if (onlinePlayers.length < 2 || !opponents.length) {
+      this.toast("Il jackpot aspetta almeno 2 utenti online.");
+      this.renderTab();
+      return;
+    }
     const result = playJackpot(this.state, this.skinData, {
       itemIds: [...this.jackpotSelection],
-      targetBots: this.root.querySelector("#jackpotBots")?.value ?? this.state.minigames?.jackpot?.targetBots
+      opponents
     });
     if (!result.ok) {
       this.toast(result.reason);
@@ -7093,7 +7164,7 @@ export class CaseOpenerUI {
           ["Titolare e contatti", "Prima della pubblicazione ufficiale vanno indicati nome o ragione sociale del titolare, contatto email e canale per richieste privacy."],
           ["Dati account", "Se accedi con username/password vengono usati username tecnico, identificativo account Supabase e dati di sessione. Se accedi con Discord vengono letti nome/username Discord e identificativo provider forniti tramite Supabase Auth."],
           ["Dati di gioco", "Il gioco può salvare crediti virtuali, inventario virtuale, progressione, casse aperte, statistiche, preferenze audio/UI e profilo giocatore."],
-          ["Economia virtuale", "Promo code, Market Place, goal community, reward case e minigiochi usano solo dati virtuali interni al gioco e possono essere ribilanciati o resettati per sicurezza tecnica."],
+          ["Economia virtuale", "Promo code, Marketplace, goal community, reward case e minigiochi usano solo dati virtuali interni al gioco e possono essere ribilanciati o resettati per sicurezza tecnica."],
           ["Chat", "I messaggi chat possono includere nome profilo, team scelto, testo del messaggio, identificativo tecnico e data/ora. La chat è visibile agli altri utenti del gioco."],
           ["Finalità", "I dati servono per autenticazione, salvataggio cloud, salvataggio locale, continuità della progressione, chat globale, sicurezza base e corretto funzionamento del gioco."],
           ["Base giuridica", "Le funzioni essenziali sono trattate per fornire il servizio richiesto. Eventuali funzioni facoltative come analytics, pubblicità o marketing richiederanno consenso separato prima dell'attivazione."],
@@ -7120,7 +7191,7 @@ export class CaseOpenerUI {
         rows: [
           ["Oggetti virtuali", "Crediti, casse, skin, inventario e ricompense sono solo elementi virtuali di gioco. Non hanno valore monetario reale, non sono riscattabili e non costituiscono prodotti Steam."],
           ["Niente gioco d'azzardo reale", "Il gioco non permette depositi o prelievi in denaro reale. Eventuali acquisti, pubblicità o monetizzazione futura dovranno mantenere separati denaro reale e ricompense virtuali."],
-          ["Market Place e promo", "Market Place, promo code e goal community sono sistemi di progressione virtuale. Limiti tecnici e ricompense possono essere modificati o annullati in caso di exploit."],
+          ["Marketplace e promo", "Marketplace, promo code e goal community sono sistemi di progressione virtuale. Limiti tecnici e ricompense possono essere modificati o annullati in caso di exploit."],
           ["Account", "Se crei un account, sei responsabile della sicurezza delle credenziali. Non condividere password e non usare account di altri utenti."],
           ["Fair play", "Non usare bot esterni, exploit, manipolazioni del client, abuso di bug o comportamenti che danneggiano altri utenti."],
           ["Chat e condotta", "Non pubblicare spam, insulti, dati personali, contenuti illegali o contenuti che violano diritti altrui. I messaggi possono essere rimossi in caso di abuso."],

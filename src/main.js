@@ -128,7 +128,7 @@ function switchTab(tab) {
 }
 
 function switchPrimaryTab(delta) {
-  const tabs = ["cases", "inventory", "shop", "stats", "achievements", "prestige", "games", "community"];
+  const tabs = ["cases", "inventory", "shop", "market", "stats", "achievements", "prestige", "games", "community"];
   const current = tabs.includes(ui?.activeTab) ? ui.activeTab : tabs[0];
   const nextIndex = (tabs.indexOf(current) + delta + tabs.length) % tabs.length;
   switchTab(tabs[nextIndex]);

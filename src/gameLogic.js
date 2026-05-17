@@ -198,9 +198,7 @@ export function createDefaultState() {
         bet: 4,
         side: "ct"
       },
-      jackpot: {
-        targetBots: 2
-      },
+      jackpot: {},
       history: []
     },
     goals: {
@@ -1459,27 +1457,6 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
 }
 
-function pickBotName(index) {
-  const names = [
-    "Rook",
-    "Nova",
-    "Mantis",
-    "Vex",
-    "Kite",
-    "Ghost",
-    "Shade",
-    "Pixel",
-    "Flint",
-    "Torque"
-  ];
-  return names[index % names.length];
-}
-
-function pickBotAccent(index) {
-  const colors = ["#64d7e3", "#f2b84b", "#a77cff", "#45c486", "#ff8b5c", "#7ea7ff"];
-  return colors[index % colors.length];
-}
-
 /**
  * Starts a crash game round with generated crash point
  * @param {Object} state - Game state
@@ -1557,54 +1534,41 @@ export function playCrash(state, { bet, autoCashout } = {}) {
   return settleCrashRound(state, round, { cashoutPoint });
 }
 
-function createBotRoundState(state) {
-  const botState = normalizeState(createDefaultState());
-  botState.prestige.level = state.prestige.level;
-  botState.profile.level = state.profile.level;
-  botState.profile.xp = state.profile.xp;
-  return botState;
-}
-
-function pickUnlockedCasePool(state, skinData) {
-  const unlocked = skinData.cases.filter((caseDef) => isCaseUnlocked(state, caseDef));
-  return unlocked.length ? unlocked : skinData.cases;
-}
-
-function buildBotJackpotEntries(state, skinData, botState, botIndex, targetValue) {
-  const casePool = pickUnlockedCasePool(state, skinData);
-  const entries = [];
-  let total = 0;
-  const minItems = targetValue > 120 ? 2 : 1;
-  const maxItems = targetValue > 260 ? 4 : targetValue > 90 ? 3 : 2;
-  let guard = 0;
-
-  while (guard < 10 && entries.length < maxItems && (entries.length < minItems || total < targetValue * 0.88)) {
-    guard += 1;
-    const sourceCase = casePool[Math.floor(Math.random() * casePool.length)];
-    const rarity = rollRarity(sourceCase, botState);
-    const skin = pickSkin(sourceCase, rarity, skinData);
-    const item = createInventoryItem(skin, rarity, sourceCase, botState);
-    entries.push(item);
-    total += getSellReturn(state, item);
-  }
-
-  return {
-    id: `bot-${botIndex}`,
-    name: pickBotName(botIndex),
-    accent: pickBotAccent(botIndex),
-    total: Number(total.toFixed(2)),
-    entries
-  };
+function normalizeJackpotOpponents(opponents, playerDeposit) {
+  const seen = new Set();
+  return (Array.isArray(opponents) ? opponents : [])
+    .filter((opponent) => {
+      if (!opponent?.id || seen.has(opponent.id) || opponent.id === "player") {
+        return false;
+      }
+      seen.add(opponent.id);
+      return true;
+    })
+    .map((opponent, index, list) => {
+      const entries = Array.isArray(opponent.items) ? opponent.items : Array.isArray(opponent.entries) ? opponent.entries : [];
+      const fallbackTotal = Number((playerDeposit * (0.82 + Math.random() * 0.36) / Math.max(1, Math.min(3, list.length))).toFixed(2));
+      const explicitTotal = Number(opponent.total || opponent.value || 0);
+      return {
+        id: String(opponent.id),
+        name: String(opponent.name || `Player ${index + 2}`),
+        accent: opponent.accent || "#64d7e3",
+        total: Number((explicitTotal > 0 ? explicitTotal : fallbackTotal).toFixed(2)),
+        itemCount: Math.max(entries.length, Number(opponent.itemCount || opponent.itemsCount || 0), entries.length ? entries.length : 1),
+        entries
+      };
+    })
+    .filter((opponent) => opponent.total > 0)
+    .slice(0, 7);
 }
 
 /**
- * Plays Jackpot multiplayer game: deposits items as shared pot vs AI opponents
+ * Plays Jackpot multiplayer game: deposits items into a shared pot with real online users.
  * @param {Object} state - Game state
- * @param {Object} skinData - Skin database for bot item generation
- * @param {Object} options - Game config with item IDs and bot count
+ * @param {Object} skinData - Skin database, kept for backward-compatible call sites
+ * @param {Object} options - Game config with item IDs and online opponents
  * @returns {Object} Result with participants, winner, pot value, and player winnings
  */
-export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) {
+export function playJackpot(state, skinData, { itemIds = [], opponents = [] } = {}) {
   const ids = Array.isArray(itemIds) ? [...new Set(itemIds)] : [];
   const depositedItems = state.inventory.filter((item) => ids.includes(item.id) && !item.locked);
   if (!depositedItems.length) {
@@ -1618,13 +1582,12 @@ export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) 
     return { ok: false, reason: "Le skin selezionate non hanno valore utile per il jackpot." };
   }
 
-  const bots = Math.max(0, Math.min(4, Math.floor(Number(targetBots) || 0)));
-  if (bots < 1) {
-    return { ok: false, reason: "Il jackpot richiede almeno 2 giocatori." };
+  const normalizedOpponents = normalizeJackpotOpponents(opponents, playerDeposit);
+  if (!normalizedOpponents.length) {
+    return { ok: false, reason: "Il jackpot aspetta almeno 2 utenti online." };
   }
   state.inventory = state.inventory.filter((item) => !ids.includes(item.id));
-  state.minigames.jackpot = { targetBots: bots };
-  const botState = createBotRoundState(state);
+  state.minigames.jackpot = {};
 
   const participants = [
     {
@@ -1636,18 +1599,11 @@ export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) 
         ...item,
         value: getSellReturn(state, item)
       }))
-    }
+    },
+    ...normalizedOpponents
   ];
 
-  let totalPot = playerDeposit;
-  for (let index = 0; index < bots; index += 1) {
-    const ratio = ECONOMY_CONFIG.socialPotBotMultiplierMin +
-      Math.random() * (ECONOMY_CONFIG.socialPotBotMultiplierMax - ECONOMY_CONFIG.socialPotBotMultiplierMin);
-    const targetValue = Number((playerDeposit * ratio / bots).toFixed(2));
-    const botParticipant = buildBotJackpotEntries(state, skinData, botState, index, targetValue);
-    totalPot += botParticipant.total;
-    participants.push(botParticipant);
-  }
+  const totalPot = participants.reduce((sum, participant) => sum + Number(participant.total || 0), 0);
 
   const winner = weightedPick(participants.map((participant) => ({
     value: participant,
@@ -1673,7 +1629,7 @@ export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) 
     bet: playerDeposit,
     payout,
     outcome: winner.name,
-    label: `${participants.length} player pot`,
+    label: `${participants.length} utenti nel pot`,
     detail: winner.id === "player"
       ? `${winner.name} prende ${wonCount} skin dal pot`
       : `${winner.name} prende ${participants.reduce((sum, participant) => sum + participant.entries.length, 0)} skin`,
@@ -2253,7 +2209,7 @@ export function createAuctionListing(state, itemId, price) {
   state.auctions ||= createDefaultState().auctions;
   const activeListings = (state.auctions.listings || []).filter((listing) => listing.status === "active").length;
   if (activeListings >= MARKETPLACE_ACTIVE_LISTING_LIMIT) {
-    return { ok: false, reason: `Puoi avere massimo ${MARKETPLACE_ACTIVE_LISTING_LIMIT} item attivi sul Market Place.` };
+    return { ok: false, reason: `Puoi avere massimo ${MARKETPLACE_ACTIVE_LISTING_LIMIT} item attivi sul Marketplace.` };
   }
   const fair = getSellReturn(state, item);
   const listingPrice = Number(Number(price || 0).toFixed(2));
@@ -2277,7 +2233,7 @@ export function createAuctionListing(state, itemId, price) {
 export function settleAuctionListing(state, listingId) {
   const listing = state.auctions?.listings?.find((candidate) => candidate.id === listingId);
   if (!listing || listing.status !== "active") {
-    return { ok: false, reason: "Inserzione Market Place non trovata." };
+    return { ok: false, reason: "Inserzione Marketplace non trovata." };
   }
   const fair = getSellReturn(state, listing.item);
   const saleChance = Math.max(0.12, Math.min(0.92, 0.72 - (listing.price - fair) / Math.max(1, fair) * 0.85));
