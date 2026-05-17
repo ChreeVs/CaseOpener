@@ -27,6 +27,8 @@ import {
 const UPGRADE_BY_ID = new Map(UPGRADE_DEFINITIONS.map((upgrade) => [upgrade.id, upgrade]));
 const PRESTIGE_NODE_BY_ID = new Map(PRESTIGE_TREE.map((node) => [node.id, node]));
 const MAX_PRESTIGE_LEVEL = 15;
+const MARKETPLACE_ACTIVE_LISTING_LIMIT = 5;
+const MARKETPLACE_MAX_PRICE = 1000000;
 
 function emptyRarityCounts() {
   return RARITY_ORDER.reduce((counts, rarity) => {
@@ -1618,6 +1620,9 @@ export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) 
   }
 
   const bots = Math.max(0, Math.min(4, Math.floor(Number(targetBots) || 0)));
+  if (bots < 1) {
+    return { ok: false, reason: "Il jackpot richiede almeno 2 giocatori." };
+  }
   state.inventory = state.inventory.filter((item) => !ids.includes(item.id));
   state.minigames.jackpot = { targetBots: bots };
   const botState = createBotRoundState(state);
@@ -2106,9 +2111,6 @@ export function claimCommunityGoalReward(state, goalId, now = Date.now(), shared
   if (!goal.ready) {
     return { ok: false, reason: "Soglia non raggiunta." };
   }
-  if (goal.scope === "community" && goal.personalContributed <= 0) {
-    return { ok: false, reason: "Devi contribuire almeno una volta a questo goal community." };
-  }
   if (goal.claimed) {
     return { ok: false, reason: "Reward gia' riscattato." };
   }
@@ -2249,21 +2251,22 @@ export function createAuctionListing(state, itemId, price) {
   if (!item) {
     return { ok: false, reason: "Seleziona una skin non bloccata." };
   }
+  state.auctions ||= createDefaultState().auctions;
+  const activeListings = (state.auctions.listings || []).filter((listing) => listing.status === "active").length;
+  if (activeListings >= MARKETPLACE_ACTIVE_LISTING_LIMIT) {
+    return { ok: false, reason: `Puoi avere massimo ${MARKETPLACE_ACTIVE_LISTING_LIMIT} item attivi sul Market Place.` };
+  }
   const fair = getSellReturn(state, item);
-  const min = Number((fair * 0.82).toFixed(2));
-  const max = Number((fair * 1.28).toFixed(2));
-  const listingPrice = Number(price || 0);
-  if (listingPrice < min || listingPrice > max) {
-    return { ok: false, reason: `Prezzo valido: ${formatCredits(min)} - ${formatCredits(max)}.` };
+  const listingPrice = Number(Number(price || 0).toFixed(2));
+  if (!Number.isFinite(listingPrice) || listingPrice <= 0 || listingPrice > MARKETPLACE_MAX_PRICE) {
+    return { ok: false, reason: `Prezzo valido: ${formatCredits(0.01)} - ${formatCredits(MARKETPLACE_MAX_PRICE)}.` };
   }
   state.inventory = state.inventory.filter((candidate) => candidate.id !== itemId);
-  state.auctions ||= createDefaultState().auctions;
   const listing = {
-    id: `auction-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: `market-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     item,
     price: listingPrice,
-    min,
-    max,
+    fair,
     createdAt: Date.now(),
     expiresAt: Date.now() + 1000 * 60 * 45,
     status: "active"
@@ -2275,7 +2278,7 @@ export function createAuctionListing(state, itemId, price) {
 export function settleAuctionListing(state, listingId) {
   const listing = state.auctions?.listings?.find((candidate) => candidate.id === listingId);
   if (!listing || listing.status !== "active") {
-    return { ok: false, reason: "Asta non trovata." };
+    return { ok: false, reason: "Inserzione Market Place non trovata." };
   }
   const fair = getSellReturn(state, listing.item);
   const saleChance = Math.max(0.12, Math.min(0.92, 0.72 - (listing.price - fair) / Math.max(1, fair) * 0.85));

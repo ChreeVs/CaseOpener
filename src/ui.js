@@ -499,6 +499,7 @@ export class CaseOpenerUI {
     this.sharedGameEvents = [];
     this.sharedGamesStatus = isSharedGamesAvailable() ? "Sync giochi in attesa" : "Sync giochi non configurata";
     this.sharedAuctions = [];
+    this.lastSharedGamesSyncAt = 0;
     this.seenSharedGameEventIds = new Set();
     this.unsubscribeSharedGameEvents = null;
     this.unsubscribeGlobalAuctions = null;
@@ -564,6 +565,7 @@ export class CaseOpenerUI {
     this.chatDraft = "";
     this.chatOpen = false;
     this.chatPollTimer = null;
+    this.liveSyncTimer = null;
     this.chatBusy = false;
     this.chatCloudEnabled = isSupabaseChatEnabled();
     this.unsubscribeCloudChat = null;
@@ -596,6 +598,7 @@ export class CaseOpenerUI {
     this.refreshCloudSession();
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 3500);
+    this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
   }
 
   dispose() {
@@ -612,6 +615,10 @@ export class CaseOpenerUI {
     if (this.chatPollTimer) {
       window.clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
+    }
+    if (this.liveSyncTimer) {
+      window.clearInterval(this.liveSyncTimer);
+      this.liveSyncTimer = null;
     }
     if (this.crashTimer) {
       window.clearInterval(this.crashTimer);
@@ -792,6 +799,22 @@ export class CaseOpenerUI {
     if (!listing?.id) {
       return;
     }
+    const localListing = this.state.auctions?.listings?.find((entry) => entry.globalId === listing.id);
+    if (localListing && localListing.status === "active" && listing.status !== "active") {
+      localListing.status = listing.status;
+      localListing.buyerName = listing.buyerName || "";
+      localListing.updatedAt = Date.now();
+      if (listing.status === "sold") {
+        const fee = Math.max(0.03, 0.09 - getProfileSkillBonus(this.state).auctionFeeReduction);
+        const payout = Number((Number(listing.price || localListing.price || 0) * (1 - fee)).toFixed(2));
+        localListing.soldAt = Date.now();
+        localListing.payout = payout;
+        this.state.credits += payout;
+        this.state.stats.totalEarned += payout;
+        this.toast(`Market Place venduto: +${formatCredits(payout)}.`);
+        this.queueSocialProfileSync();
+      }
+    }
     const next = [listing, ...this.sharedAuctions.filter((entry) => entry.id !== listing.id)]
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0))
       .slice(0, 80);
@@ -812,6 +835,7 @@ export class CaseOpenerUI {
       this.seenSharedGameEventIds.clear();
       events.reverse().forEach((entry) => this.applySharedGameEvent(entry));
       this.sharedAuctions = auctions;
+      this.lastSharedGamesSyncAt = Date.now();
       this.sharedGamesStatus = "Sync giochi live";
       if (this.activeTab === "games") {
         this.renderTab();
@@ -846,6 +870,16 @@ export class CaseOpenerUI {
       });
     } catch (error) {
       this.sharedGamesStatus = "Realtime giochi non disponibile";
+    }
+  }
+
+  async refreshLiveSync({ silent = true } = {}) {
+    await Promise.allSettled([
+      this.refreshCommunityGoals({ silent }),
+      this.refreshSharedGames({ silent })
+    ]);
+    if (!this.isEditingAppControl() && (this.activeTab === "community" || this.activeTab === "games")) {
+      this.renderTab();
     }
   }
 
@@ -1368,6 +1402,9 @@ export class CaseOpenerUI {
       if (target.matches("#coinflipBet")) {
         this.state.minigames.coinflip.bet = target.value;
       }
+      if (target.matches("#rouletteBet")) {
+        this.state.minigames.roulette.bet = target.value;
+      }
       if (target.matches("#auctionPrice")) {
         this.auctionPrice = target.value;
       }
@@ -1544,6 +1581,11 @@ export class CaseOpenerUI {
     }
     const sessionBox = this.root.querySelector("#sessionBox");
     return Boolean(sessionBox?.contains(active) && active.matches("input, select, textarea"));
+  }
+
+  isEditingAppControl() {
+    const active = document.activeElement;
+    return Boolean(active && this.root.contains(active) && active.matches("input, select, textarea"));
   }
 
   handleAction(action, data, element) {
@@ -3433,7 +3475,7 @@ export class CaseOpenerUI {
     return `
       <div class="games-header">
         ${statTile("Rete giochi", this.sharedGamesStatus.replace("Sync giochi ", ""), `${this.sharedGameEvents.length} eventi live`)}
-        ${statTile("Modalita'", "7", "roulette, pachinko, upgrader, coinflip, crash, jackpot, aste")}
+        ${statTile("Modalita'", "7", "roulette, pachinko, upgrader, coinflip, crash, jackpot, market")}
       </div>
     `;
   }
@@ -3446,7 +3488,7 @@ export class CaseOpenerUI {
       ["coinflip", "Coinflip"],
       ["crash", "Crash"],
       ["jackpot", "Jackpot"],
-      ["market", "Aste"]
+      ["market", "Market Place"]
     ];
     return `
       <div class="workspace-tabs game-mode-tabs">
@@ -3641,29 +3683,29 @@ export class CaseOpenerUI {
     const items = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 });
     const selected = items.find((item) => item.id === this.auctionItemId) || items[0];
     const fair = selected ? getSellReturn(this.state, selected) : 0;
-    const min = fair * 0.82;
-    const max = fair * 1.28;
     const localListings = this.state.auctions?.listings || [];
+    const activeLocalListings = localListings.filter((listing) => listing.status === "active").length;
     const sharedListings = this.sharedAuctions.filter((listing) => listing.status === "active").slice(0, 24);
+    const canPublish = Boolean(selected) && activeLocalListings < 5;
     return `
       <article class="game-card full-width auction-card">
         <div class="social-card-head">
           <div>
-            <span>${iconMarkup("gavel", "button-icon")} Aste</span>
-            <h3>Mercato aste globale</h3>
-            <p>A sinistra scegli una skin dal tuo inventario. A destra partecipi alle aste attive pubblicate dagli altri player.</p>
+            <span>${iconMarkup("store", "button-icon")} Market Place</span>
+            <h3>Market Place globale</h3>
+            <p>Scegli una skin, imposta liberamente il prezzo e pubblicala nel mercato globale. Puoi tenere massimo 5 item attivi alla volta.</p>
           </div>
           <div class="social-chip-stack">
-            ${statTile("Range", selected ? `${formatCredits(min, true)} - ${formatCredits(max, true)}` : "-", "prezzo valido")}
+            ${statTile("Prezzo", selected ? formatCredits(fair, true) : "-", "riferimento skin")}
             ${statTile("Fee", `${Math.round((0.09 - getProfileSkillBonus(this.state).auctionFeeReduction) * 100)}%`, "ridotta dai livelli")}
-            ${statTile("Live", sharedListings.length, this.sharedGamesStatus.replace("Sync giochi ", ""))}
+            ${statTile("Attive", `${activeLocalListings}/5`, `${sharedListings.length} live`)}
           </div>
         </div>
         <div class="auction-layout">
           <section class="auction-inventory-panel">
             <div class="social-card-head compact-head">
               <div>
-                <h3>Metti all'asta</h3>
+                <h3>Metti sul Market Place</h3>
               </div>
             </div>
             ${this.renderGameInventoryFilters()}
@@ -3678,14 +3720,14 @@ export class CaseOpenerUI {
             </div>
             <div class="game-controls social-inline-controls auction-create-controls">
               <input id="auctionPrice" type="text" inputmode="decimal" value="${escapeHtml(this.auctionPrice || (fair ? fair.toFixed(2) : ""))}" placeholder="Prezzo" />
-              <button class="primary-button" data-action="create-auction" ${selected ? "" : "disabled"}>${iconMarkup("plus", "button-icon")} Pubblica</button>
+              <button class="primary-button" data-action="create-auction" ${canPublish ? "" : "disabled"}>${iconMarkup("plus", "button-icon")} Pubblica</button>
             </div>
           </section>
           <section class="auction-live-panel">
             <div class="social-card-head compact-head">
               <div>
-                <span>Aste attive</span>
-                <h3>Partecipa</h3>
+                <span>Inserzioni attive</span>
+                <h3>Compra</h3>
               </div>
             </div>
             <div class="auction-list-grid">
@@ -3699,7 +3741,7 @@ export class CaseOpenerUI {
                   <em>${formatCredits(listing.price, true)}</em>
                   <button class="ghost-button tiny" data-action="buy-shared-auction" data-id="${listing.id}" ${this.state.credits >= listing.price ? "" : "disabled"}>Compra</button>
                 </article>
-              `).join("") : `<div class="empty-state small">Nessuna asta globale attiva.</div>`}
+              `).join("") : `<div class="empty-state small">Nessuna inserzione globale attiva.</div>`}
             </div>
           </section>
         </div>
@@ -3709,9 +3751,9 @@ export class CaseOpenerUI {
               <span>${escapeHtml(listing.status)}</span>
               <strong>${escapeHtml(listing.item.name)}</strong>
               <em>${formatCredits(listing.price, true)}</em>
-              <button class="ghost-button tiny" data-action="settle-auction" data-id="${listing.id}" ${listing.status === "active" ? "" : "disabled"}>Simula esito</button>
+              <button class="ghost-button tiny" data-action="settle-auction" data-id="${listing.id}" ${listing.status === "active" ? "" : "disabled"}>Simula vendita</button>
             </div>
-          `).join("") : `<div class="empty-state small">Nessuna asta locale creata.</div>`}
+          `).join("") : `<div class="empty-state small">Nessuna inserzione locale creata.</div>`}
         </div>
       </article>
     `;
@@ -4172,6 +4214,7 @@ export class CaseOpenerUI {
     const liveParticipants = jackpotAnimation?.participants || jackpotPreview?.participants || [];
     const highlighted = jackpotAnimation?.highlightIndex ?? -1;
     const potItemCount = liveParticipants.reduce((sum, participant) => sum + (participant.entries?.length || 0), 0);
+    const targetBots = Math.max(1, Math.min(4, Number(this.state.minigames?.jackpot?.targetBots || 1)));
     return `
       <article class="game-card jackpot-card social-card full-width">
         <div class="social-card-head">
@@ -4182,9 +4225,14 @@ export class CaseOpenerUI {
           <div class="social-chip-stack">
             ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
             ${statTile("Pot", potItemCount || 0, "skin nel round")}
+            ${statTile("Giocatori", targetBots + 1, "tu + avversari")}
           </div>
         </div>
         <div class="game-controls social-inline-controls">
+          <label class="field-inline">
+            <span>Avversari</span>
+            <input id="jackpotBots" type="number" min="1" max="4" step="1" value="${targetBots}" ${jackpotAnimation?.spinning ? "disabled" : ""} />
+          </label>
           <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
           <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("flame", "button-icon")} Avvia jackpot</button>
         </div>
@@ -4258,7 +4306,7 @@ export class CaseOpenerUI {
             <div>
               <span>${iconMarkup("store", "button-icon")} Marketplace globale</span>
               <h3>Metti in vendita skin vere del tuo inventario</h3>
-              <p>Le inserzioni sono condivise tra i player del server locale. Il market usa una fee del ${(social.market?.feeRate || 0.06) * 100}% e una fascia di prezzo limitata per non rompere l'economia.</p>
+              <p>Le inserzioni sono condivise tra i player del server locale. Il market usa una fee del ${(social.market?.feeRate || 0.06) * 100}% e lascia libero il prezzo, con massimo 5 item attivi alla volta.</p>
             </div>
             <div class="social-chip-stack">
               ${statTile("Inserzioni", currentPlayer?.openListings || 0, "aperte")}
@@ -4274,7 +4322,7 @@ export class CaseOpenerUI {
               <span>Prezzo vendita</span>
               <input id="socialMarketPrice" type="text" inputmode="decimal" value="${escapeHtml(priceValue)}" placeholder="Prezzo" />
             </label>
-            <button class="primary-button" data-action="list-global-market" ${selectedItem ? "" : "disabled"}>${iconMarkup("tag", "button-icon")} Lista selezione</button>
+            <button class="primary-button" data-action="list-global-market" ${selectedItem && myListings.length < 5 ? "" : "disabled"}>${iconMarkup("tag", "button-icon")} Lista selezione</button>
           </div>
           <div class="market-locker-layout">
             <div class="market-locker-grid-paged">
@@ -4517,7 +4565,7 @@ export class CaseOpenerUI {
           ${goals.map((goal) => {
             const isShared = goal.scope === "community";
             const busy = this.goalSyncBusy.has(goal.id);
-            const canClaim = goal.ready && !goal.claimed && (!isShared || goal.personalContributed > 0);
+            const canClaim = goal.ready && !goal.claimed;
             return `
             <article class="community-goal-card ${goal.ready ? "is-ready" : ""} ${goal.claimed ? "is-claimed" : ""}">
               <div>
@@ -5920,9 +5968,6 @@ export class CaseOpenerUI {
       .find((node) => node.dataset.goalDepositInput === id);
     const amount = input?.value || this.goalDepositAmounts[id];
     const currentGoal = this.getCommunityGoalRows().find((goal) => goal.id === id);
-    const beforeCredits = this.state.credits;
-    const beforeSpent = this.state.stats.totalSpent;
-    const beforeContribution = currentGoal?.key ? this.state.goals?.contributions?.[currentGoal.key] : undefined;
     const result = depositCommunityGoalCredits(this.state, id, amount);
     if (!result.ok) {
       this.toast(result.reason);
@@ -5946,20 +5991,12 @@ export class CaseOpenerUI {
             this.sharedGoalStatus = "Sync community live";
           }
         } catch (error) {
-          this.state.credits = beforeCredits;
-          this.state.stats.totalSpent = beforeSpent;
           if (currentGoal?.key) {
-            if (beforeContribution === undefined) {
-              delete this.state.goals.contributions[currentGoal.key];
-            } else {
-              this.state.goals.contributions[currentGoal.key] = beforeContribution;
-            }
+            this.mergeSharedGoalTotals({ [currentGoal.key]: result.goal.contributed }, { replace: false });
           }
           this.sharedGoalStatus = "Sync community non disponibile";
-          this.toast("Deposito annullato: tabella goal community non pronta su Supabase.");
+          this.toast("Deposito salvato in locale. Sync Supabase goal community non disponibile.");
           this.goalSyncBusy.delete(id);
-          this.renderAll();
-          return;
         }
         this.goalSyncBusy.delete(id);
       }
@@ -6005,7 +6042,7 @@ export class CaseOpenerUI {
     const itemId = this.auctionItemId || fallback?.id;
     const price = this.root.querySelector("#auctionPrice")?.value || this.auctionPrice;
     const result = createAuctionListing(this.state, itemId, Number(String(price).replace(",", ".")));
-    this.toast(result.ok ? `Asta creata a ${formatCredits(result.listing.price)}.` : result.reason);
+    this.toast(result.ok ? `Inserzione Market Place creata a ${formatCredits(result.listing.price)}.` : result.reason);
     if (result.ok) {
       createGlobalAuction({
         sellerName: this.state.profile?.name || "Operatore",
@@ -6013,10 +6050,12 @@ export class CaseOpenerUI {
         price: result.listing.price
       }).then((listing) => {
         if (listing) {
+          result.listing.globalId = listing.id;
           this.applySharedAuction(listing);
+          this.renderAll();
         }
       }).catch(() => {
-        this.sharedGamesStatus = "Aste globali non disponibili";
+        this.sharedGamesStatus = "Market Place globale non disponibile";
       });
       this.auctionItemId = "";
       this.auctionPrice = "";
@@ -6029,8 +6068,8 @@ export class CaseOpenerUI {
     const result = settleAuctionListing(this.state, id);
     this.toast(result.ok
       ? result.sold
-        ? `Asta venduta: +${formatCredits(result.payout)}.`
-        : "Nessun acquirente ancora: asta estesa."
+        ? `Inserzione venduta: +${formatCredits(result.payout)}.`
+        : "Nessun acquirente ancora: inserzione estesa."
       : result.reason);
     if (result.ok) {
       this.renderAll();
@@ -6041,11 +6080,11 @@ export class CaseOpenerUI {
   async buySharedAuction(id) {
     const listing = this.sharedAuctions.find((entry) => entry.id === id);
     if (!listing || listing.status !== "active") {
-      this.toast("Asta non disponibile.");
+      this.toast("Inserzione non disponibile.");
       return;
     }
     if (this.state.credits < listing.price) {
-      this.toast("Crediti insufficienti per questa asta.");
+      this.toast("Crediti insufficienti per questa inserzione.");
       return;
     }
     try {
@@ -6054,7 +6093,7 @@ export class CaseOpenerUI {
         buyerName: this.state.profile?.name || "Operatore"
       });
       if (!sold) {
-        throw new Error("Asta non disponibile.");
+        throw new Error("Inserzione non disponibile.");
       }
       const item = {
         ...sold.item,
@@ -6065,21 +6104,21 @@ export class CaseOpenerUI {
       this.state.credits -= sold.price;
       this.state.inventory.unshift(item);
       this.session.spent += Number(sold.price || 0);
-      this.recordSessionEvent("market", item.name || "Asta globale", "Acquisto asta globale", -Number(sold.price || 0));
+      this.recordSessionEvent("market", item.name || "Market Place globale", "Acquisto Market Place globale", -Number(sold.price || 0));
       this.applySharedAuction(sold);
       this.publishSharedGameResult("auction", {
-        game: "Asta globale",
+        game: "Market Place globale",
         detail: `${item.name || "Skin"} acquistata`,
         bet: sold.price,
         payout: 0,
         profit: -sold.price,
         outcome: "sold"
       });
-      this.toast(`Asta acquistata: ${item.name || "skin"} per ${formatCredits(sold.price)}.`);
+      this.toast(`Market Place: ${item.name || "skin"} acquistata per ${formatCredits(sold.price)}.`);
       this.renderAll();
       this.queueSocialProfileSync();
     } catch (error) {
-      this.toast(error.message || "Asta non disponibile.");
+      this.toast(error.message || "Inserzione non disponibile.");
     }
   }
 
@@ -6184,6 +6223,12 @@ export class CaseOpenerUI {
     const selectedItem = lockerItems.find((item) => item.id === this.socialMarketItemId) || filteredLocker[0] || lockerItems[0] || null;
     if (!selectedItem) {
       this.toast("Seleziona una skin da listare.");
+      return;
+    }
+    const openListings = (this.socialState?.market?.listings || [])
+      .filter((listing) => listing.sellerId === this.socialConnection?.clientId).length;
+    if (openListings >= 5) {
+      this.toast("Puoi avere massimo 5 item attivi sul Market Place.");
       return;
     }
     const requestedPrice = Number(String(this.socialMarketPrice || selectedItem.value || 0).replace(",", "."));
@@ -6563,7 +6608,7 @@ export class CaseOpenerUI {
   playJackpotGame() {
     const result = playJackpot(this.state, this.skinData, {
       itemIds: [...this.jackpotSelection],
-      targetBots: 0
+      targetBots: this.root.querySelector("#jackpotBots")?.value ?? this.state.minigames?.jackpot?.targetBots
     });
     if (!result.ok) {
       this.toast(result.reason);
@@ -6891,10 +6936,10 @@ export class CaseOpenerUI {
     if (this.activeTab === "community" && Date.now() - this.lastSharedGoalSyncAt > 30000) {
       this.refreshCommunityGoals({ silent: true });
     }
-    if (this.activeTab === "games" && isSharedGamesAvailable() && !this.sharedGameEvents.length) {
+    if (this.activeTab === "games" && isSharedGamesAvailable() && Date.now() - this.lastSharedGamesSyncAt > 30000) {
       this.refreshSharedGames({ silent: true });
     }
-    if (["stats", "prestige", "market", "collections", "achievements", "shop"].includes(this.activeTab)) {
+    if (!this.isEditingAppControl() && ["stats", "prestige", "market", "collections", "achievements", "shop", "community", "games"].includes(this.activeTab)) {
       this.renderTab();
     }
   }
@@ -6979,7 +7024,7 @@ export class CaseOpenerUI {
           ["Titolare e contatti", "Prima della pubblicazione ufficiale vanno indicati nome o ragione sociale del titolare, contatto email e canale per richieste privacy."],
           ["Dati account", "Se accedi con username/password vengono usati username tecnico, identificativo account Supabase e dati di sessione. Se accedi con Discord vengono letti nome/username Discord e identificativo provider forniti tramite Supabase Auth."],
           ["Dati di gioco", "Il gioco può salvare crediti virtuali, inventario virtuale, progressione, casse aperte, statistiche, preferenze audio/UI e profilo giocatore."],
-          ["Economia virtuale", "Promo code, aste, goal community, reward case e minigiochi usano solo dati virtuali interni al gioco e possono essere ribilanciati o resettati per sicurezza tecnica."],
+          ["Economia virtuale", "Promo code, Market Place, goal community, reward case e minigiochi usano solo dati virtuali interni al gioco e possono essere ribilanciati o resettati per sicurezza tecnica."],
           ["Chat", "I messaggi chat possono includere nome profilo, team scelto, testo del messaggio, identificativo tecnico e data/ora. La chat è visibile agli altri utenti del gioco."],
           ["Finalità", "I dati servono per autenticazione, salvataggio cloud, salvataggio locale, continuità della progressione, chat globale, sicurezza base e corretto funzionamento del gioco."],
           ["Base giuridica", "Le funzioni essenziali sono trattate per fornire il servizio richiesto. Eventuali funzioni facoltative come analytics, pubblicità o marketing richiederanno consenso separato prima dell'attivazione."],
@@ -7006,7 +7051,7 @@ export class CaseOpenerUI {
         rows: [
           ["Oggetti virtuali", "Crediti, casse, skin, inventario e ricompense sono solo elementi virtuali di gioco. Non hanno valore monetario reale, non sono riscattabili e non costituiscono prodotti Steam."],
           ["Niente gioco d'azzardo reale", "Il gioco non permette depositi o prelievi in denaro reale. Eventuali acquisti, pubblicità o monetizzazione futura dovranno mantenere separati denaro reale e ricompense virtuali."],
-          ["Aste e promo", "Aste, promo code e goal community sono sistemi di progressione virtuale. Le fasce prezzo possono bloccare trasferimenti anomali e le ricompense possono essere annullate in caso di exploit."],
+          ["Market Place e promo", "Market Place, promo code e goal community sono sistemi di progressione virtuale. Limiti tecnici e ricompense possono essere modificati o annullati in caso di exploit."],
           ["Account", "Se crei un account, sei responsabile della sicurezza delle credenziali. Non condividere password e non usare account di altri utenti."],
           ["Fair play", "Non usare bot esterni, exploit, manipolazioni del client, abuso di bug o comportamenti che danneggiano altri utenti."],
           ["Chat e condotta", "Non pubblicare spam, insulti, dati personali, contenuti illegali o contenuti che violano diritti altrui. I messaggi possono essere rimossi in caso di abuso."],

@@ -159,7 +159,7 @@ export async function buyGlobalAuction({ listingId, buyerName } = {}) {
     throw readError;
   }
   if (!listing) {
-    throw new Error("Asta non disponibile.");
+    throw new Error("Inserzione non disponibile.");
   }
   const { data, error } = await supabase
     .from(AUCTIONS_TABLE)

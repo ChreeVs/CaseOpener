@@ -8596,20 +8596,6 @@ body {
   }
 }
 
-/* CaseOpener v1.0.0 UI pass */
-.app-version {
-  position: fixed;
-  left: 50%;
-  bottom: 6px;
-  z-index: 180;
-  transform: translateX(-50%);
-  color: rgba(244, 247, 251, 0.42);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0;
-  pointer-events: none;
-}
-
 #apiStatus:empty {
   display: none;
 }
@@ -10110,12 +10096,13 @@ body {
 .app-version {
   position: fixed;
   left: 50%;
-  bottom: 6px;
+  bottom: 5px;
   z-index: 180;
   transform: translateX(-50%);
-  color: rgba(244, 247, 251, 0.42);
-  font-size: 10px;
+  color: rgba(244, 247, 251, 0.38);
+  font-size: 9px;
   font-weight: 800;
+  letter-spacing: 0;
   pointer-events: none;
 }
 
@@ -10142,6 +10129,31 @@ body {
   animation-delay: var(--anim-delay, 0ms);
 }
 
+.roulette-modern-visual.is-spinning .roulette-scanline {
+  animation: gameScanlinePulse 520ms ease-in-out infinite;
+}
+
+.roulette-modern-visual.is-spinning .roulette-modern-readout {
+  animation: gameReadoutPop 620ms ease-out both;
+}
+
+.pachinko-classic-board.is-dropping .pachinko-peg-row i {
+  animation: gamePegFlash 760ms ease-in-out infinite;
+  animation-delay: calc((var(--row, 0) * 70ms) + (var(--peg, 0) * 24ms));
+}
+
+.upgrader-stage.is-upgrading .upgrade-side {
+  animation: gamePanelShake 720ms ease-in-out infinite;
+}
+
+.social-result.is-spinning .jackpot-pot-row.is-highlighted {
+  animation: gameJackpotPop 280ms ease-out both;
+}
+
+.social-result.is-spinning .jackpot-pot-row i {
+  animation: gameMeterSweep 840ms ease-in-out infinite;
+}
+
 @keyframes rouletteScanner {
   from {
     transform: translateX(calc(-80px - 25px));
@@ -10151,5 +10163,59 @@ body {
   }
   to {
     transform: translateX(calc(var(--roulette-offset) - 25px));
+  }
+}
+
+@keyframes gameScanlinePulse {
+  50% {
+    opacity: 0.52;
+    filter: drop-shadow(0 0 14px rgba(255, 209, 102, 0.8));
+    transform: scaleY(1.08);
+  }
+}
+
+@keyframes gameReadoutPop {
+  from {
+    opacity: 0.64;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gamePegFlash {
+  50% {
+    background: rgba(255, 209, 102, 0.92);
+    box-shadow: 0 0 18px rgba(255, 209, 102, 0.44);
+    transform: scale(1.18);
+  }
+}
+
+@keyframes gamePanelShake {
+  25% {
+    transform: translateX(-3px);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+@keyframes gameJackpotPop {
+  from {
+    transform: translateY(2px) scale(0.985);
+  }
+  to {
+    transform: translateY(-1px) scale(1);
+  }
+}
+
+@keyframes gameMeterSweep {
+  50% {
+    filter: brightness(1.4);
   }
 }
