@@ -200,3 +200,70 @@ export async function subscribeGlobalAuctions(onAuction) {
     supabase.removeChannel(channel);
   };
 }
+
+function mapPresenceState(state = {}) {
+  return Object.entries(state)
+    .flatMap(([key, entries]) => (Array.isArray(entries) ? entries : []).map((entry) => ({
+      id: cleanText(entry.id || key, key, 80),
+      name: cleanText(entry.name, "Operatore", 24),
+      title: cleanText(entry.title, "Case Runner", 40),
+      accent: cleanText(entry.accent, "#7fe37c", 24),
+      avatarIcon: cleanText(entry.avatarIcon, "shield", 32),
+      avatarImage: entry.avatarImage || "",
+      prestige: Number(entry.prestige || 0),
+      level: Number(entry.level || 1),
+      credits: money(entry.credits),
+      netWorth: money(entry.netWorth),
+      itemCount: Number(entry.itemCount || 0),
+      lockerItems: Array.isArray(entry.lockerItems) ? entry.lockerItems.slice(0, 40) : [],
+      lobbyId: cleanText(entry.lobbyId, "", 32),
+      onlineAt: entry.onlineAt || new Date().toISOString()
+    })))
+    .sort((a, b) => Date.parse(b.onlineAt || 0) - Date.parse(a.onlineAt || 0));
+}
+
+export async function subscribeSharedGamePresence(profileProvider, onPresence) {
+  const supabase = await getSupabaseClient();
+  if (!supabase) {
+    return null;
+  }
+  const getProfile = () => {
+    const source = typeof profileProvider === "function" ? profileProvider() : profileProvider;
+    return source || {};
+  };
+  const initial = getProfile();
+  const key = cleanText(initial.id || initial.name || `player-${Math.random().toString(36).slice(2)}`, "player", 80);
+  const channel = supabase.channel("case-opener-game-presence", {
+    config: {
+      presence: { key }
+    }
+  });
+  const publishPresence = () => {
+    onPresence?.(mapPresenceState(channel.presenceState()));
+  };
+  const track = () => {
+    const profile = getProfile();
+    return channel.track({
+      ...profile,
+      id: cleanText(profile.id || key, key, 80),
+      itemCount: Array.isArray(profile.lockerItems) ? profile.lockerItems.length : Number(profile.itemCount || 0),
+      onlineAt: new Date().toISOString()
+    });
+  };
+  channel
+    .on("presence", { event: "sync" }, publishPresence)
+    .on("presence", { event: "join" }, publishPresence)
+    .on("presence", { event: "leave" }, publishPresence)
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        track().then(publishPresence).catch(() => {});
+      }
+    });
+  const heartbeat = globalThis.setInterval(() => {
+    track().then(publishPresence).catch(() => {});
+  }, 12000);
+  return () => {
+    globalThis.clearInterval(heartbeat);
+    supabase.removeChannel(channel);
+  };
+}

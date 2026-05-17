@@ -42,6 +42,7 @@ import {
   isSharedGamesAvailable,
   publishSharedGameEvent,
   subscribeGlobalAuctions,
+  subscribeSharedGamePresence,
   subscribeSharedGameEvents
 } from "./network/sharedGames.js";
 import {
@@ -135,7 +136,13 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
-const GAME_VERSION = "v1.0.2";
+const GAME_VERSION = "v1.0.3";
+const AUTO_ROULETTE_START_DELAY_MS = 1600;
+const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
+const AUTO_CRASH_START_DELAY_MS = 5200;
+const AUTO_JACKPOT_START_DELAY_MS = 8600;
+const AUTO_JACKPOT_WAIT_DELAY_MS = 4200;
+const AUTO_JACKPOT_NEXT_DELAY_MS = 6200;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -515,6 +522,7 @@ export class CaseOpenerUI {
     this.lastSharedGamesSyncAt = 0;
     this.seenSharedGameEventIds = new Set();
     this.unsubscribeSharedGameEvents = null;
+    this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions = null;
     this.auctionItemId = "";
     this.auctionPrice = "";
@@ -627,6 +635,8 @@ export class CaseOpenerUI {
     this.unsubscribeCommunityGoalResets = null;
     this.unsubscribeSharedGameEvents?.();
     this.unsubscribeSharedGameEvents = null;
+    this.unsubscribeSharedPresence?.();
+    this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions?.();
     this.unsubscribeGlobalAuctions = null;
     if (this.chatPollTimer) {
@@ -890,6 +900,13 @@ export class CaseOpenerUI {
           this.renderTab();
         }
       });
+      this.unsubscribeSharedPresence = await subscribeSharedGamePresence(
+        () => this.getSharedPresencePayload(),
+        (players) => {
+          this.applySharedPresence(players);
+          this.sharedGamesStatus = "Sync giochi live";
+        }
+      );
     } catch (error) {
       this.sharedGamesStatus = "Realtime giochi non disponibile";
     }
@@ -932,8 +949,57 @@ export class CaseOpenerUI {
     this.socialClient = client;
   }
 
+  getPresenceClientId() {
+    const cloudId = this.cloudSession?.user?.id || this.cloudSession?.user?.email || "";
+    if (cloudId) {
+      return `cloud-${cloudId}`;
+    }
+    try {
+      const key = "case-opener-presence-client-id";
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        return existing;
+      }
+      const created = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(key, created);
+      return created;
+    } catch (error) {
+      return `local-${Date.now().toString(36)}`;
+    }
+  }
+
+  getSharedPresencePayload() {
+    const profile = this.getSocialProfilePayload();
+    return {
+      ...profile,
+      id: this.socialConnection?.clientId || this.getPresenceClientId(),
+      lobbyId: this.jackpotLobbyId || "",
+      itemCount: profile.lockerItems?.length || 0
+    };
+  }
+
+  applySharedPresence(players = []) {
+    const normalized = (Array.isArray(players) ? players : [])
+      .filter((player) => player?.id)
+      .sort((a, b) => Number(b.netWorth || 0) - Number(a.netWorth || 0));
+    const currentId = this.socialConnection?.clientId || this.getPresenceClientId();
+    const currentPlayer = normalized.find((player) => player.id === currentId) || this.socialState?.currentPlayer || null;
+    this.socialState = {
+      ...(this.socialState || {}),
+      players: normalized,
+      currentPlayer
+    };
+    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
+      this.renderTab();
+    }
+  }
+
   updateSocialState(snapshot) {
-    this.socialState = snapshot || null;
+    const presencePlayers = Array.isArray(this.socialState?.players) ? this.socialState.players : [];
+    this.socialState = {
+      ...(snapshot || {}),
+      players: Array.isArray(snapshot?.players) && snapshot.players.length ? snapshot.players : presencePlayers
+    };
     const pendingCredits = Number(snapshot?.currentPlayer?.pendingCredits || 0);
     const pendingItems = Number(snapshot?.currentPlayer?.pendingItemsCount || 0);
     if (!this.socialClaimInFlight && (pendingCredits > 0 || pendingItems > 0)) {
@@ -3516,7 +3582,9 @@ export class CaseOpenerUI {
         id: player.id,
         name: player.name,
         accent: player.accent,
-        itemCount: 1
+        total: Number(player.total || player.value || Math.max(1, Number(player.netWorth || 0) * 0.025).toFixed(2)),
+        itemCount: Math.max(1, Number(player.itemCount || player.lockerItems?.length || 1)),
+        items: Array.isArray(player.lockerItems) ? player.lockerItems.slice(0, 5) : []
       }));
   }
 
@@ -3911,12 +3979,10 @@ export class CaseOpenerUI {
     const roulette = this.rouletteAnimation;
     const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
     const outcome = Math.max(0, Math.min(36, Number(roulette?.outcome || 0)));
-    const rouletteCellWidth = 58;
-    const rouletteTargetCycle = 5;
-    const rouletteTargetIndex = rouletteTargetCycle * 37 + outcome;
-    const rouletteOffset = roulette ? -(rouletteTargetIndex * rouletteCellWidth) : -(rouletteTargetCycle * 37 * rouletteCellWidth);
-    const strip = Array.from({ length: 37 * 9 }, (_, index) => index % 37);
-    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2200) - 120) : 0;
+    const sectorAngle = 360 / 37;
+    const rouletteFinalAngle = roulette ? Number((360 - outcome * sectorAngle - sectorAngle / 2).toFixed(3)) : 0;
+    const rouletteNumbers = Array.from({ length: 37 }, (_, index) => index);
+    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2800) - 120) : 0;
     return `
       <article class="game-card full-width roulette-card modern-roulette-card">
         <div class="social-card-head">
@@ -3930,17 +3996,19 @@ export class CaseOpenerUI {
             ${statTile("Rete", this.sharedGamesStatus.replace("Sync giochi ", ""), "globale")}
           </div>
         </div>
-        <div class="roulette-modern-visual ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-offset:${rouletteOffset}px; --roulette-start-offset:${rouletteOffset + rouletteCellWidth * 26}px; --anim-delay:${rouletteDelay}ms;">
-          <div class="roulette-scanline"></div>
-          <div class="roulette-number-strip">
-            ${strip.map((number) => {
+        <div class="roulette-wheel-stage ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-final-angle:${rouletteFinalAngle}deg; --roulette-duration:${roulette?.durationMs || 2800}ms; --anim-delay:${rouletteDelay}ms;">
+          <div class="roulette-wheel-pointer"></div>
+          <div class="roulette-wheel-disc">
+            ${rouletteNumbers.map((number, index) => {
               const type = number === 0 ? "green" : ROULETTE_RED_NUMBERS.has(number) ? "red" : "black";
-              return `<span class="${type}">${number}</span>`;
+              const angle = Number((index * sectorAngle + sectorAngle / 2).toFixed(3));
+              return `<span class="${type}" style="--slot-angle:${angle}deg; --slot-label-angle:${-angle}deg">${number}</span>`;
             }).join("")}
           </div>
-          <div class="roulette-modern-readout">
-            <strong>${roulette?.spinning ? "Scanning..." : roulette ? escapeHtml(roulette.detail) : "Pronto"}</strong>
-            <small>${roulette?.spinning ? "reveal in corso" : roulette ? `${rouletteProfit >= 0 ? "+" : ""}${formatCredits(rouletteProfit)}` : "scegli target e gira"}</small>
+          <div class="roulette-ball-orbit"><i></i></div>
+          <div class="roulette-wheel-readout">
+            <strong>${roulette?.spinning ? "Rolling" : roulette ? escapeHtml(roulette.detail) : "Pronto"}</strong>
+            <small>${roulette?.spinning ? "risultato gia' deciso" : roulette ? `${rouletteProfit >= 0 ? "+" : ""}${formatCredits(rouletteProfit)}` : "rosso, nero o verde"}</small>
           </div>
         </div>
         <div class="game-controls social-inline-controls">
@@ -3970,12 +4038,20 @@ export class CaseOpenerUI {
     const landingLeft = 10 + binIndex * 10;
     const pathSteps = String(pachinko?.path || "").split("");
     let pathOffset = 0;
+    const motionPoints = [[50, 8]];
     const pathNodes = pathSteps.map((step, index) => {
       pathOffset += step === "R" ? 1 : -1;
       const left = 50 + pathOffset * 4.6;
       const top = 14 + index * 8.5;
+      motionPoints.push([left, top + 2]);
       return `<i style="--step:${index}; --x:${left}%; --y:${top}%"></i>`;
     }).join("");
+    motionPoints.push([landingLeft, 82]);
+    const chipMidLeft = motionPoints[Math.max(1, Math.floor(motionPoints.length * 0.58))]?.[0] ?? 50;
+    const chipLateLeft = Number(((chipMidLeft + landingLeft) / 2).toFixed(2));
+    const pachinkoPathD = motionPoints
+      .map(([x, y], index) => `${index ? "L" : "M"} ${Number(x).toFixed(2)} ${Number(y).toFixed(2)}`)
+      .join(" ");
     const pegRows = Array.from({ length: 9 }, (_, row) => `
       <div class="plinko-peg-row" style="--row:${row}">
         ${Array.from({ length: row + 3 }, (_, peg) => `<i style="--peg:${peg}"></i>`).join("")}
@@ -4004,11 +4080,18 @@ export class CaseOpenerUI {
             ${statTile("Ultimo", pachinko ? pachinko.label : "-", pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit, true)}` : "nessun drop")}
           </div>
         </div>
-        <div class="pachinko-classic-board plinko-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${landingLeft}%; --anim-delay:${pachinkoDelay}ms;">
+        <div class="pachinko-classic-board plinko-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${landingLeft}%; --chip-mid-left:${chipMidLeft}%; --chip-late-left:${chipLateLeft}%; --anim-delay:${pachinkoDelay}ms;">
           <div class="plinko-drop-slot"></div>
           <div class="plinko-path">${pathNodes}</div>
           <div class="pachinko-peg-field plinko-peg-field">${pegRows}</div>
-          ${pachinko ? `<div class="pachinko-chip plinko-chip"><span></span></div>` : ""}
+          ${pachinko ? `
+            <div class="plinko-motion">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path d="${pachinkoPathD}"></path>
+              </svg>
+              <span class="plinko-motion-chip" style="--anim-delay:${pachinkoDelay}ms;"><i></i></span>
+            </div>
+          ` : ""}
           <div class="pachinko-result plinko-result">
             <span>${pachinko?.spinning ? "Caduta..." : pachinko ? `${escapeHtml(pachinko.label)} x${Number(pachinko.outcome || 0).toFixed(2)}` : "Pronto"}</span>
             <strong>${pachinko?.spinning ? "..." : pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit)}` : "0"}</strong>
@@ -6047,13 +6130,13 @@ export class CaseOpenerUI {
     }
     this.ensureAutomaticGameLoopState();
     if (!this.rouletteAnimation?.spinning && !this.rouletteLoopTimer) {
-      this.scheduleRouletteLoop(900);
+      this.scheduleRouletteLoop(AUTO_ROULETTE_START_DELAY_MS);
     }
     if (!this.crashAnimation?.spinning && !this.crashLoopTimer) {
-      this.scheduleCrashLoop(900);
+      this.scheduleCrashLoop(AUTO_CRASH_START_DELAY_MS);
     }
     if (!this.jackpotAnimation?.spinning && !this.jackpotLoopTimer) {
-      this.scheduleJackpotLoop(1200);
+      this.scheduleJackpotLoop(AUTO_JACKPOT_START_DELAY_MS);
     }
   }
 
@@ -6084,7 +6167,7 @@ export class CaseOpenerUI {
       ...result,
       angle: (Number(result.outcome) / 37) * 360 + 4,
       startedAt: Date.now(),
-      durationMs: 2200,
+      durationMs: 2800,
       spinning: true
     };
     this.playUiPulse("tick", 0.42);
@@ -6103,8 +6186,8 @@ export class CaseOpenerUI {
       this.publishSharedGameResult("roulette", result, { choice });
       this.toast(`${result.game}: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.queueSocialProfileSync();
-      this.scheduleRouletteLoop(2200);
-    }, 2200);
+      this.scheduleRouletteLoop(AUTO_ROULETTE_NEXT_DELAY_MS);
+    }, 2800);
   }
 
   playPachinkoGame() {
@@ -6938,7 +7021,7 @@ export class CaseOpenerUI {
       this.playJackpotGame(true);
       return;
     }
-    this.scheduleJackpotLoop(3000);
+    this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
   }
 
   playJackpotGame(autoLoop = false) {
@@ -6947,7 +7030,7 @@ export class CaseOpenerUI {
       if (!autoLoop) {
         this.toast("Scegli una lobby compatibile prima di entrare nel jackpot.");
       }
-      this.scheduleJackpotLoop(3000);
+      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
       this.renderTab();
       return;
     }
@@ -6957,7 +7040,7 @@ export class CaseOpenerUI {
       if (!autoLoop) {
         this.toast("Il jackpot aspetta almeno 2 utenti online.");
       }
-      this.scheduleJackpotLoop(3000);
+      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
       this.renderTab();
       return;
     }
@@ -6969,7 +7052,7 @@ export class CaseOpenerUI {
       if (!autoLoop) {
         this.toast(result.reason);
       }
-      this.scheduleJackpotLoop(3000);
+      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
       return;
     }
     (result.depositedItems || []).forEach((item) => this.selectedInventory.delete(item.id));
@@ -7028,7 +7111,7 @@ export class CaseOpenerUI {
         }
         this.toast(`${result.game}: ${result.winnerName} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
         this.renderAll();
-        this.scheduleJackpotLoop(3600);
+        this.scheduleJackpotLoop(AUTO_JACKPOT_NEXT_DELAY_MS);
       }
     }, 140);
   }
