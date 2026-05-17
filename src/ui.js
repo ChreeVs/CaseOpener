@@ -236,6 +236,14 @@ function iconMarkup(name, className = "") {
   return `<i class="${classes}" data-lucide="${escapeHtml(name)}" aria-hidden="true"></i>`;
 }
 
+function profileAvatarMarkup(profile, fallbackIcon = "shield", className = "") {
+  const src = profile?.avatarImage || profile?.avatarProviderImage || "";
+  if (src) {
+    return `<img class="profile-avatar-img ${className}" src="${escapeHtml(src)}" alt="${escapeHtml(profile?.name || "Avatar")}" loading="lazy" />`;
+  }
+  return iconMarkup(fallbackIcon, className);
+}
+
 function tabIcon(id) {
   const icons = {
     inventory: "briefcase",
@@ -534,6 +542,7 @@ export class CaseOpenerUI {
     this.openResultAutoTimer = null;
     this.reelTickFrame = 0;
     this.rouletteAnimation = null;
+    this.rouletteLoopTimer = null;
     this.pachinkoAnimation = null;
     this.crashAnimation = null;
     this.crashTimer = null;
@@ -544,6 +553,7 @@ export class CaseOpenerUI {
     this.jackpotTimer = null;
     this.jackpotPreview = null;
     this.jackpotWinPopup = null;
+    this.jackpotLobbyId = "";
     this.socialClient = null;
     this.socialState = null;
     this.socialClaimInFlight = false;
@@ -635,6 +645,7 @@ export class CaseOpenerUI {
       window.clearInterval(this.jackpotTimer);
       this.jackpotTimer = null;
     }
+    window.clearTimeout(this.rouletteLoopTimer);
     if (this.openResultAutoTimer) {
       window.clearTimeout(this.openResultAutoTimer);
       this.openResultAutoTimer = null;
@@ -1003,6 +1014,7 @@ export class CaseOpenerUI {
       title: this.state.profile?.title || "Case Runner",
       accent: this.state.profile?.accent || "#7fe37c",
       avatarIcon: this.getProfileIconId(),
+      avatarImage: this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage || "",
       prestige: this.state.prestige?.level || 0,
       level: this.state.profile?.level || 1,
       credits: Number(Number(this.state.credits || 0).toFixed(2)),
@@ -1506,6 +1518,9 @@ export class CaseOpenerUI {
         this.state.profile.avatarIcon = target.value || "shield";
         this.renderProfileSetup();
       }
+      if (target.matches("#profileAvatarUpload")) {
+        this.loadProfileAvatarFile(target.files?.[0]);
+      }
       if (target.matches("#crashAutoPlayEnabled")) {
         this.state.minigames.crash.autoPlay = target.checked;
         if (target.checked) {
@@ -1623,6 +1638,11 @@ export class CaseOpenerUI {
         break;
       case "randomize-profile":
         this.randomizeProfileCard();
+        break;
+      case "clear-profile-avatar":
+        this.state.profile.avatarImage = "";
+        this.renderTopStats();
+        this.renderProfileSetup();
         break;
       case "toggle-opener-settings":
         this.openerSettingsOpen = !this.openerSettingsOpen;
@@ -1806,6 +1826,15 @@ export class CaseOpenerUI {
       case "play-roulette":
         this.playRouletteGame();
         break;
+      case "toggle-roulette-autoplay":
+        this.state.minigames.roulette.autoPlay = !this.state.minigames.roulette.autoPlay;
+        if (this.state.minigames.roulette.autoPlay && !this.rouletteAnimation?.spinning) {
+          this.scheduleRouletteLoop(900);
+        } else {
+          window.clearTimeout(this.rouletteLoopTimer);
+        }
+        this.renderTab();
+        break;
       case "play-pachinko":
         this.playPachinkoGame();
         break;
@@ -1837,6 +1866,17 @@ export class CaseOpenerUI {
         break;
       case "set-crash-bet":
         this.setCrashBetShortcut(data.mode);
+        break;
+      case "select-jackpot-lobby":
+        this.jackpotLobbyId = data.id || "";
+        this.jackpotSelection.clear();
+        this.jackpotPreview = null;
+        this.renderTab();
+        break;
+      case "change-jackpot-lobby":
+        this.jackpotLobbyId = "";
+        this.jackpotSelection.clear();
+        this.renderTab();
         break;
       case "toggle-jackpot-item":
         this.toggleJackpotItem(data.id);
@@ -2117,7 +2157,7 @@ export class CaseOpenerUI {
     if (playerAvatar) {
       playerAvatar.style.setProperty("--player-accent", accent);
       playerAvatar.innerHTML = `
-        ${iconMarkup(this.getProfileIconId(), "player-avatar-icon")}
+        ${profileAvatarMarkup(this.state.profile, this.getProfileIconId(), "player-avatar-icon")}
         <b>P${this.state.prestige.level}</b>
       `;
     }
@@ -2324,7 +2364,7 @@ export class CaseOpenerUI {
         <div class="profile-setup-body">
           <div class="profile-setup-preview">
             <div class="profile-preview-avatar">
-              ${iconMarkup(iconId, "profile-preview-icon")}
+              ${profileAvatarMarkup(profile, iconId, "profile-preview-icon")}
               <b>${this.getPlayerInitials()}</b>
             </div>
             <div class="profile-preview-copy">
@@ -2352,10 +2392,15 @@ export class CaseOpenerUI {
                 ${PROFILE_ICON_OPTIONS.map((option) => `<option value="${option.id}" ${option.id === iconId ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
               </select>
             </label>
+            <label>
+              <span>Immagine profilo</span>
+              <input id="profileAvatarUpload" type="file" accept="image/*" />
+            </label>
           </div>
         </div>
         <div class="profile-setup-actions">
           ${canClose ? `<button class="ghost-button" data-action="close-profile-setup">${iconMarkup("x", "button-icon")} Chiudi</button>` : ""}
+          <button class="ghost-button" data-action="clear-profile-avatar">${iconMarkup("image-off", "button-icon")} Reset avatar</button>
           <button class="ghost-button" data-action="randomize-profile">${iconMarkup("shuffle", "button-icon")} Random</button>
           <button class="primary-button" data-action="save-profile">${iconMarkup("check", "button-icon")} Salva scheda</button>
         </div>
@@ -3471,6 +3516,38 @@ export class CaseOpenerUI {
       }));
   }
 
+  getJackpotLobbies() {
+    const netWorth = getNetWorth(this.state);
+    return [
+      {
+        id: "low",
+        name: "Low Tier",
+        range: "fino a 25K",
+        detail: "Lobby per nuovi player e inventari leggeri.",
+        compatible: netWorth < 25000
+      },
+      {
+        id: "mid",
+        name: "Mid Tier",
+        range: "25K - 150K",
+        detail: "Matchmaking per progressione intermedia.",
+        compatible: netWorth >= 25000 && netWorth < 150000
+      },
+      {
+        id: "high",
+        name: "High Tier",
+        range: "150K+",
+        detail: "Pot alti per profili endgame.",
+        compatible: netWorth >= 150000
+      }
+    ];
+  }
+
+  getSelectedJackpotLobby() {
+    const lobbies = this.getJackpotLobbies();
+    return lobbies.find((lobby) => lobby.id === this.jackpotLobbyId) || null;
+  }
+
   getSingleplayerGoals() {
     const masteryDone = this.skinData.cases.filter((caseDef) => getCaseMastery(this.state, caseDef.id).level >= 8).length;
     const unlockedCases = this.skinData.cases.filter((caseDef) => isCaseUnlocked(this.state, caseDef)).length;
@@ -3540,15 +3617,6 @@ export class CaseOpenerUI {
             <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
           </div>
         `).join("")}
-      </div>
-    `;
-  }
-
-  renderGamesHeader() {
-    return `
-      <div class="games-header">
-        ${statTile("Rete giochi", this.sharedGamesStatus.replace("Sync giochi ", ""), `${this.sharedGameEvents.length} eventi live`)}
-        ${statTile("Modalita'", "6", "roulette, pachinko, upgrader, coinflip, crash, jackpot")}
       </div>
     `;
   }
@@ -3716,6 +3784,7 @@ export class CaseOpenerUI {
     const coin = this.state.minigames.coinflip || {};
     const animation = this.coinflipAnimation;
     const coinDelay = animation?.spinning ? -Math.min(Date.now() - (animation.startedAt || Date.now()), animation.durationMs || 1500) : 0;
+    const coinFinalRotation = animation?.outcome === "t" ? 180 : 0;
     return `
       <article class="game-card full-width coinflip-card">
         <div class="social-card-head">
@@ -3728,7 +3797,7 @@ export class CaseOpenerUI {
             ${statTile("Scelta", (coin.side || "ct").toUpperCase(), "lato")}
           </div>
         </div>
-        <div class="coinflip-stage ${animation?.spinning ? "is-flipping" : ""} ${animation && !animation.spinning ? (animation.playerWon ? "is-win" : "is-loss") : ""}" style="--anim-delay:${coinDelay}ms;">
+        <div class="coinflip-stage ${animation?.spinning ? "is-flipping" : ""} ${animation && !animation.spinning ? (animation.playerWon ? "is-win" : "is-loss") : ""}" style="--anim-delay:${coinDelay}ms; --coinflip-final:${coinFinalRotation}deg;">
           <div class="coinflip-coin">
             <span>CT</span>
             <span>T</span>
@@ -3837,9 +3906,13 @@ export class CaseOpenerUI {
     const rouletteBet = minigames.roulette?.bet || 4;
     const roulette = this.rouletteAnimation;
     const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
-    const outcome = Number(roulette?.outcome || 0);
-    const strip = Array.from({ length: 111 }, (_, index) => index % 37);
-    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), roulette.durationMs || 2200) : 0;
+    const outcome = Math.max(0, Math.min(36, Number(roulette?.outcome || 0)));
+    const rouletteCellWidth = 58;
+    const rouletteTargetCycle = 5;
+    const rouletteTargetIndex = rouletteTargetCycle * 37 + outcome;
+    const rouletteOffset = roulette ? -(rouletteTargetIndex * rouletteCellWidth) : -(rouletteTargetCycle * 37 * rouletteCellWidth);
+    const strip = Array.from({ length: 37 * 9 }, (_, index) => index % 37);
+    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2200) - 120) : 0;
     return `
       <article class="game-card full-width roulette-card modern-roulette-card">
         <div class="social-card-head">
@@ -3853,7 +3926,7 @@ export class CaseOpenerUI {
             ${statTile("Rete", this.sharedGamesStatus.replace("Sync giochi ", ""), "globale")}
           </div>
         </div>
-        <div class="roulette-modern-visual ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-offset:${roulette ? -((outcome + 37) * 58) : -980}px; --anim-delay:${rouletteDelay}ms;">
+        <div class="roulette-modern-visual ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-offset:${rouletteOffset}px; --roulette-start-offset:${rouletteOffset + rouletteCellWidth * 26}px; --anim-delay:${rouletteDelay}ms;">
           <div class="roulette-scanline"></div>
           <div class="roulette-number-strip">
             ${strip.map((number) => {
@@ -3876,6 +3949,7 @@ export class CaseOpenerUI {
             ].map(([value, label]) => `<option value="${value}" ${rouletteChoice === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
           <button class="primary-button" data-action="play-roulette" ${roulette?.spinning ? "disabled" : ""}>Gira</button>
+          <button class="ghost-button" data-action="toggle-roulette-autoplay">${minigames.roulette?.autoPlay ? "Stop auto" : "Auto"}</button>
         </div>
       </article>
       ${this.renderSharedGameFeed("roulette")}
@@ -3956,24 +4030,24 @@ export class CaseOpenerUI {
   renderGames() {
     const gameNav = this.renderGameModeTabs();
     if (this.gamesView === "roulette") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderRouletteGame()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
     }
     if (this.gamesView === "pachinko") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderPachinkoGame()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderPachinkoGame()}</div>`;
     }
     if (this.gamesView === "upgrader") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderUpgraderGame()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
     }
     if (this.gamesView === "coinflip") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderCoinflipGame()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderCoinflipGame()}</div>`;
     }
     if (this.gamesView === "crash") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderMultiplayerCrash()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderMultiplayerCrash()}</div>`;
     }
     if (this.gamesView === "jackpot") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderMultiplayerJackpot()}</div>`;
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderMultiplayerJackpot()}</div>`;
     }
-    return `${this.renderSectionTabs("games")}<div class="games-shell">${this.renderGamesHeader()}${gameNav}${this.renderRouletteGame()}</div>`;
+    return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
   }
 
   renderMultiplayerSummaryHeader() {
@@ -4266,7 +4340,7 @@ export class CaseOpenerUI {
           </label>
           ${showCashout
             ? `<button class="crash-casino-play is-cashout" data-action="cashout-crash">Cashout x${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}</button>`
-            : `<button class="crash-casino-play" data-action="play-crash" ${crash?.spinning ? "disabled" : ""}>Play Demo</button>`}
+            : `<button class="crash-casino-play" data-action="play-crash" ${crash?.spinning ? "disabled" : ""}>Play</button>`}
           ${crash?.spinning && crash?.cashedOutAt
             ? `<div class="crash-casino-locked">Incassato x${Number(crash.cashedOutAt).toFixed(2)}</div>`
             : ""}
@@ -4305,7 +4379,6 @@ export class CaseOpenerUI {
             <path class="crash-chart-line" pathLength="1" style="--trail:${trailWidth}" d="M0 92 C16 88 28 80 40 72 C55 61 66 52 78 36 C88 23 95 14 100 9" />
           </svg>
           <div class="crash-casino-rocket" style="left:${endpointX}%; top:${endpointY}%;">
-            <i></i>
             ${iconMarkup("rocket")}
           </div>
           <div class="crash-payout-readout">
@@ -4335,6 +4408,33 @@ export class CaseOpenerUI {
   }
 
   renderMultiplayerJackpot() {
+    const lobbyOptions = this.getJackpotLobbies();
+    const selectedLobby = this.getSelectedJackpotLobby();
+    if (!selectedLobby) {
+      return `
+        <article class="game-card jackpot-card social-card full-width">
+          <div class="social-card-head">
+            <div>
+              <span>${iconMarkup("coins", "button-icon")} Jackpot</span>
+              <h3>Scegli lobby</h3>
+            </div>
+            <div class="social-chip-stack">
+              ${statTile("Net worth", formatCredits(getNetWorth(this.state), true), "fascia account")}
+            </div>
+          </div>
+          <div class="jackpot-lobby-grid">
+            ${lobbyOptions.map((lobby) => `
+              <button class="jackpot-lobby-card ${lobby.compatible ? "is-compatible" : ""}" data-action="select-jackpot-lobby" data-id="${lobby.id}" ${lobby.compatible ? "" : "disabled"}>
+                <span>${escapeHtml(lobby.range)}</span>
+                <strong>${escapeHtml(lobby.name)}</strong>
+                <small>${escapeHtml(lobby.detail)}</small>
+                <em>${lobby.compatible ? "Disponibile" : "Non compatibile"}</em>
+              </button>
+            `).join("")}
+          </div>
+        </article>
+      `;
+    }
     const jackpotState = this.getJackpotSelectionState();
     const jackpotPreview = this.jackpotPreview;
     const jackpotAnimation = this.jackpotAnimation;
@@ -4349,18 +4449,19 @@ export class CaseOpenerUI {
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("coins", "button-icon")} Jackpot</span>
-            <h3>Jackpot</h3>
+            <h3>${escapeHtml(selectedLobby.name)} Jackpot</h3>
           </div>
           <div class="social-chip-stack">
+            ${statTile("Lobby", selectedLobby.name, selectedLobby.range)}
             ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
-            ${statTile("Pot", potItemCount || 0, "skin nel round")}
             ${statTile("Utenti", `${onlinePlayers.length}/2`, jackpotReady ? `${jackpotOpponents.length} avversari online` : "in attesa")}
           </div>
         </div>
         <div class="game-controls social-inline-controls">
-          <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
-          <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && jackpotReady && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("flame", "button-icon")} Avvia jackpot</button>
-          <span class="hint">${jackpotReady ? "Pronto: almeno 2 utenti online." : "Il jackpot parte solo con almeno 2 utenti online."}</span>
+          <button class="ghost-button" data-action="change-jackpot-lobby" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("layers-3", "button-icon")} Cambia lobby</button>
+          <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("undo-2", "button-icon")} Ritira puntata</button>
+          <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && jackpotReady && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("timer", "button-icon")} Entra nel countdown</button>
+          <span class="hint">${jackpotReady ? "Countdown automatico pronto." : "In attesa di almeno 2 utenti online nella lobby."}</span>
         </div>
         ${this.renderGameInventoryFilters()}
         <div class="jackpot-item-grid">
@@ -4383,14 +4484,14 @@ export class CaseOpenerUI {
         <div class="social-result ${jackpotAnimation?.spinning ? "is-spinning" : ""}">
           <div class="social-result-head">
             <strong>${jackpotAnimation?.spinning ? "Rolling..." : jackpotPreview ? escapeHtml(jackpotPreview.winnerName) : "In attesa"}</strong>
-            <small>${jackpotAnimation?.spinning ? "Il pot sta decidendo il vincitore." : jackpotPreview ? escapeHtml(jackpotPreview.detail) : "Nessun round ancora giocato."}</small>
+            <small>${jackpotAnimation?.spinning ? "Countdown chiuso: risultato gia' deciso, roulette in corso." : jackpotPreview ? escapeHtml(jackpotPreview.detail) : "Seleziona skin e attendi altri player."}</small>
           </div>
           <div class="jackpot-pot-list jackpot-pot-roller">
             ${liveParticipants.length ? liveParticipants.map((participant, index) => `
               <div class="jackpot-pot-row ${index === highlighted ? "is-highlighted" : ""}" style="--player-accent:${participant.accent}">
-                <span>${escapeHtml(participant.name)}</span>
+                <span><b class="jackpot-player-avatar">${escapeHtml(String(participant.name || "?").slice(0, 1).toUpperCase())}</b>${escapeHtml(participant.name)}</span>
                 <div><i style="width:${Math.max(6, (participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}%"></i></div>
-                <strong>${jackpotAnimation?.spinning ? `${participant.itemCount || participant.entries?.length || 0} item` : `${formatCredits(participant.total, true)} - ${participant.itemCount || participant.entries?.length || 0} item`}</strong>
+                <strong>${Math.round((participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}% · ${jackpotAnimation?.spinning ? `${participant.itemCount || participant.entries?.length || 0} item` : `${formatCredits(participant.total, true)}`}</strong>
               </div>
             `).join("") : `<div class="empty-state small">Nessun pot recente.</div>`}
           </div>
@@ -5520,7 +5621,7 @@ export class CaseOpenerUI {
             <p>${escapeHtml(topDrop.item.wear)} - float ${Number(topDrop.item.float).toFixed(6)} - ${topDrop.autoSold ? "auto-sold" : "tenuta in inventario"}</p>
             <div class="open-result-hero-metrics">
               ${statTile("Top drop", formatCredits(topDrop.item.value), topDrop.item.rarity)}
-              ${statTile("Valore batch", formatCredits(grossValue), `${keptCount} inventario - ${autoSoldCount} auto-sell`)}
+              ${statTile("Valore batch", formatCredits(grossValue), `${keptCount} tenute - ${autoSoldCount} auto-sell`)}
               ${statTile("Aperture", result.opened, caseDef.profileName)}
             </div>
           </div>
@@ -5538,7 +5639,7 @@ export class CaseOpenerUI {
             <article class="open-result-item ${rarityClass(drop.item.rarity)} ${drop.item.id === topDrop.item.id ? "is-top" : ""}" style="--rarity:${drop.item.rarityColor}">
               <div class="open-result-item-head">
                 <span>#${index + 1}</span>
-                ${drop.autoSold ? `<small class="open-result-auto">Auto-sell</small>` : `<small>Inventario</small>`}
+                ${drop.autoSold ? `<small class="open-result-auto">Auto-sell</small>` : `<small>Tenuta</small>`}
               </div>
               <div class="open-result-item-art" data-action="inspect-item" data-id="${drop.item.id}">
                 <img src="${drop.item.image}" alt="${escapeHtml(drop.item.name)}" loading="lazy" />
@@ -5916,12 +6017,27 @@ export class CaseOpenerUI {
     this.queueSocialProfileSync();
   }
 
-  playRouletteGame() {
+  scheduleRouletteLoop(delay = 2400) {
+    window.clearTimeout(this.rouletteLoopTimer);
+    if (!this.state.minigames?.roulette?.autoPlay) {
+      return;
+    }
+    this.rouletteLoopTimer = window.setTimeout(() => {
+      if (this.state.minigames?.roulette?.autoPlay && !this.rouletteAnimation?.spinning) {
+        this.playRouletteGame(true);
+      }
+    }, delay);
+  }
+
+  playRouletteGame(autoLoop = false) {
     const bet = this.root.querySelector("#rouletteBet")?.value ?? this.state.minigames?.roulette?.bet;
     const choice = this.root.querySelector("#rouletteChoice")?.value ?? this.state.minigames?.roulette?.choice;
     const result = playRoulette(this.state, { bet, choice });
     if (!result.ok) {
       this.toast(result.reason);
+      if (autoLoop) {
+        this.state.minigames.roulette.autoPlay = false;
+      }
       return;
     }
     this.rouletteAnimation = {
@@ -5947,6 +6063,7 @@ export class CaseOpenerUI {
       this.publishSharedGameResult("roulette", result, { choice });
       this.toast(`${result.game}: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.queueSocialProfileSync();
+      this.scheduleRouletteLoop(2200);
     }, 2200);
   }
 
@@ -6254,6 +6371,26 @@ export class CaseOpenerUI {
     this.socialClient?.syncProfile?.(this.getSocialProfilePayload()).catch(() => {});
     this.toast(`Profilo aggiornato: ${name}.`);
     this.renderAll();
+  }
+
+  loadProfileAvatarFile(file) {
+    if (!file || !file.type?.startsWith("image/")) {
+      return;
+    }
+    if (file.size > 450000) {
+      this.toast("Avatar troppo pesante. Usa un'immagine sotto 450 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.state.profile = {
+        ...this.state.profile,
+        avatarImage: String(reader.result || "")
+      };
+      this.renderTopStats();
+      this.renderProfileSetup();
+    };
+    reader.readAsDataURL(file);
   }
 
   randomizeProfileCard() {
@@ -6739,6 +6876,12 @@ export class CaseOpenerUI {
   }
 
   playJackpotGame() {
+    const selectedLobby = this.getSelectedJackpotLobby();
+    if (!selectedLobby?.compatible) {
+      this.toast("Scegli una lobby compatibile prima di entrare nel jackpot.");
+      this.renderTab();
+      return;
+    }
     const onlinePlayers = this.getJackpotPresencePlayers();
     const opponents = this.getJackpotOpponents();
     if (onlinePlayers.length < 2 || !opponents.length) {
@@ -7531,6 +7674,8 @@ export class CaseOpenerUI {
       return false;
     }
     const provider = session?.user?.app_metadata?.provider || "";
+    const metadata = session?.user?.user_metadata || {};
+    const avatarProviderImage = String(metadata.avatar_url || metadata.picture || "").trim();
     const shouldApply = forceName || provider === "discord" || !this.state.profile?.configured || this.state.profile?.name === "Operatore";
     if (!shouldApply) {
       return false;
@@ -7539,6 +7684,7 @@ export class CaseOpenerUI {
       ...this.state.profile,
       name,
       title: provider === "discord" ? "Discord Player" : (this.state.profile?.title || "Case Runner"),
+      avatarProviderImage: provider === "discord" ? avatarProviderImage : (this.state.profile?.avatarProviderImage || ""),
       configured: true
     };
     this.save();

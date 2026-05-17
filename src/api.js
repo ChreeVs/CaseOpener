@@ -622,6 +622,29 @@ function rebalanceCaseDefinition(caseDef) {
   };
 }
 
+function ensureAdvancedLowTierPool(caseDef, globalPool) {
+  if ((caseDef.unlockPrestige || 0) < 6) {
+    return caseDef;
+  }
+  const hasLowTier = RARITY_ORDER
+    .filter((rarity) => (RARITIES[rarity]?.tier || 0) <= 2)
+    .some((rarity) => caseDef.pool[rarity]?.length);
+  if (hasLowTier) {
+    return caseDef;
+  }
+  const pool = clonePool(caseDef.pool);
+  pool["Mil-Spec"] = [...(globalPool["Mil-Spec"] || [])]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 90);
+  const compacted = compactPool(pool);
+  return {
+    ...caseDef,
+    pool: compacted,
+    availableRarities: RARITY_ORDER.filter((rarity) => compacted[rarity]?.length),
+    totalSkins: countPool(compacted)
+  };
+}
+
 function caseDescription(crate, priceSource = "fallback") {
   const date = crate.first_sale_date ? ` Prima vendita: ${crate.first_sale_date}.` : "";
   const source = priceSource === "steam"
@@ -840,10 +863,12 @@ export function buildSkinData(rawSkins, rawCrates = []) {
     });
   }
 
+  const balancedCases = cases.map((caseDef) => ensureAdvancedLowTierPool(caseDef, globalPool));
+
   return {
     skins,
     byId,
     globalPool: clonePool(globalPool),
-    cases
+    cases: balancedCases
   };
 }

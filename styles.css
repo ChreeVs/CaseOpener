@@ -4236,15 +4236,18 @@ body {
 }
 
 .roulette-modern-visual.is-spinning .roulette-number-strip {
-  animation: rouletteScanner 1900ms cubic-bezier(.1,.82,.12,1) both;
+  animation: rouletteScanner 2200ms cubic-bezier(.11,.76,.08,1) both;
 }
 
 @keyframes rouletteScanner {
   from {
-    transform: translateX(-80px);
+    transform: translateX(var(--roulette-start-offset));
   }
-  62% {
-    transform: translateX(calc(var(--roulette-offset) - 260px));
+  68% {
+    transform: translateX(calc(var(--roulette-offset) - 430px));
+  }
+  84% {
+    transform: translateX(calc(var(--roulette-offset) + 62px));
   }
   to {
     transform: translateX(var(--roulette-offset));
@@ -4537,7 +4540,7 @@ body {
     transform: rotateY(0deg) rotateX(0deg);
   }
   to {
-    transform: rotateY(1620deg) rotateX(540deg);
+    transform: rotateY(calc(1440deg + var(--coinflip-final, 0deg))) rotateX(720deg);
   }
 }
 
@@ -10386,10 +10389,13 @@ body {
 
 @keyframes rouletteScanner {
   from {
-    transform: translateX(calc(-80px - 25px));
+    transform: translateX(calc(var(--roulette-start-offset) - 25px));
   }
-  62% {
-    transform: translateX(calc(var(--roulette-offset) - 285px));
+  68% {
+    transform: translateX(calc(var(--roulette-offset) - 455px));
+  }
+  84% {
+    transform: translateX(calc(var(--roulette-offset) + 37px));
   }
   to {
     transform: translateX(calc(var(--roulette-offset) - 25px));
@@ -10848,22 +10854,195 @@ body {
     drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
 }
 
-.crash-casino-rocket i {
-  position: absolute;
-  right: 56px;
-  top: 26px;
-  width: 130px;
-  height: 30px;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 14% 50%, rgba(255, 224, 103, 0.95), transparent 18%),
-    linear-gradient(90deg, rgba(255, 103, 35, 0), rgba(255, 104, 33, 0.92), rgba(255, 215, 74, 0.88));
-  filter: blur(1px);
-  transform: rotate(9deg);
-}
-
 .crash-casino-stage.is-crashed .crash-casino-rocket {
   animation: crashRocketBurst 500ms ease-out both;
+}
+
+/* Gameplay/economy UI pass */
+.inventory-grid,
+.market-grid,
+.jackpot-win-grid {
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+}
+
+.item-card,
+.market-card .item-card,
+.jackpot-win-grid .item-card {
+  min-height: 96px;
+  grid-template-columns: 96px minmax(0, 1fr) minmax(88px, auto);
+  grid-template-rows: auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.item-art {
+  grid-row: auto;
+  width: 96px;
+  height: 78px;
+}
+
+.item-art img {
+  width: 92px;
+  height: 74px;
+}
+
+.item-info strong {
+  max-width: 100%;
+  font-size: 14px;
+}
+
+.item-info span {
+  max-width: 100%;
+}
+
+.item-value {
+  justify-self: end;
+  text-align: right;
+}
+
+.item-actions {
+  grid-column: 2 / -1;
+  justify-content: flex-end;
+}
+
+.profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.player-avatar .profile-avatar-img,
+.profile-preview-avatar .profile-avatar-img {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.player-avatar .profile-avatar-img + b,
+.profile-preview-avatar .profile-avatar-img + b {
+  z-index: 1;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+}
+
+.jackpot-lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.jackpot-lobby-card {
+  min-height: 180px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid rgba(130, 158, 190, 0.14);
+  border-radius: 12px;
+  color: var(--text);
+  text-align: left;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018));
+}
+
+.jackpot-lobby-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.jackpot-lobby-card.is-compatible {
+  border-color: rgba(100, 215, 227, 0.38);
+  box-shadow: 0 0 0 1px rgba(100, 215, 227, 0.08);
+}
+
+.jackpot-lobby-card span,
+.jackpot-lobby-card em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.jackpot-lobby-card strong {
+  font-size: 24px;
+}
+
+.jackpot-lobby-card small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.jackpot-player-avatar {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  margin-right: 7px;
+  border-radius: 999px;
+  color: #071019;
+  background: var(--player-accent);
+  font-size: 11px;
+}
+
+.open-result-card {
+  width: min(1180px, calc(100vw - 32px));
+  gap: 16px;
+  border-radius: 14px;
+}
+
+.open-result-head p {
+  display: none;
+}
+
+.open-result-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.open-result-item {
+  min-height: 96px;
+  grid-template-columns: 86px minmax(0, 1fr) minmax(74px, auto);
+  grid-template-rows: auto auto;
+  align-items: center;
+}
+
+.open-result-item-head {
+  grid-column: 2 / -1;
+  grid-row: 1;
+}
+
+.open-result-item-art {
+  grid-row: 1 / span 2;
+  min-height: 72px;
+}
+
+.open-result-item-art img {
+  max-width: 82px;
+  height: 62px;
+}
+
+.open-result-item-copy {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.open-result-item-footer {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+@media (max-width: 900px) {
+  .jackpot-lobby-grid,
+  .open-result-hero,
+  .open-result-hero-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-grid,
+  .market-grid,
+  .jackpot-win-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .crash-payout-readout {

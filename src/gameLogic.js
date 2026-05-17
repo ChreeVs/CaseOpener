@@ -162,6 +162,8 @@ export function createDefaultState() {
       accent: "#7fe37c",
       team: "ct",
       avatarIcon: "shield",
+      avatarImage: "",
+      avatarProviderImage: "",
       configured: false
     },
     market: {
@@ -391,10 +393,24 @@ export function getPrestigeMultiplier(state) {
 export function getDropValueMultiplier(state) {
   const limited = getLimitedEventEffect(state);
   const level = Math.min(MAX_PRESTIGE_LEVEL, state.prestige.level || 0);
-  return (1 + level * 0.022 + Math.sqrt(state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.009) *
+  return (1 + level * 0.018 + Math.sqrt(state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.007) *
     getCollectionMultiplier(state) *
     (1 + getPrestigeNodeEffect(state, "value")) *
     (limited.valueMultiplier || 1);
+}
+
+function getPrestigeUpgradeEfficiency(state) {
+  const prestigeLevel = Math.max(0, Number(state.prestige?.level) || 0);
+  return 1 / (1 + prestigeLevel * 0.055 + Math.pow(Math.max(0, prestigeLevel - 7), 1.35) * 0.018);
+}
+
+function getDiminishedUpgradeLevel(state, upgradeId, curve = 12) {
+  const level = Math.max(0, Number(state.upgrades?.[upgradeId]) || 0);
+  if (!level) {
+    return 0;
+  }
+  const softLevel = curve * (1 - Math.exp(-level / curve));
+  return softLevel * getPrestigeUpgradeEfficiency(state);
 }
 
 export function getUpgradeCost(state, upgradeId) {
@@ -403,12 +419,14 @@ export function getUpgradeCost(state, upgradeId) {
   if (!definition || level >= definition.maxLevel) {
     return Infinity;
   }
-  const endgameScale = 1 + Math.pow(Math.max(0, state.prestige.level - 6), 1.55) * 0.075;
-  return Math.floor(definition.baseCost * Math.pow(definition.growth + 0.012, level) * Math.pow(1.2, state.prestige.level) * endgameScale);
+  const prestigeLevel = Math.max(0, Number(state.prestige?.level) || 0);
+  const endgameScale = 1 + Math.pow(Math.max(0, prestigeLevel - 5), 1.62) * 0.11;
+  const lateLevelScale = 1 + Math.pow(Math.max(0, level - 10), 1.28) * 0.075;
+  return Math.floor(definition.baseCost * Math.pow(definition.growth + 0.018, level) * Math.pow(1.28, prestigeLevel) * endgameScale * lateLevelScale);
 }
 
 export function getOpenDuration(state) {
-  const level = state.upgrades.openSpeed || 0;
+  const level = getDiminishedUpgradeLevel(state, "openSpeed", 14);
   return Math.max(760, Math.round(3800 * Math.pow(0.91, level)));
 }
 
@@ -504,31 +522,31 @@ export function getLuckMultiplier(state) {
   const eventBonus = isEventActive(state) ? state.event.multiplier : 1;
   const limited = getLimitedEventEffect(state);
   const comboBonus = Math.min(0.22, Math.max(0, state.combo.count - 1) * 0.008);
-  return (1 + (state.upgrades.luck || 0) * 0.045 + comboBonus + state.prestige.level * 0.01 + getPrestigeNodeEffect(state, "luck") + getProfileSkillBonus(state).luck) *
+  return (1 + getDiminishedUpgradeLevel(state, "luck", 14) * 0.032 + comboBonus + state.prestige.level * 0.007 + getPrestigeNodeEffect(state, "luck") + getProfileSkillBonus(state).luck) *
     eventBonus *
     (limited.luckMultiplier || 1);
 }
 
 export function getRareBoostMultiplier(state) {
   const limited = getLimitedEventEffect(state);
-  return (1 + (state.upgrades.rareBoost || 0) * 0.028 + state.prestige.level * 0.012 + getPrestigeNodeEffect(state, "rare")) *
+  return (1 + getDiminishedUpgradeLevel(state, "rareBoost", 12) * 0.021 + state.prestige.level * 0.007 + getPrestigeNodeEffect(state, "rare")) *
     (limited.rareMultiplier || 1);
 }
 
 export function getCritChance(state) {
   return Math.min(
-    0.24,
-    0.01 + (state.upgrades.critBonus || 0) * 0.008 + (state.upgrades.luck || 0) * 0.0015 + getPrestigeNodeEffect(state, "crit")
+    0.18,
+    0.01 + getDiminishedUpgradeLevel(state, "critBonus", 10) * 0.0055 + getDiminishedUpgradeLevel(state, "luck", 14) * 0.0008 + getPrestigeNodeEffect(state, "crit")
   );
 }
 
 export function getMultiOpenCount(state) {
-  const level = Math.min(state.upgrades.multiOpen || 0, MULTI_OPEN_LEVELS.length - 1);
+  const level = Math.min(Math.floor(getDiminishedUpgradeLevel(state, "multiOpen", 10)), MULTI_OPEN_LEVELS.length - 1);
   return MULTI_OPEN_LEVELS[level] || 1;
 }
 
 export function getPassiveRate(state) {
-  const level = state.upgrades.passiveIncome || 0;
+  const level = getDiminishedUpgradeLevel(state, "passiveIncome", 14);
   if (!level) {
     return 0;
   }
@@ -541,7 +559,7 @@ export function getPassiveRate(state) {
 }
 
 export function getAutoInterval(state) {
-  const level = state.upgrades.autoOpener || 0;
+  const level = getDiminishedUpgradeLevel(state, "autoOpener", 9);
   if (!level || state.automation?.autoOpenerEnabled === false) {
     return Infinity;
   }
@@ -757,11 +775,15 @@ function weightedPick(entries) {
 }
 
 function getAdjustedProfile(caseDef, state) {
-  const profile = caseDef.profile || DROP_PROFILES.standard;
+  const profileMap = new Map(caseDef.profile || DROP_PROFILES.standard);
+  RARITY_ORDER
+    .filter((rarity) => (RARITIES[rarity]?.tier || 0) <= 2 && caseDef.pool[rarity]?.length && !profileMap.has(rarity))
+    .forEach((rarity) => profileMap.set(rarity, 1));
+  const profile = [...profileMap.entries()];
   const luck = getLuckMultiplier(state) * getCaseMasteryLuckMultiplier(state, caseDef);
   const rareBoost = getRareBoostMultiplier(state);
 
-  return profile
+  const adjusted = profile
     .map(([rarity, weight]) => {
       const tier = RARITIES[rarity]?.tier || 0;
       let adjusted = weight;
@@ -780,6 +802,29 @@ function getAdjustedProfile(caseDef, state) {
       return { value: rarity, weight: adjusted };
     })
     .filter((entry) => entry.weight > 0);
+
+  const lowTierEntries = adjusted.filter((entry) => (RARITIES[entry.value]?.tier || 0) <= 2);
+  if (!lowTierEntries.length) {
+    return adjusted;
+  }
+
+  const total = adjusted.reduce((sum, entry) => sum + entry.weight, 0) || 1;
+  const lowTotal = lowTierEntries.reduce((sum, entry) => sum + entry.weight, 0);
+  const prestigeLevel = Math.max(0, Number(state.prestige?.level) || 0);
+  const collectionPity = Math.min(0.06, Math.max(0, state.collections?.power || 0) * 0.0015);
+  const lowTierFloor = Math.max(0.12, 0.2 - prestigeLevel * 0.003) + collectionPity;
+  const currentLowShare = lowTotal / total;
+  if (currentLowShare >= lowTierFloor) {
+    return adjusted;
+  }
+
+  const requiredLowWeight = (lowTierFloor * (total - lowTotal)) / Math.max(0.01, 1 - lowTierFloor);
+  const lowScale = requiredLowWeight / Math.max(0.01, lowTotal);
+  return adjusted.map((entry) => (
+    (RARITIES[entry.value]?.tier || 0) <= 2
+      ? { ...entry, weight: entry.weight * lowScale }
+      : entry
+  ));
 }
 
 function getProfileWithProbabilities(caseDef, state) {
@@ -863,7 +908,7 @@ function calculateValue(skin, rarity, floatValue, state, flags, caseDef) {
   const floatEdge = Math.max(0, 1 - floatValue);
   const collectionBonus = skin.collections.length ? 1 + Math.min(0.22, skin.collections.length * 0.035) : 1;
   const variance = 0.78 + Math.random() * 0.62;
-  const luckValue = 1 + Math.min(0.24, (getLuckMultiplier(state) - 1) * 0.16);
+  const luckValue = 1 + Math.min(0.16, (getLuckMultiplier(state) - 1) * 0.105);
   const stattrak = flags.stattrak ? 1.38 : 1;
   const souvenir = flags.souvenir ? 1.22 : 1;
   const specialNameBonus = skin.name.startsWith("\u2605") || ["Knives", "Gloves"].includes(skin.category) ? 1.48 : 1;
@@ -1309,7 +1354,11 @@ export function playRoulette(state, { bet, choice } = {}) {
   const rawPayout = matches[normalizedChoice] ? amount * multiplier : 0;
   const payout = applySoftCap(state, amount, rawPayout);
   state.credits += payout;
-  state.minigames.roulette = { bet: amount, choice: normalizedChoice };
+  state.minigames.roulette = {
+    ...(state.minigames.roulette || {}),
+    bet: amount,
+    choice: normalizedChoice
+  };
 
   const labels = {
     red: "Rosso",
