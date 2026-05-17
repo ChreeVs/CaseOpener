@@ -2,6 +2,7 @@
   ACHIEVEMENTS
 } from "./config/achievementsConfig.js";
 import {
+  CASE_MAX_PRESTIGE_UNLOCK,
   ECONOMY_CONFIG,
   INVENTORY_PAGE_SIZE,
   PRESTIGE_TREE,
@@ -3145,7 +3146,7 @@ export class CaseOpenerUI {
       ${this.renderSectionTabs("prestige")}
       <div class="prestige-panel">
         <div>
-          <span>Prestige ${this.state.prestige.level}/15</span>
+          <span>Prestige ${this.state.prestige.level}/${CASE_MAX_PRESTIGE_UNLOCK}</span>
           <h3>Bonus permanente x${getPrestigeMultiplier(this.state).toFixed(2)}</h3>
           <p>Resetta saldo, upgrade e inventario. Mantieni statistiche, achievement, livello profilo e ottieni shard permanenti.</p>
         </div>
@@ -3403,9 +3404,9 @@ export class CaseOpenerUI {
     const unlockedCases = this.skinData.cases.filter((caseDef) => isCaseUnlocked(this.state, caseDef)).length;
     const goals = [
       {
-        label: "Raggiungi Prestige 8",
-        progress: clamp((this.state.prestige?.level || 0) / 8, 0, 1),
-        detail: `P${this.state.prestige?.level || 0}/8`
+        label: `Raggiungi Prestige ${CASE_MAX_PRESTIGE_UNLOCK}`,
+        progress: clamp((this.state.prestige?.level || 0) / CASE_MAX_PRESTIGE_UNLOCK, 0, 1),
+        detail: `P${this.state.prestige?.level || 0}/${CASE_MAX_PRESTIGE_UNLOCK}`
       },
       {
         label: "Sblocca tutte le casse",
@@ -3429,7 +3430,7 @@ export class CaseOpenerUI {
   getEndgameTracks() {
     const unlockedCases = this.skinData.cases.filter((caseDef) => isCaseUnlocked(this.state, caseDef)).length;
     const soloProgress = (
-      clamp((this.state.prestige?.level || 0) / 10, 0, 1) +
+      clamp((this.state.prestige?.level || 0) / CASE_MAX_PRESTIGE_UNLOCK, 0, 1) +
       clamp(unlockedCases / Math.max(1, this.skinData.cases.length), 0, 1) +
       clamp(getNetWorth(this.state) / 60000, 0, 1)
     ) / 3;
@@ -3443,8 +3444,8 @@ export class CaseOpenerUI {
       {
         title: "Vault Master",
         progress: soloProgress,
-        detail: `P${this.state.prestige?.level || 0}/10 · ${unlockedCases}/${this.skinData.cases.length} casse · ${formatCredits(getNetWorth(this.state), true)} / ${formatCredits(60000, true)}`,
-        copy: "Chiudi il loop singleplayer arrivando a Prestige 10, arsenale completo e net worth alto abbastanza da sostenere qualunque strategia."
+        detail: `P${this.state.prestige?.level || 0}/${CASE_MAX_PRESTIGE_UNLOCK} · ${unlockedCases}/${this.skinData.cases.length} casse · ${formatCredits(getNetWorth(this.state), true)} / ${formatCredits(60000, true)}`,
+        copy: `Chiudi il loop singleplayer arrivando a Prestige ${CASE_MAX_PRESTIGE_UNLOCK}, arsenale completo e net worth alto abbastanza da sostenere qualunque strategia.`
       },
       {
         title: "Global Network",
@@ -3800,10 +3801,6 @@ export class CaseOpenerUI {
             ${[
               ["red", "Rosso x2"],
               ["black", "Nero x2"],
-              ["even", "Pari x2"],
-              ["odd", "Dispari x2"],
-              ["low", "1-18 x2"],
-              ["high", "19-36 x2"],
               ["green", "Verde x35"]
             ].map(([value, label]) => `<option value="${value}" ${rouletteChoice === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
@@ -3819,12 +3816,33 @@ export class CaseOpenerUI {
     const pachinkoBet = minigames.pachinko?.bet || 4;
     const pachinko = this.pachinkoAnimation;
     const pachinkoProfit = pachinko ? pachinko.payout - pachinko.bet : 0;
-    const pachinkoDelay = pachinko?.spinning ? -Math.min(Date.now() - (pachinko.startedAt || Date.now()), pachinko.durationMs || 2300) : 0;
-    const rows = Array.from({ length: 8 }, (_, row) => `
-      <div class="pachinko-peg-row" style="--row:${row}">
+    const pachinkoDelay = pachinko?.spinning ? -Math.min(Date.now() - (pachinko.startedAt || Date.now()), pachinko.durationMs || 2600) : 0;
+    const binIndex = Math.max(0, Math.min(8, Number(pachinko?.binIndex ?? 4)));
+    const landingLeft = 10 + binIndex * 10;
+    const pathSteps = String(pachinko?.path || "").split("");
+    let pathOffset = 0;
+    const pathNodes = pathSteps.map((step, index) => {
+      pathOffset += step === "R" ? 1 : -1;
+      const left = 50 + pathOffset * 4.6;
+      const top = 14 + index * 8.5;
+      return `<i style="--step:${index}; --x:${left}%; --y:${top}%"></i>`;
+    }).join("");
+    const pegRows = Array.from({ length: 9 }, (_, row) => `
+      <div class="plinko-peg-row" style="--row:${row}">
         ${Array.from({ length: row + 3 }, (_, peg) => `<i style="--peg:${peg}"></i>`).join("")}
       </div>
     `).join("");
+    const bins = pachinko?.bins || [
+      { label: "Jackpot", multiplier: 5 },
+      { label: "Clutch", multiplier: 2.2 },
+      { label: "Hot", multiplier: 1.2 },
+      { label: "Safe", multiplier: 0.7 },
+      { label: "Void", multiplier: 0 },
+      { label: "Safe", multiplier: 0.7 },
+      { label: "Hot", multiplier: 1.2 },
+      { label: "Clutch", multiplier: 2.2 },
+      { label: "Jackpot", multiplier: 5 }
+    ];
     return `
       <article class="game-card full-width pachinko-card">
         <div class="social-card-head">
@@ -3837,16 +3855,22 @@ export class CaseOpenerUI {
             ${statTile("Ultimo", pachinko ? pachinko.label : "-", pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit, true)}` : "nessun drop")}
           </div>
         </div>
-        <div class="pachinko-classic-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${pachinko?.chipLeft || 50}%; --anim-delay:${pachinkoDelay}ms;">
-          <div class="pachinko-funnel"></div>
-          <div class="pachinko-peg-field">${rows}</div>
-          ${pachinko ? `<div class="pachinko-chip"></div>` : ""}
-          <div class="pachinko-result">
-            <span>${pachinko?.spinning ? "Drop..." : pachinko ? escapeHtml(pachinko.label) : "Pronto"}</span>
+        <div class="pachinko-classic-board plinko-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${landingLeft}%; --anim-delay:${pachinkoDelay}ms;">
+          <div class="plinko-drop-slot"></div>
+          <div class="plinko-path">${pathNodes}</div>
+          <div class="pachinko-peg-field plinko-peg-field">${pegRows}</div>
+          ${pachinko ? `<div class="pachinko-chip plinko-chip"><span></span></div>` : ""}
+          <div class="pachinko-result plinko-result">
+            <span>${pachinko?.spinning ? "Caduta..." : pachinko ? `${escapeHtml(pachinko.label)} x${Number(pachinko.outcome || 0).toFixed(2)}` : "Pronto"}</span>
             <strong>${pachinko?.spinning ? "..." : pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit)}` : "0"}</strong>
           </div>
-          <div class="pachinko-bins">
-            ${["0", ".4", ".75", "1", "1.5", "2.4", "5", "15"].map((label) => `<span>x${label}</span>`).join("")}
+          <div class="pachinko-bins plinko-bins">
+            ${bins.map((bin, index) => `
+              <span class="${index === binIndex && pachinko && !pachinko.spinning ? "is-hit" : ""}">
+                <strong>x${Number(bin.multiplier).toFixed(Number(bin.multiplier) % 1 ? 1 : 0)}</strong>
+                <small>${escapeHtml(bin.label)}</small>
+              </span>
+            `).join("")}
           </div>
         </div>
         <div class="game-controls social-inline-controls pachinko-controls">
@@ -5831,21 +5855,10 @@ export class CaseOpenerUI {
       this.toast(result.reason);
       return;
     }
-    const chipMap = {
-      Crash: 7,
-      Chip: 20,
-      Safe: 34,
-      Refund: 48,
-      Boost: 62,
-      Hot: 76,
-      Clutch: 89,
-      Jackpot: 96
-    };
     this.pachinkoAnimation = {
       ...result,
-      chipLeft: chipMap[result.label] || 50,
       startedAt: Date.now(),
-      durationMs: 2300,
+      durationMs: 2600,
       spinning: true
     };
     this.playUiPulse("tick", 0.3);
@@ -5864,7 +5877,7 @@ export class CaseOpenerUI {
       this.publishSharedGameResult("pachinko", result, { label: result.label });
       this.toast(`${result.game}: ${result.label} ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.queueSocialProfileSync();
-    }, 2300);
+    }, 2600);
   }
 
   playUpgraderGame() {

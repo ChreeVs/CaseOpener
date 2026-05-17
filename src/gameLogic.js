@@ -18,6 +18,7 @@ import {
   RARITY_ORDER
 } from "./config/rarityConfig.js";
 import {
+  CASE_MAX_PRESTIGE_UNLOCK,
   STARTING_CREDITS
 } from "./config/gameConfig.js";
 import {
@@ -26,7 +27,7 @@ import {
 
 const UPGRADE_BY_ID = new Map(UPGRADE_DEFINITIONS.map((upgrade) => [upgrade.id, upgrade]));
 const PRESTIGE_NODE_BY_ID = new Map(PRESTIGE_TREE.map((node) => [node.id, node]));
-const MAX_PRESTIGE_LEVEL = 15;
+const MAX_PRESTIGE_LEVEL = CASE_MAX_PRESTIGE_UNLOCK;
 const MARKETPLACE_ACTIVE_LISTING_LIMIT = 5;
 const MARKETPLACE_MAX_PRICE = 1000000;
 
@@ -1296,7 +1297,7 @@ export function playRoulette(state, { bet, choice } = {}) {
     return { ok: false, reason: "Crediti insufficienti." };
   }
 
-  const normalizedChoice = ["red", "black", "green", "even", "odd", "low", "high"].includes(choice) ? choice : "red";
+  const normalizedChoice = ["red", "black", "green"].includes(choice) ? choice : "red";
   state.credits -= amount;
   const number = Math.floor(Math.random() * 37);
   const isRed = ROULETTE_RED.has(number);
@@ -1304,11 +1305,7 @@ export function playRoulette(state, { bet, choice } = {}) {
   const matches = {
     red: isRed,
     black: !isRed && !isGreen,
-    green: isGreen,
-    even: number > 0 && number % 2 === 0,
-    odd: number % 2 === 1,
-    low: number >= 1 && number <= 18,
-    high: number >= 19 && number <= 36
+    green: isGreen
   };
   const multiplier = normalizedChoice === "green" ? 35 : 2;
   const rawPayout = matches[normalizedChoice] ? amount * multiplier : 0;
@@ -1319,11 +1316,7 @@ export function playRoulette(state, { bet, choice } = {}) {
   const labels = {
     red: "Rosso",
     black: "Nero",
-    green: "Verde",
-    even: "Pari",
-    odd: "Dispari",
-    low: "1-18",
-    high: "19-36"
+    green: "Verde"
   };
   const entry = recordMinigame(state, {
     game: "Roulette",
@@ -1350,19 +1343,22 @@ export function playPachinko(state, { bet } = {}) {
 
   state.credits -= amount;
   const bins = [
-    { label: "Crash", multiplier: 0, weight: 10 },
-    { label: "Chip", multiplier: 0.4, weight: 18 },
-    { label: "Safe", multiplier: 0.75, weight: 24 },
-    { label: "Refund", multiplier: 1.08, weight: 25 },
-    { label: "Boost", multiplier: 1.5, weight: 15 },
-    { label: "Hot", multiplier: 2.4, weight: 6 },
-    { label: "Clutch", multiplier: 5, weight: 1.5 },
-    { label: "Jackpot", multiplier: 15, weight: 0.5 }
+    { label: "Jackpot", multiplier: 5 },
+    { label: "Clutch", multiplier: 2.2 },
+    { label: "Hot", multiplier: 1.2 },
+    { label: "Safe", multiplier: 0.7 },
+    { label: "Void", multiplier: 0 },
+    { label: "Safe", multiplier: 0.7 },
+    { label: "Hot", multiplier: 1.2 },
+    { label: "Clutch", multiplier: 2.2 },
+    { label: "Jackpot", multiplier: 5 }
   ];
-  const picked = weightedPick(bins.map((bin) => ({ value: bin, weight: bin.weight })));
+  const pathSteps = Array.from({ length: 8 }, () => (Math.random() < 0.5 ? "L" : "R"));
+  const binIndex = pathSteps.filter((step) => step === "R").length;
+  const picked = bins[binIndex] || bins[4];
   const rawPayout = Number((amount * picked.multiplier).toFixed(2));
   const payout = applySoftCap(state, amount, rawPayout);
-  const path = Array.from({ length: 8 }, (_, index) => (Math.random() < 0.5 ? "L" : "R")).join("");
+  const path = pathSteps.join("");
   state.credits += payout;
   state.minigames.pachinko = { bet: amount };
 
@@ -1372,7 +1368,10 @@ export function playPachinko(state, { bet } = {}) {
     payout,
     outcome: picked.multiplier,
     label: picked.label,
-    detail: `x${picked.multiplier.toFixed(2)} - ${path}`
+    detail: `x${picked.multiplier.toFixed(2)} - ${path}`,
+    binIndex,
+    path,
+    bins: bins.map((bin) => ({ label: bin.label, multiplier: bin.multiplier }))
   });
   return { ok: true, ...entry };
 }
@@ -1716,7 +1715,7 @@ export function claimDailyReward(state) {
  */
 export function prestige(state) {
   if (state.prestige.level >= MAX_PRESTIGE_LEVEL) {
-    return { ok: false, reason: "Prestige massimo raggiunto (15)." };
+    return { ok: false, reason: `Prestige massimo raggiunto (${MAX_PRESTIGE_LEVEL}).` };
   }
   if (!canPrestige(state)) {
     return { ok: false, reason: "Serve piu' net worth e piu' casse aperte." };

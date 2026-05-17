@@ -8,6 +8,7 @@ import {
   SKIN_CACHE_TTL
 } from "./config/apiConfig.js";
 import {
+  CASE_MAX_PRESTIGE_UNLOCK,
   CASE_PRICE_CREDIT_MULTIPLIER,
   CASE_PRESTIGE_ECONOMY,
   INVENTORY_PAGE_SIZE
@@ -660,61 +661,71 @@ function createRealCaseDefinition(crate, crateMap, index) {
 
 function unlockTierFromPrice(price) {
   if (price >= 10000) {
+    return 15;
+  }
+  if (price >= 8000) {
+    return 14;
+  }
+  if (price >= 6200) {
+    return 13;
+  }
+  if (price >= 4600) {
+    return 12;
+  }
+  if (price >= 3300) {
+    return 11;
+  }
+  if (price >= 2300) {
+    return 10;
+  }
+  if (price >= 1600) {
+    return 9;
+  }
+  if (price >= 1100) {
     return 8;
   }
-  if (price >= 6000) {
+  if (price >= 800) {
     return 7;
   }
-  if (price >= 2500) {
+  if (price >= 600) {
     return 6;
   }
-  if (price >= 1200) {
+  if (price >= 420) {
     return 5;
   }
-  if (price >= 600) {
+  if (price >= 300) {
     return 4;
   }
-  if (price >= 300) {
+  if (price >= 220) {
     return 3;
   }
-  if (price >= 180) {
+  if (price >= 160) {
+    return 2;
+  }
+  if (price >= 100) {
     return 1;
   }
   return 0;
 }
 
-function unlockTierFromReleaseRank(index) {
-  if (index < 8) {
+function unlockTierFromReleaseRank(index, total) {
+  if (index < 5 || total <= 1) {
     return 0;
   }
-  if (index < 14) {
-    return 1;
-  }
-  if (index < 20) {
-    return 2;
-  }
-  if (index < 25) {
-    return 3;
-  }
-  if (index < 30) {
-    return 4;
-  }
-  if (index < 34) {
-    return 5;
-  }
-  if (index < 38) {
-    return 6;
-  }
-  if (index < 40) {
-    return 7;
-  }
-  return 8;
+  const progress = clampNumber((index - 5) / Math.max(1, total - 6), 0, 1);
+  return clampNumber(1 + Math.round(Math.pow(progress, 1.08) * (CASE_MAX_PRESTIGE_UNLOCK - 1)), 1, CASE_MAX_PRESTIGE_UNLOCK);
 }
 
 function assignPrestigeUnlocks(cases) {
   return cases.map((caseDef, index) => {
+    if (index < 5) {
+      return {
+        ...caseDef,
+        unlockPrestige: 0
+      };
+    }
     const unlockPrestige = Math.max(
-      unlockTierFromReleaseRank(index),
+      unlockTierFromReleaseRank(index, cases.length),
       unlockTierFromPrice(caseDef.fallbackPrice || caseDef.price)
     );
     return {

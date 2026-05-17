@@ -8790,9 +8790,16 @@ body {
   font-weight: 1000;
 }
 
-.coin-side-button + .coin-side-button {
+.coin-side-button[data-side="t"] {
   color: #fff;
-  background: linear-gradient(135deg, #f2a541, #eb4b4b);
+  border-color: rgba(242, 165, 65, 0.72);
+  background: linear-gradient(135deg, #ffb14a, #d96a16);
+}
+
+.coin-side-button[data-side="ct"] {
+  color: #edf5ff;
+  border-color: rgba(55, 84, 128, 0.82);
+  background: linear-gradient(135deg, #17243d, #07101f);
 }
 
 .coin-side-button.is-active {
@@ -10154,6 +10161,179 @@ body {
   animation: gameMeterSweep 840ms ease-in-out infinite;
 }
 
+.plinko-board {
+  min-height: 520px;
+  padding: 24px 16px 86px;
+  border-color: rgba(255, 209, 102, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 209, 102, 0.06), transparent 22%),
+    radial-gradient(circle at 50% 0%, rgba(100, 215, 227, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(12, 18, 27, 0.98), rgba(4, 7, 12, 0.98));
+}
+
+.plinko-drop-slot {
+  width: 116px;
+  height: 34px;
+  margin: 0 auto 8px;
+  border: 1px solid rgba(255, 209, 102, 0.32);
+  border-radius: 0 0 999px 999px;
+  background: linear-gradient(180deg, rgba(255, 209, 102, 0.18), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 -10px 20px rgba(255, 209, 102, 0.06);
+}
+
+.plinko-peg-field {
+  gap: 11px;
+  padding-top: 4px;
+}
+
+.plinko-peg-row {
+  display: flex;
+  justify-content: center;
+  gap: clamp(17px, 4vw, 34px);
+}
+
+.plinko-peg-row i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(224, 234, 246, 0.78);
+  box-shadow:
+    0 0 0 3px rgba(100, 215, 227, 0.05),
+    0 0 18px rgba(100, 215, 227, 0.3);
+}
+
+.plinko-path {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.plinko-path i {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 3;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 209, 102, 0.9);
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.6);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+}
+
+.plinko-board.is-dropping .plinko-path i {
+  animation: plinkoPathPing 320ms ease-out both;
+  animation-delay: calc(var(--anim-delay, 0ms) + 280ms + var(--step) * 220ms);
+}
+
+.plinko-chip {
+  left: 50%;
+  top: 11%;
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(circle at 30% 24%, #fff, #ffd166 35%, #d67812 100%);
+  box-shadow:
+    0 0 24px rgba(255, 209, 102, 0.72),
+    0 14px 20px rgba(0, 0, 0, 0.34);
+}
+
+.plinko-chip span {
+  position: absolute;
+  inset: 5px;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.plinko-board.is-dropping .plinko-chip {
+  animation: plinkoChipDrop 2500ms cubic-bezier(.2,.72,.14,1) both;
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+.plinko-result {
+  position: absolute;
+  top: auto;
+  left: 50%;
+  right: auto;
+  bottom: 18px;
+  z-index: 4;
+  min-width: min(340px, calc(100% - 32px));
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 10px;
+  background: rgba(7, 10, 15, 0.84);
+  transform: translateX(-50%);
+}
+
+.plinko-result span,
+.plinko-result strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plinko-result span {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.plinko-result strong {
+  color: #fff2c3;
+}
+
+.plinko-bins {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 68px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.plinko-bins span {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 7px 4px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.plinko-bins span.is-hit {
+  border-color: rgba(255, 209, 102, 0.74);
+  background: rgba(255, 209, 102, 0.12);
+  box-shadow: 0 0 22px rgba(255, 209, 102, 0.18);
+}
+
+.plinko-bins strong,
+.plinko-bins small {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plinko-bins strong {
+  color: #fff2c3;
+  font-size: 12px;
+}
+
+.plinko-bins small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+
 @keyframes rouletteScanner {
   from {
     transform: translateX(calc(-80px - 25px));
@@ -10217,5 +10397,57 @@ body {
 @keyframes gameMeterSweep {
   50% {
     filter: brightness(1.4);
+  }
+}
+
+@keyframes plinkoPathPing {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  40% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.16);
+  }
+  100% {
+    opacity: 0.42;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+}
+
+@keyframes plinkoChipDrop {
+  0% {
+    left: 50%;
+    top: 10%;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  12% {
+    left: 47%;
+    top: 20%;
+  }
+  24% {
+    left: 54%;
+    top: 30%;
+  }
+  36% {
+    left: 45%;
+    top: 41%;
+  }
+  50% {
+    left: 56%;
+    top: 52%;
+  }
+  64% {
+    left: 44%;
+    top: 63%;
+  }
+  78% {
+    left: calc(var(--chip-left) + 4%);
+    top: 74%;
+  }
+  100% {
+    left: var(--chip-left);
+    top: 84%;
+    transform: translate(-50%, -50%) scale(1.08);
   }
 }
