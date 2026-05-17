@@ -10583,6 +10583,224 @@ body {
   display: none;
 }
 
+.workspace-tab.is-disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.roulette-number-stage {
+  position: relative;
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  gap: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 209, 102, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(5, 8, 14, 0.98));
+}
+
+.roulette-number-stage::before,
+.roulette-number-stage::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  z-index: 3;
+  height: 92px;
+  pointer-events: none;
+}
+
+.roulette-number-stage::before {
+  top: 0;
+  background: linear-gradient(180deg, rgba(5, 8, 14, 0.98), transparent);
+}
+
+.roulette-number-stage::after {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(5, 8, 14, 0.98), transparent);
+}
+
+.roulette-number-window {
+  position: relative;
+  z-index: 2;
+  width: min(300px, 78vw);
+  height: 132px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 22px 48px rgba(0, 0, 0, 0.34);
+}
+
+.roulette-number-window::before {
+  content: "";
+  position: absolute;
+  inset: calc(50% - 52px) 12px auto;
+  z-index: 3;
+  height: 104px;
+  border: 1px solid rgba(255, 209, 102, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.16);
+  pointer-events: none;
+}
+
+.roulette-number-reel {
+  transform: translateY(calc(var(--roulette-result-index) * -112px + 10px));
+}
+
+.roulette-number-stage.is-spinning .roulette-number-reel {
+  animation: rouletteNumberTicker var(--roulette-duration, 2600ms) steps(var(--roulette-result-index), end) both;
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+.roulette-number-reel span {
+  width: calc(100% - 24px);
+  height: 104px;
+  margin: 4px 12px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: #fff;
+  font-size: clamp(48px, 10vw, 76px);
+  font-weight: 950;
+  line-height: 1;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -22px 42px rgba(0, 0, 0, 0.22);
+}
+
+.roulette-number-reel span.red {
+  background: linear-gradient(135deg, #f05c63, #9b1f2c);
+}
+
+.roulette-number-reel span.black {
+  background: linear-gradient(135deg, #1b2638, #05080e);
+}
+
+.roulette-number-reel span.green {
+  background: linear-gradient(135deg, #52e695, #0e7c4f);
+  color: #04180e;
+}
+
+.roulette-number-status {
+  position: relative;
+  z-index: 4;
+  min-width: min(320px, calc(100% - 32px));
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 10px;
+  background: rgba(7, 10, 15, 0.76);
+}
+
+.roulette-number-status strong,
+.roulette-number-status small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roulette-number-status strong {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.roulette-number-status small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.ready-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid rgba(241, 93, 93, 0.42);
+  border-radius: 8px;
+  background: rgba(241, 93, 93, 0.14);
+  color: #ffd7d7;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.ready-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.ready-button.is-ready {
+  border-color: rgba(46, 212, 122, 0.56);
+  background: rgba(46, 212, 122, 0.16);
+  color: #caffe0;
+}
+
+.jackpot-ready-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.jackpot-ready-list span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(241, 93, 93, 0.22);
+  border-radius: 8px;
+  background: rgba(241, 93, 93, 0.07);
+}
+
+.jackpot-ready-list span.is-ready {
+  border-color: rgba(46, 212, 122, 0.26);
+  background: rgba(46, 212, 122, 0.08);
+}
+
+.jackpot-ready-list b {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 11px;
+}
+
+.jackpot-ready-list em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.jackpot-ready-list span.is-ready em {
+  color: #7fe37c;
+}
+
+@keyframes rouletteNumberTicker {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: translateY(calc(var(--roulette-result-index) * -112px + 10px));
+  }
+}
+
 @keyframes rouletteWheelSpin {
   from {
     transform: rotate(calc(var(--roulette-final-angle) - 1800deg));

@@ -217,6 +217,7 @@ function mapPresenceState(state = {}) {
       itemCount: Number(entry.itemCount || 0),
       lockerItems: Array.isArray(entry.lockerItems) ? entry.lockerItems.slice(0, 40) : [],
       lobbyId: cleanText(entry.lobbyId, "", 32),
+      jackpotReady: Boolean(entry.jackpotReady),
       onlineAt: entry.onlineAt || new Date().toISOString()
     })))
     .sort((a, b) => Date.parse(b.onlineAt || 0) - Date.parse(a.onlineAt || 0));
@@ -262,8 +263,10 @@ export async function subscribeSharedGamePresence(profileProvider, onPresence) {
   const heartbeat = globalThis.setInterval(() => {
     track().then(publishPresence).catch(() => {});
   }, 12000);
-  return () => {
+  const unsubscribe = () => {
     globalThis.clearInterval(heartbeat);
     supabase.removeChannel(channel);
   };
+  unsubscribe.track = () => track().then(publishPresence);
+  return unsubscribe;
 }

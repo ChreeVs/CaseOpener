@@ -136,13 +136,13 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
-const GAME_VERSION = "v1.0.3";
+const GAME_VERSION = "v1.0.4";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;
-const AUTO_JACKPOT_START_DELAY_MS = 8600;
+const AUTO_JACKPOT_START_DELAY_MS = 20000;
 const AUTO_JACKPOT_WAIT_DELAY_MS = 4200;
-const AUTO_JACKPOT_NEXT_DELAY_MS = 6200;
+const AUTO_JACKPOT_NEXT_DELAY_MS = 20000;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -553,6 +553,7 @@ export class CaseOpenerUI {
     this.reelTickFrame = 0;
     this.rouletteAnimation = null;
     this.rouletteLoopTimer = null;
+    this.rouletteNextRoundAt = 0;
     this.pachinkoAnimation = null;
     this.crashAnimation = null;
     this.crashTimer = null;
@@ -562,6 +563,8 @@ export class CaseOpenerUI {
     this.jackpotAnimation = null;
     this.jackpotTimer = null;
     this.jackpotLoopTimer = null;
+    this.jackpotNextRoundAt = 0;
+    this.jackpotReady = false;
     this.jackpotPreview = null;
     this.jackpotWinPopup = null;
     this.jackpotLobbyId = "";
@@ -663,7 +666,9 @@ export class CaseOpenerUI {
       window.clearTimeout(this.jackpotLoopTimer);
       this.jackpotLoopTimer = null;
     }
+    this.jackpotNextRoundAt = 0;
     window.clearTimeout(this.rouletteLoopTimer);
+    this.rouletteNextRoundAt = 0;
     if (this.openResultAutoTimer) {
       window.clearTimeout(this.openResultAutoTimer);
       this.openResultAutoTimer = null;
@@ -974,8 +979,14 @@ export class CaseOpenerUI {
       ...profile,
       id: this.socialConnection?.clientId || this.getPresenceClientId(),
       lobbyId: this.jackpotLobbyId || "",
-      itemCount: profile.lockerItems?.length || 0
+      itemCount: profile.lockerItems?.length || 0,
+      jackpotReady: Boolean(this.jackpotReady),
+      jackpotSelectionValue: Number(this.getJackpotSelectionState().selectedTotal || 0)
     };
+  }
+
+  syncSharedPresenceNow() {
+    this.unsubscribeSharedPresence?.track?.();
   }
 
   applySharedPresence(players = []) {
@@ -1876,7 +1887,7 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "games-view":
-        this.gamesView = data.view || "roulette";
+        this.gamesView = data.view === "pachinko" ? "roulette" : data.view || "roulette";
         this.renderTab();
         break;
       case "select-upgrader-item":
@@ -1902,7 +1913,8 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "play-pachinko":
-        this.playPachinkoGame();
+        this.gamesView = "roulette";
+        this.renderTab();
         break;
       case "play-upgrader":
         this.playUpgraderGame();
@@ -1937,25 +1949,33 @@ export class CaseOpenerUI {
         this.jackpotLobbyId = data.id || "";
         this.jackpotSelection.clear();
         this.jackpotPreview = null;
+        this.jackpotReady = false;
+        this.syncSharedPresenceNow();
         this.scheduleJackpotLoop(1200);
         this.renderTab();
         break;
       case "change-jackpot-lobby":
         this.jackpotLobbyId = "";
         this.jackpotSelection.clear();
+        this.jackpotReady = false;
+        this.syncSharedPresenceNow();
         this.renderTab();
         break;
       case "toggle-jackpot-item":
         this.toggleJackpotItem(data.id);
+        this.jackpotReady = false;
+        this.syncSharedPresenceNow();
         this.scheduleJackpotLoop(1200);
         break;
       case "clear-jackpot-selection":
         this.jackpotSelection.clear();
+        this.jackpotReady = false;
+        this.syncSharedPresenceNow();
         this.scheduleJackpotLoop(3000);
         this.renderTab();
         break;
       case "play-jackpot":
-        this.playJackpotGame();
+        this.toggleJackpotReady();
         break;
       case "close-jackpot-win":
         this.jackpotWinPopup = null;
@@ -3546,19 +3566,53 @@ export class CaseOpenerUI {
       seen.add(player.id);
       normalized.push(player);
     });
-    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id;
+    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id || this.getPresenceClientId();
     if (this.socialConnection?.connected && currentId && !seen.has(currentId)) {
       normalized.unshift({
         id: currentId,
         name: this.state.profile?.name || this.socialState?.currentPlayer?.name || "Tu",
-        accent: this.state.profile?.accent || this.socialState?.currentPlayer?.accent || "#7fe37c"
+        accent: this.state.profile?.accent || this.socialState?.currentPlayer?.accent || "#7fe37c",
+        lobbyId: this.jackpotLobbyId || "",
+        jackpotReady: Boolean(this.jackpotReady),
+        netWorth: getNetWorth(this.state),
+        itemCount: this.getSocialLockerCandidates().length
       });
     }
     return normalized;
   }
 
+  getJackpotLobbyPlayers(selectedLobby = this.getSelectedJackpotLobby()) {
+    const lobbyId = selectedLobby?.id || "";
+    return this.getJackpotPresencePlayers().filter((player) => player.lobbyId === lobbyId);
+  }
+
+  getJackpotReadiness(selectedLobby = this.getSelectedJackpotLobby()) {
+    const lobbyPlayers = this.getJackpotLobbyPlayers(selectedLobby);
+    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id || this.getPresenceClientId();
+    const currentInLobby = lobbyPlayers.some((player) => player.id === currentId);
+    const players = currentInLobby
+      ? lobbyPlayers
+      : [
+        {
+          id: currentId,
+          name: this.state.profile?.name || "Tu",
+          lobbyId: selectedLobby?.id || "",
+          jackpotReady: Boolean(this.jackpotReady)
+        },
+        ...lobbyPlayers
+      ];
+    const opponents = players.filter((player) => player.id !== currentId);
+    return {
+      players,
+      opponents,
+      readyCount: players.filter((player) => player.jackpotReady).length,
+      allReady: players.length >= 2 && players.every((player) => player.jackpotReady)
+    };
+  }
+
   getJackpotOpponents() {
     const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id;
+    const selectedLobby = this.getSelectedJackpotLobby();
     const liveParticipants = Array.isArray(this.socialState?.jackpot?.participants)
       ? this.socialState.jackpot.participants
       : [];
@@ -3576,7 +3630,7 @@ export class CaseOpenerUI {
     if (liveOpponents.length) {
       return liveOpponents;
     }
-    return this.getJackpotPresencePlayers()
+    return this.getJackpotLobbyPlayers(selectedLobby)
       .filter((player) => player.id !== currentId)
       .map((player) => ({
         id: player.id,
@@ -3705,8 +3759,8 @@ export class CaseOpenerUI {
     return `
       <div class="workspace-tabs game-mode-tabs">
         ${modes.map(([id, label]) => `
-          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""}" data-action="games-view" data-view="${id}">
-            ${escapeHtml(label)}
+          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""} ${id === "pachinko" ? "is-disabled" : ""}" data-action="games-view" data-view="${id}" ${id === "pachinko" ? "disabled" : ""}>
+            ${escapeHtml(label)}${id === "pachinko" ? " Off" : ""}
           </button>
         `).join("")}
       </div>
@@ -3979,10 +4033,10 @@ export class CaseOpenerUI {
     const roulette = this.rouletteAnimation;
     const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
     const outcome = Math.max(0, Math.min(36, Number(roulette?.outcome || 0)));
-    const sectorAngle = 360 / 37;
-    const rouletteFinalAngle = roulette ? Number((360 - outcome * sectorAngle - sectorAngle / 2).toFixed(3)) : 0;
-    const rouletteNumbers = Array.from({ length: 37 }, (_, index) => index);
-    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2800) - 120) : 0;
+    const rouletteSequence = roulette?.sequence?.length ? roulette.sequence : [outcome];
+    const rouletteResultIndex = rouletteSequence.length - 1;
+    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2600) - 120) : 0;
+    const rouletteNextMs = Math.max(0, (this.rouletteNextRoundAt || 0) - Date.now());
     return `
       <article class="game-card full-width roulette-card modern-roulette-card">
         <div class="social-card-head">
@@ -3993,22 +4047,22 @@ export class CaseOpenerUI {
           <div class="social-chip-stack">
             ${statTile("Puntata", formatCredits(rouletteBet), "crediti")}
             ${statTile("Scelta", rouletteChoice, "target")}
+            ${statTile("Prossimo", roulette?.spinning ? "live" : compactTime(rouletteNextMs), "auto")}
             ${statTile("Rete", this.sharedGamesStatus.replace("Sync giochi ", ""), "globale")}
           </div>
         </div>
-        <div class="roulette-wheel-stage ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-final-angle:${rouletteFinalAngle}deg; --roulette-duration:${roulette?.durationMs || 2800}ms; --anim-delay:${rouletteDelay}ms;">
-          <div class="roulette-wheel-pointer"></div>
-          <div class="roulette-wheel-disc">
-            ${rouletteNumbers.map((number, index) => {
+        <div class="roulette-number-stage ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-result-index:${rouletteResultIndex}; --roulette-duration:${roulette?.durationMs || 2600}ms; --anim-delay:${rouletteDelay}ms;">
+          <div class="roulette-number-window">
+            <div class="roulette-number-reel">
+              ${rouletteSequence.map((number, index) => {
               const type = number === 0 ? "green" : ROULETTE_RED_NUMBERS.has(number) ? "red" : "black";
-              const angle = Number((index * sectorAngle + sectorAngle / 2).toFixed(3));
-              return `<span class="${type}" style="--slot-angle:${angle}deg; --slot-label-angle:${-angle}deg">${number}</span>`;
+              return `<span class="${type} ${index === rouletteResultIndex ? "is-result" : ""}">${number}</span>`;
             }).join("")}
+            </div>
           </div>
-          <div class="roulette-ball-orbit"><i></i></div>
-          <div class="roulette-wheel-readout">
-            <strong>${roulette?.spinning ? "Rolling" : roulette ? escapeHtml(roulette.detail) : "Pronto"}</strong>
-            <small>${roulette?.spinning ? "risultato gia' deciso" : roulette ? `${rouletteProfit >= 0 ? "+" : ""}${formatCredits(rouletteProfit)}` : "rosso, nero o verde"}</small>
+          <div class="roulette-number-status">
+            <strong>${roulette?.spinning ? "Rolling..." : roulette ? escapeHtml(roulette.detail) : "Pronto"}</strong>
+            <small>${roulette?.spinning ? "cambio numero veloce" : roulette ? `${rouletteProfit >= 0 ? "+" : ""}${formatCredits(rouletteProfit)}` : "rosso, nero o verde"}</small>
           </div>
         </div>
         <div class="game-controls social-inline-controls">
@@ -4120,7 +4174,8 @@ export class CaseOpenerUI {
       return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
     }
     if (this.gamesView === "pachinko") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderPachinkoGame()}</div>`;
+      this.gamesView = "roulette";
+      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
     }
     if (this.gamesView === "upgrader") {
       return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
@@ -4527,9 +4582,12 @@ export class CaseOpenerUI {
     const liveParticipants = jackpotAnimation?.participants || jackpotPreview?.participants || [];
     const highlighted = jackpotAnimation?.highlightIndex ?? -1;
     const potItemCount = liveParticipants.reduce((sum, participant) => sum + (participant.itemCount || participant.entries?.length || 0), 0);
-    const onlinePlayers = this.getJackpotPresencePlayers();
+    const readiness = this.getJackpotReadiness(selectedLobby);
+    const onlinePlayers = readiness.players;
     const jackpotOpponents = this.getJackpotOpponents();
-    const jackpotReady = onlinePlayers.length >= 2 && jackpotOpponents.length >= 1;
+    const localReady = Boolean(this.jackpotReady);
+    const lobbyReady = jackpotState.selectedItems.length && readiness.allReady && jackpotOpponents.length >= 1;
+    const jackpotDelayMs = Math.max(0, (this.jackpotNextRoundAt || 0) - Date.now());
     return `
       <article class="game-card jackpot-card social-card full-width">
         <div class="social-card-head">
@@ -4540,14 +4598,15 @@ export class CaseOpenerUI {
           <div class="social-chip-stack">
             ${statTile("Lobby", selectedLobby.name, selectedLobby.range)}
             ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
-            ${statTile("Utenti", `${onlinePlayers.length}/2`, jackpotReady ? `${jackpotOpponents.length} avversari online` : "in attesa")}
+            ${statTile("Pronti", `${readiness.readyCount}/${Math.max(2, onlinePlayers.length)}`, lobbyReady ? "start abilitato" : "in attesa")}
+            ${statTile("Start", jackpotAnimation?.spinning ? "live" : compactTime(jackpotDelayMs), "delay visibile")}
           </div>
         </div>
         <div class="game-controls social-inline-controls">
           <button class="ghost-button" data-action="change-jackpot-lobby" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("layers-3", "button-icon")} Cambia lobby</button>
           <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("undo-2", "button-icon")} Ritira puntata</button>
-          <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && jackpotReady && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("timer", "button-icon")} Entra nel countdown</button>
-          <span class="hint">${jackpotReady ? "Countdown automatico pronto." : "In attesa di almeno 2 utenti online nella lobby."}</span>
+          <button class="ready-button ${localReady ? "is-ready" : "is-not-ready"}" data-action="play-jackpot" ${jackpotState.selectedItems.length && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup(localReady ? "check" : "x", "button-icon")} Pronto</button>
+          <span class="hint">${lobbyReady ? `Tutti pronti: start tra ${compactTime(jackpotDelayMs)}.` : "Servono almeno 2 giocatori nella lobby e tutti su Pronto."}</span>
         </div>
         ${this.renderGameInventoryFilters()}
         <div class="jackpot-item-grid">
@@ -4580,6 +4639,15 @@ export class CaseOpenerUI {
                 <strong>${Math.round((participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}% · ${jackpotAnimation?.spinning ? `${participant.itemCount || participant.entries?.length || 0} item` : `${formatCredits(participant.total, true)}`}</strong>
               </div>
             `).join("") : `<div class="empty-state small">Nessun pot recente.</div>`}
+          </div>
+          <div class="jackpot-ready-list">
+            ${onlinePlayers.length ? onlinePlayers.map((player) => `
+              <span class="${player.jackpotReady ? "is-ready" : ""}">
+                <b>${escapeHtml(String(player.name || "?").slice(0, 1).toUpperCase())}</b>
+                ${escapeHtml(player.name || "Player")}
+                <em>${player.jackpotReady ? "Pronto" : "Non pronto"}</em>
+              </span>
+            `).join("") : `<div class="empty-state small">Nessun player nella lobby.</div>`}
           </div>
           ${jackpotPreview ? `
             <div class="jackpot-win-strip">
@@ -6140,11 +6208,22 @@ export class CaseOpenerUI {
     }
   }
 
+  buildRouletteNumberSequence(outcome) {
+    const target = Math.max(0, Math.min(36, Number(outcome || 0)));
+    return [
+      ...Array.from({ length: 44 }, (_, index) => (index * 17 + Math.floor(Math.random() * 37)) % 37),
+      ...Array.from({ length: 9 }, (_, index) => (target + 23 - index * 3 + 37 * 3) % 37),
+      target
+    ];
+  }
+
   scheduleRouletteLoop(delay = 2400) {
     window.clearTimeout(this.rouletteLoopTimer);
     this.ensureAutomaticGameLoopState();
+    this.rouletteNextRoundAt = Date.now() + Math.max(500, Number(delay) || 2400);
     this.rouletteLoopTimer = window.setTimeout(() => {
       this.rouletteLoopTimer = null;
+      this.rouletteNextRoundAt = 0;
       if (!this.rouletteAnimation?.spinning) {
         this.playRouletteGame(true);
       }
@@ -6166,8 +6245,9 @@ export class CaseOpenerUI {
     this.rouletteAnimation = {
       ...result,
       angle: (Number(result.outcome) / 37) * 360 + 4,
+      sequence: this.buildRouletteNumberSequence(result.outcome),
       startedAt: Date.now(),
-      durationMs: 2800,
+      durationMs: 2600,
       spinning: true
     };
     this.playUiPulse("tick", 0.42);
@@ -6184,10 +6264,12 @@ export class CaseOpenerUI {
       this.session.spent += Number(result.bet || 0);
       this.recordSessionEvent("game", result.game, result.detail, result.profit);
       this.publishSharedGameResult("roulette", result, { choice });
-      this.toast(`${result.game}: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.queueSocialProfileSync();
       this.scheduleRouletteLoop(AUTO_ROULETTE_NEXT_DELAY_MS);
-    }, 2800);
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+    }, 2600);
   }
 
   playPachinkoGame() {
@@ -6217,7 +6299,6 @@ export class CaseOpenerUI {
       this.session.spent += Number(result.bet || 0);
       this.recordSessionEvent("game", result.game, `${result.label} ${result.detail}`, result.profit);
       this.publishSharedGameResult("pachinko", result, { label: result.label });
-      this.toast(`${result.game}: ${result.label} ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.queueSocialProfileSync();
     }, 2600);
   }
@@ -6259,7 +6340,6 @@ export class CaseOpenerUI {
         consumed: result.consumedItem?.name,
         upgraded: result.upgradedItem?.name || ""
       });
-      this.toast(result.playerWon ? `Upgrader: ${result.upgradedItem.name}.` : `Upgrader fallito: ${result.consumedItem.name} persa.`);
       this.renderAll();
       this.queueSocialProfileSync();
     }, 1700);
@@ -6292,7 +6372,6 @@ export class CaseOpenerUI {
       };
       this.playUiPulse(result.playerWon ? "jackpot" : "warning", 0.54);
       this.publishSharedGameResult("coinflip", result, { side });
-      this.toast(`Coinflip: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
       this.renderAll();
       this.queueSocialProfileSync();
     }, 1500);
@@ -6546,6 +6625,21 @@ export class CaseOpenerUI {
     if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
       this.renderTab();
     }
+  }
+
+  toggleJackpotReady() {
+    const selectedLobby = this.getSelectedJackpotLobby();
+    const jackpotState = this.getJackpotSelectionState();
+    if (!selectedLobby?.compatible || !jackpotState.selectedItems.length || this.jackpotAnimation?.spinning) {
+      this.jackpotReady = false;
+      this.syncSharedPresenceNow();
+      this.renderTab();
+      return;
+    }
+    this.jackpotReady = !this.jackpotReady;
+    this.syncSharedPresenceNow();
+    this.scheduleJackpotLoop(this.jackpotReady ? AUTO_JACKPOT_START_DELAY_MS : AUTO_JACKPOT_WAIT_DELAY_MS);
+    this.renderTab();
   }
 
   toggleUpgraderItem(id) {
@@ -6985,8 +7079,10 @@ export class CaseOpenerUI {
     if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
       this.renderTab();
     }
-    this.toast(`${result.game}: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
     this.scheduleCrashLoop();
+    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
+      this.renderTab();
+    }
     window.setTimeout(() => {
       if (this.crashAnimation === activeRound) {
         this.crashAnimation = {
@@ -7003,8 +7099,10 @@ export class CaseOpenerUI {
   scheduleJackpotLoop(delay = 2500) {
     window.clearTimeout(this.jackpotLoopTimer);
     this.ensureAutomaticGameLoopState();
+    this.jackpotNextRoundAt = Date.now() + Math.max(500, Number(delay) || 2500);
     this.jackpotLoopTimer = window.setTimeout(() => {
       this.jackpotLoopTimer = null;
+      this.jackpotNextRoundAt = 0;
       this.tryStartJackpotLoop();
     }, Math.max(500, Number(delay) || 2500));
   }
@@ -7015,9 +7113,9 @@ export class CaseOpenerUI {
     }
     const selectedLobby = this.getSelectedJackpotLobby();
     const jackpotState = this.getJackpotSelectionState();
-    const onlinePlayers = this.getJackpotPresencePlayers();
+    const readiness = this.getJackpotReadiness(selectedLobby);
     const opponents = this.getJackpotOpponents();
-    if (selectedLobby?.compatible && jackpotState.selectedItems.length && onlinePlayers.length >= 2 && opponents.length) {
+    if (selectedLobby?.compatible && jackpotState.selectedItems.length && readiness.allReady && opponents.length) {
       this.playJackpotGame(true);
       return;
     }
@@ -7034,11 +7132,11 @@ export class CaseOpenerUI {
       this.renderTab();
       return;
     }
-    const onlinePlayers = this.getJackpotPresencePlayers();
+    const readiness = this.getJackpotReadiness(selectedLobby);
     const opponents = this.getJackpotOpponents();
-    if (onlinePlayers.length < 2 || !opponents.length) {
+    if (!readiness.allReady || !opponents.length) {
       if (!autoLoop) {
-        this.toast("Il jackpot aspetta almeno 2 utenti online.");
+        this.toast("Il jackpot aspetta che tutti i giocatori siano su Pronto.");
       }
       this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
       this.renderTab();
@@ -7055,6 +7153,8 @@ export class CaseOpenerUI {
       this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
       return;
     }
+    this.jackpotReady = false;
+    this.syncSharedPresenceNow();
     (result.depositedItems || []).forEach((item) => this.selectedInventory.delete(item.id));
     this.jackpotSelection.clear();
     window.clearInterval(this.jackpotTimer);
@@ -7109,9 +7209,8 @@ export class CaseOpenerUI {
         if (result.playerWon && result.wonItems?.length) {
           this.jackpotWinPopup = { items: result.wonItems };
         }
-        this.toast(`${result.game}: ${result.winnerName} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
-        this.renderAll();
         this.scheduleJackpotLoop(AUTO_JACKPOT_NEXT_DELAY_MS);
+        this.renderAll();
       }
     }, 140);
   }
