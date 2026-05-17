@@ -135,7 +135,7 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
-const GAME_VERSION = "v1.0.1";
+const GAME_VERSION = "v1.0.2";
 
 function escapeHtml(value) {
   return String(value ?? "")
