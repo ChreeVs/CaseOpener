@@ -180,7 +180,8 @@ export function createDefaultState() {
       bestWin: 0,
       roulette: {
         bet: 4,
-        choice: "red"
+        choice: "red",
+        autoPlay: true
       },
       pachinko: {
         bet: 4
@@ -188,7 +189,7 @@ export function createDefaultState() {
       crash: {
         bet: 4,
         autoCashout: 1.6,
-        autoPlay: false,
+        autoPlay: true,
         roundDelay: 6
       },
       upgrader: {
@@ -1357,7 +1358,8 @@ export function playRoulette(state, { bet, choice } = {}) {
   state.minigames.roulette = {
     ...(state.minigames.roulette || {}),
     bet: amount,
-    choice: normalizedChoice
+    choice: normalizedChoice,
+    autoPlay: state.minigames.roulette?.autoPlay !== false
   };
 
   const labels = {
@@ -1521,8 +1523,10 @@ export function startCrashRound(state, { bet, autoCashout } = {}) {
   const target = clampNumber(autoCashout, 1.05, 50) || createDefaultState().minigames.crash.autoCashout;
   state.credits -= amount;
   state.minigames.crash = {
+    ...(state.minigames.crash || {}),
     bet: amount,
-    autoCashout: target
+    autoCashout: target,
+    autoPlay: state.minigames.crash?.autoPlay !== false
   };
 
   return {
@@ -1553,8 +1557,10 @@ export function settleCrashRound(state, round, { cashoutPoint = 0 } = {}) {
   const payout = applySoftCap(state, bet, rawPayout);
   state.credits += payout;
   state.minigames.crash = {
+    ...(state.minigames.crash || {}),
     bet,
-    autoCashout: clampNumber(round?.autoCashout, 1.05, 50) || createDefaultState().minigames.crash.autoCashout
+    autoCashout: clampNumber(round?.autoCashout, 1.05, 50) || createDefaultState().minigames.crash.autoCashout,
+    autoPlay: state.minigames.crash?.autoPlay !== false
   };
 
   const entry = recordMinigame(state, {

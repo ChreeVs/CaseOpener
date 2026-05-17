@@ -553,6 +553,7 @@ export class CaseOpenerUI {
     this.crashBetLog = [];
     this.jackpotAnimation = null;
     this.jackpotTimer = null;
+    this.jackpotLoopTimer = null;
     this.jackpotPreview = null;
     this.jackpotWinPopup = null;
     this.jackpotLobbyId = "";
@@ -614,6 +615,7 @@ export class CaseOpenerUI {
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 3500);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
+    this.startAutomaticGameLoops();
   }
 
   dispose() {
@@ -646,6 +648,10 @@ export class CaseOpenerUI {
     if (this.jackpotTimer) {
       window.clearInterval(this.jackpotTimer);
       this.jackpotTimer = null;
+    }
+    if (this.jackpotLoopTimer) {
+      window.clearTimeout(this.jackpotLoopTimer);
+      this.jackpotLoopTimer = null;
     }
     window.clearTimeout(this.rouletteLoopTimer);
     if (this.openResultAutoTimer) {
@@ -1524,12 +1530,8 @@ export class CaseOpenerUI {
         this.loadProfileAvatarFile(target.files?.[0]);
       }
       if (target.matches("#crashAutoPlayEnabled")) {
-        this.state.minigames.crash.autoPlay = target.checked;
-        if (target.checked) {
-          this.scheduleCrashLoop();
-        } else {
-          this.cancelCrashLoop();
-        }
+        this.ensureAutomaticGameLoopState();
+        this.scheduleCrashLoop();
         this.renderTab();
       }
       if (target.matches("#socialMarketItem")) {
@@ -1829,12 +1831,8 @@ export class CaseOpenerUI {
         this.playRouletteGame();
         break;
       case "toggle-roulette-autoplay":
-        this.state.minigames.roulette.autoPlay = !this.state.minigames.roulette.autoPlay;
-        if (this.state.minigames.roulette.autoPlay && !this.rouletteAnimation?.spinning) {
-          this.scheduleRouletteLoop(900);
-        } else {
-          window.clearTimeout(this.rouletteLoopTimer);
-        }
+        this.ensureAutomaticGameLoopState();
+        this.scheduleRouletteLoop(600);
         this.renderTab();
         break;
       case "play-pachinko":
@@ -1857,13 +1855,13 @@ export class CaseOpenerUI {
         this.cashOutActiveCrash(false);
         break;
       case "toggle-crash-autoplay":
-        this.state.minigames.crash.autoPlay = true;
-        this.scheduleCrashLoop();
+        this.ensureAutomaticGameLoopState();
+        this.scheduleCrashLoop(600);
         this.renderTab();
         break;
       case "stop-crash-autoplay":
-        this.state.minigames.crash.autoPlay = false;
-        this.cancelCrashLoop();
+        this.ensureAutomaticGameLoopState();
+        this.scheduleCrashLoop(600);
         this.renderTab();
         break;
       case "set-crash-bet":
@@ -1873,6 +1871,7 @@ export class CaseOpenerUI {
         this.jackpotLobbyId = data.id || "";
         this.jackpotSelection.clear();
         this.jackpotPreview = null;
+        this.scheduleJackpotLoop(1200);
         this.renderTab();
         break;
       case "change-jackpot-lobby":
@@ -1882,9 +1881,11 @@ export class CaseOpenerUI {
         break;
       case "toggle-jackpot-item":
         this.toggleJackpotItem(data.id);
+        this.scheduleJackpotLoop(1200);
         break;
       case "clear-jackpot-selection":
         this.jackpotSelection.clear();
+        this.scheduleJackpotLoop(3000);
         this.renderTab();
         break;
       case "play-jackpot":
@@ -3952,7 +3953,7 @@ export class CaseOpenerUI {
             ].map(([value, label]) => `<option value="${value}" ${rouletteChoice === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
           <button class="primary-button" data-action="play-roulette" ${roulette?.spinning ? "disabled" : ""}>Gira</button>
-          <button class="ghost-button" data-action="toggle-roulette-autoplay">${minigames.roulette?.autoPlay ? "Stop auto" : "Auto"}</button>
+          <button class="ghost-button" data-action="toggle-roulette-autoplay">Auto attivo</button>
         </div>
       </article>
       ${this.renderSharedGameFeed("roulette")}
@@ -4268,7 +4269,6 @@ export class CaseOpenerUI {
     const crashBet = minigames.crash?.bet ?? 4;
     const crashAutoCashout = minigames.crash?.autoCashout ?? 1.6;
     const roundDelay = minigames.crash?.roundDelay ?? 6;
-    const autoPlay = Boolean(minigames.crash?.autoPlay);
     const crash = this.crashAnimation;
     const displayPoint = Number(crash?.displayPoint || 1);
     const crashProfit = crash?.resolvedResult ? crash.resolvedResult.profit : 0;
@@ -4314,8 +4314,8 @@ export class CaseOpenerUI {
             <strong>Crash</strong>
           </header>
           <div class="crash-casino-tabs">
-            <button class="${autoPlay ? "" : "is-active"}" type="button" data-action="stop-crash-autoplay">MANUAL</button>
-            <button class="${autoPlay ? "is-active" : ""}" type="button" data-action="toggle-crash-autoplay">AUTO</button>
+            <button class="" type="button" data-action="stop-crash-autoplay">MANUAL</button>
+            <button class="is-active" type="button" data-action="toggle-crash-autoplay">AUTO</button>
           </div>
           <label class="crash-casino-field">
             <span>Bet Amount</span>
@@ -4338,7 +4338,7 @@ export class CaseOpenerUI {
             <span>Round Delay</span>
             <div>
               <input id="crashRoundDelay" type="text" inputmode="numeric" value="${escapeHtml(roundDelay)}" ${crash?.spinning ? "disabled" : ""} />
-              <em>${autoPlay ? (crash?.spinning ? "live" : compactTime(countdownMs)) : "manual"}</em>
+              <em>${crash?.spinning ? "live" : compactTime(countdownMs)}</em>
             </div>
           </label>
           ${showCashout
@@ -6020,13 +6020,49 @@ export class CaseOpenerUI {
     this.queueSocialProfileSync();
   }
 
-  scheduleRouletteLoop(delay = 2400) {
-    window.clearTimeout(this.rouletteLoopTimer);
-    if (!this.state.minigames?.roulette?.autoPlay) {
+  ensureAutomaticGameLoopState() {
+    this.state.minigames ||= {};
+    this.state.minigames.roulette = {
+      bet: 4,
+      choice: "red",
+      ...(this.state.minigames.roulette || {}),
+      autoPlay: true
+    };
+    this.state.minigames.crash = {
+      bet: 4,
+      autoCashout: 1.6,
+      roundDelay: 6,
+      ...(this.state.minigames.crash || {}),
+      autoPlay: true
+    };
+    this.state.minigames.jackpot = {
+      ...(this.state.minigames.jackpot || {}),
+      autoPlay: true
+    };
+  }
+
+  startAutomaticGameLoops() {
+    if (!this.isCloudLoggedIn()) {
       return;
     }
+    this.ensureAutomaticGameLoopState();
+    if (!this.rouletteAnimation?.spinning && !this.rouletteLoopTimer) {
+      this.scheduleRouletteLoop(900);
+    }
+    if (!this.crashAnimation?.spinning && !this.crashLoopTimer) {
+      this.scheduleCrashLoop(900);
+    }
+    if (!this.jackpotAnimation?.spinning && !this.jackpotLoopTimer) {
+      this.scheduleJackpotLoop(1200);
+    }
+  }
+
+  scheduleRouletteLoop(delay = 2400) {
+    window.clearTimeout(this.rouletteLoopTimer);
+    this.ensureAutomaticGameLoopState();
     this.rouletteLoopTimer = window.setTimeout(() => {
-      if (this.state.minigames?.roulette?.autoPlay && !this.rouletteAnimation?.spinning) {
+      this.rouletteLoopTimer = null;
+      if (!this.rouletteAnimation?.spinning) {
         this.playRouletteGame(true);
       }
     }, delay);
@@ -6037,9 +6073,10 @@ export class CaseOpenerUI {
     const choice = this.root.querySelector("#rouletteChoice")?.value ?? this.state.minigames?.roulette?.choice;
     const result = playRoulette(this.state, { bet, choice });
     if (!result.ok) {
-      this.toast(result.reason);
       if (autoLoop) {
-        this.state.minigames.roulette.autoPlay = false;
+        this.scheduleRouletteLoop(5000);
+      } else {
+        this.toast(result.reason);
       }
       return;
     }
@@ -6710,19 +6747,22 @@ export class CaseOpenerUI {
     this.renderTab();
   }
 
-  scheduleCrashLoop() {
-    if (!this.state.minigames?.crash?.autoPlay || this.crashAnimation?.spinning) {
+  scheduleCrashLoop(delayMs = null) {
+    this.ensureAutomaticGameLoopState();
+    if (this.crashAnimation?.spinning) {
       return;
     }
     const { roundDelay } = this.normalizeCrashConfig();
     window.clearTimeout(this.crashLoopTimer);
-    this.crashNextRoundAt = Date.now() + roundDelay * 1000;
+    const nextDelay = Number.isFinite(delayMs) ? Math.max(300, Number(delayMs)) : roundDelay * 1000;
+    this.crashNextRoundAt = Date.now() + nextDelay;
     this.crashLoopTimer = window.setTimeout(() => {
+      this.crashLoopTimer = null;
       this.crashNextRoundAt = 0;
-      if (this.state.minigames?.crash?.autoPlay && !this.crashAnimation?.spinning) {
+      if (!this.crashAnimation?.spinning) {
         this.playCrashGame(true);
       }
-    }, roundDelay * 1000);
+    }, nextDelay);
   }
 
   cancelCrashLoop() {
@@ -6769,9 +6809,10 @@ export class CaseOpenerUI {
     const { bet, autoCashout } = this.normalizeCrashConfig();
     const round = startCrashRound(this.state, { bet, autoCashout });
     if (!round.ok) {
-      this.toast(round.reason);
       if (autoLoop) {
-        this.state.minigames.crash.autoPlay = false;
+        this.scheduleCrashLoop(5000);
+      } else {
+        this.toast(round.reason);
       }
       return;
     }
@@ -6862,9 +6903,7 @@ export class CaseOpenerUI {
       this.renderTab();
     }
     this.toast(`${result.game}: ${result.detail} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
-    if (this.state.minigames?.crash?.autoPlay) {
-      this.scheduleCrashLoop();
-    }
+    this.scheduleCrashLoop();
     window.setTimeout(() => {
       if (this.crashAnimation === activeRound) {
         this.crashAnimation = {
@@ -6878,17 +6917,47 @@ export class CaseOpenerUI {
     }, 120);
   }
 
-  playJackpotGame() {
+  scheduleJackpotLoop(delay = 2500) {
+    window.clearTimeout(this.jackpotLoopTimer);
+    this.ensureAutomaticGameLoopState();
+    this.jackpotLoopTimer = window.setTimeout(() => {
+      this.jackpotLoopTimer = null;
+      this.tryStartJackpotLoop();
+    }, Math.max(500, Number(delay) || 2500));
+  }
+
+  tryStartJackpotLoop() {
+    if (this.jackpotAnimation?.spinning) {
+      return;
+    }
+    const selectedLobby = this.getSelectedJackpotLobby();
+    const jackpotState = this.getJackpotSelectionState();
+    const onlinePlayers = this.getJackpotPresencePlayers();
+    const opponents = this.getJackpotOpponents();
+    if (selectedLobby?.compatible && jackpotState.selectedItems.length && onlinePlayers.length >= 2 && opponents.length) {
+      this.playJackpotGame(true);
+      return;
+    }
+    this.scheduleJackpotLoop(3000);
+  }
+
+  playJackpotGame(autoLoop = false) {
     const selectedLobby = this.getSelectedJackpotLobby();
     if (!selectedLobby?.compatible) {
-      this.toast("Scegli una lobby compatibile prima di entrare nel jackpot.");
+      if (!autoLoop) {
+        this.toast("Scegli una lobby compatibile prima di entrare nel jackpot.");
+      }
+      this.scheduleJackpotLoop(3000);
       this.renderTab();
       return;
     }
     const onlinePlayers = this.getJackpotPresencePlayers();
     const opponents = this.getJackpotOpponents();
     if (onlinePlayers.length < 2 || !opponents.length) {
-      this.toast("Il jackpot aspetta almeno 2 utenti online.");
+      if (!autoLoop) {
+        this.toast("Il jackpot aspetta almeno 2 utenti online.");
+      }
+      this.scheduleJackpotLoop(3000);
       this.renderTab();
       return;
     }
@@ -6897,7 +6966,10 @@ export class CaseOpenerUI {
       opponents
     });
     if (!result.ok) {
-      this.toast(result.reason);
+      if (!autoLoop) {
+        this.toast(result.reason);
+      }
+      this.scheduleJackpotLoop(3000);
       return;
     }
     (result.depositedItems || []).forEach((item) => this.selectedInventory.delete(item.id));
@@ -6956,6 +7028,7 @@ export class CaseOpenerUI {
         }
         this.toast(`${result.game}: ${result.winnerName} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
         this.renderAll();
+        this.scheduleJackpotLoop(3600);
       }
     }, 140);
   }
@@ -7213,6 +7286,7 @@ export class CaseOpenerUI {
 
   tick() {
     clearExpiredEvent(this.state);
+    this.startAutomaticGameLoops();
     this.renderTopStats();
     if (!this.isEditingSessionControls()) {
       this.renderSession();
@@ -7576,7 +7650,9 @@ export class CaseOpenerUI {
           this.cloudStatus = `Caricato cloud rev ${cloud.revision}.`;
           saveState(this.state);
           this.renderAll();
+          this.startAutomaticGameLoops();
         }
+        this.startAutomaticGameLoops();
       }
       this.renderTechMenu();
       this.renderLoginGate();
@@ -7864,6 +7940,7 @@ export class CaseOpenerUI {
       saveState(this.state);
       this.toast("Salvataggio cloud caricato.");
       this.renderAll();
+      this.startAutomaticGameLoops();
     } catch (error) {
       this.cloudStatus = error.message || "Caricamento cloud fallito.";
       this.toast(this.cloudStatus);

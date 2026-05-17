@@ -109,6 +109,7 @@ setInterval(() => {
   }
   if (!ui.isCloudLoggedIn?.()) {
     lastTickAt = Date.now();
+    ui.tick();
     return;
   }
   const now = Date.now();
