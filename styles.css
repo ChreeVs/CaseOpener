@@ -4243,11 +4243,8 @@ body {
   from {
     transform: translateX(var(--roulette-start-offset));
   }
-  68% {
-    transform: translateX(calc(var(--roulette-offset) - 430px));
-  }
-  84% {
-    transform: translateX(calc(var(--roulette-offset) + 62px));
+  76% {
+    transform: translateX(calc(var(--roulette-offset) - 260px));
   }
   to {
     transform: translateX(var(--roulette-offset));
@@ -10391,11 +10388,8 @@ body {
   from {
     transform: translateX(calc(var(--roulette-start-offset) - 25px));
   }
-  68% {
-    transform: translateX(calc(var(--roulette-offset) - 455px));
-  }
-  84% {
-    transform: translateX(calc(var(--roulette-offset) + 37px));
+  76% {
+    transform: translateX(calc(var(--roulette-offset) - 285px));
   }
   to {
     transform: translateX(calc(var(--roulette-offset) - 25px));
@@ -10912,11 +10906,27 @@ body {
   object-fit: cover;
 }
 
+.player-avatar.has-image,
+.profile-preview-avatar.has-image {
+  overflow: hidden;
+  color: #fff;
+  background: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
 .player-avatar .profile-avatar-img,
 .profile-preview-avatar .profile-avatar-img {
   position: absolute;
   inset: 0;
   z-index: 0;
+}
+
+.player-avatar.has-image .profile-avatar-img,
+.profile-preview-avatar.has-image .profile-avatar-img {
+  width: 100%;
+  height: 100%;
 }
 
 .player-avatar .profile-avatar-img + b,

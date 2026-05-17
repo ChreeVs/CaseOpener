@@ -239,7 +239,7 @@ function iconMarkup(name, className = "") {
 function profileAvatarMarkup(profile, fallbackIcon = "shield", className = "") {
   const src = profile?.avatarImage || profile?.avatarProviderImage || "";
   if (src) {
-    return `<img class="profile-avatar-img ${className}" src="${escapeHtml(src)}" alt="${escapeHtml(profile?.name || "Avatar")}" loading="lazy" />`;
+    return `<img class="profile-avatar-img" src="${escapeHtml(src)}" alt="${escapeHtml(profile?.name || "Avatar")}" loading="lazy" />`;
   }
   return iconMarkup(fallbackIcon, className);
 }
@@ -279,6 +279,8 @@ const PROFILE_ICON_OPTIONS = [
   { id: "rocket", label: "Rocket" },
   { id: "gem", label: "Gem" }
 ];
+
+const ROULETTE_RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 
 const NAV_TABS = [
   ["cases", "Cases"],
@@ -2156,6 +2158,7 @@ export class CaseOpenerUI {
     const accent = this.state.profile?.accent || "#7fe37c";
     if (playerAvatar) {
       playerAvatar.style.setProperty("--player-accent", accent);
+      playerAvatar.classList.toggle("has-image", Boolean(this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage));
       playerAvatar.innerHTML = `
         ${profileAvatarMarkup(this.state.profile, this.getProfileIconId(), "player-avatar-icon")}
         <b>P${this.state.prestige.level}</b>
@@ -2363,7 +2366,7 @@ export class CaseOpenerUI {
         </div>
         <div class="profile-setup-body">
           <div class="profile-setup-preview">
-            <div class="profile-preview-avatar">
+            <div class="profile-preview-avatar ${profile.avatarImage || profile.avatarProviderImage ? "has-image" : ""}">
               ${profileAvatarMarkup(profile, iconId, "profile-preview-icon")}
               <b>${this.getPlayerInitials()}</b>
             </div>
@@ -3930,7 +3933,7 @@ export class CaseOpenerUI {
           <div class="roulette-scanline"></div>
           <div class="roulette-number-strip">
             ${strip.map((number) => {
-              const type = number === 0 ? "green" : number % 2 === 0 ? "black" : "red";
+              const type = number === 0 ? "green" : ROULETTE_RED_NUMBERS.has(number) ? "red" : "black";
               return `<span class="${type}">${number}</span>`;
             }).join("")}
           </div>
