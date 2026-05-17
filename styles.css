@@ -10451,3 +10451,452 @@ body {
     transform: translate(-50%, -50%) scale(1.08);
   }
 }
+
+/* Crash casino layout */
+.crash-casino-shell {
+  min-height: 620px;
+  display: grid;
+  grid-template-columns: 278px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(126, 151, 179, 0.12);
+  border-radius: 12px;
+  background: #120d25;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+}
+
+.crash-casino-sidebar {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto auto auto auto auto 1fr;
+  gap: 12px;
+  padding: 0 8px 10px;
+  background: linear-gradient(180deg, #0f0a20, #100b23);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.crash-casino-title {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f7f5ff;
+}
+
+.crash-casino-title b {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(135deg, #8d37ff, #3e0e9f);
+  box-shadow: 0 0 20px rgba(141, 55, 255, 0.36);
+}
+
+.crash-casino-title .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.crash-casino-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 44px;
+  border-bottom: 1px solid rgba(244, 197, 49, 0.22);
+}
+
+.crash-casino-tabs button {
+  border: 0;
+  color: rgba(246, 239, 213, 0.32);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 1000;
+  cursor: pointer;
+}
+
+.crash-casino-tabs button.is-active {
+  color: #f4c531;
+  box-shadow: inset 0 -2px 0 #f4c531;
+}
+
+.crash-casino-field {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #171129;
+}
+
+.crash-casino-field span {
+  color: rgba(237, 235, 255, 0.58);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.crash-casino-field div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crash-casino-field i,
+.crash-casino-field em {
+  color: rgba(255, 255, 255, 0.78);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.crash-casino-field input {
+  min-width: 0;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 900;
+  outline: 0;
+}
+
+.crash-casino-field button {
+  flex: 0 0 auto;
+  border: 0;
+  color: rgba(255, 255, 255, 0.86);
+  background: transparent;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.crash-casino-field button:disabled,
+.crash-casino-play:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.crash-casino-field.compact {
+  grid-template-columns: 1fr;
+}
+
+.crash-casino-play {
+  height: 38px;
+  border: 0;
+  border-radius: 5px;
+  color: #3b2a00;
+  background: linear-gradient(180deg, #ffd84b, #e9b928);
+  font-weight: 1000;
+  cursor: pointer;
+}
+
+.crash-casino-play.is-cashout {
+  color: #05140b;
+  background: linear-gradient(180deg, #4bea8b, #26bf65);
+}
+
+.crash-casino-locked {
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: #82eba9;
+  background: rgba(46, 212, 122, 0.12);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.crash-player-board {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.crash-player-head,
+.crash-player-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px 48px 62px 18px;
+  gap: 6px;
+  align-items: center;
+}
+
+.crash-player-head {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+
+.crash-player-head span {
+  grid-column: 4 / 6;
+  justify-self: end;
+}
+
+.crash-player-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  overflow: auto;
+}
+
+.crash-player-row {
+  min-height: 27px;
+  padding: 3px 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+}
+
+.crash-player-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.crash-player-row span,
+.crash-player-row strong,
+.crash-player-row small,
+.crash-player-row em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crash-player-row strong,
+.crash-player-row em {
+  justify-self: end;
+  font-style: normal;
+}
+
+.crash-player-row small {
+  color: rgba(255, 255, 255, 0.48);
+  justify-self: end;
+}
+
+.crash-player-row.is-win small,
+.crash-player-row.is-win em,
+.crash-player-row.is-live small {
+  color: #2ed47a;
+}
+
+.crash-player-row.is-loss em {
+  color: #ff5d6c;
+}
+
+.crash-player-row b {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #07101c;
+  background: var(--player-accent);
+}
+
+.crash-player-row b .ui-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.crash-casino-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 620px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 70% 48%, rgba(65, 51, 118, 0.42), transparent 23%),
+    radial-gradient(circle at 55% 20%, rgba(244, 197, 49, 0.08), transparent 18%),
+    linear-gradient(180deg, #18142a, #171229 76%, #140c2a);
+}
+
+.crash-casino-stage::before {
+  content: "";
+  position: absolute;
+  inset: 48px 62px 72px 20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025) 1px, transparent 1px) 0 0 / 100% 18%,
+    linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px) 0 0 / 16.66% 100%;
+  opacity: 0.46;
+}
+
+.crash-stage-top {
+  position: absolute;
+  top: 13px;
+  right: 15px;
+  z-index: 4;
+  display: flex;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.28);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.crash-stage-top strong {
+  color: rgba(255, 255, 255, 0.36);
+}
+
+.crash-graph-grid span {
+  position: absolute;
+  right: 18px;
+  top: var(--y);
+  z-index: 4;
+  color: rgba(227, 225, 246, 0.56);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.crash-graph-grid span::before {
+  content: "";
+  position: absolute;
+  right: 44px;
+  top: 50%;
+  width: 12px;
+  height: 1px;
+  background: rgba(227, 225, 246, 0.24);
+}
+
+.crash-casino-chart {
+  position: absolute;
+  left: 0;
+  right: 58px;
+  bottom: 64px;
+  z-index: 2;
+  width: calc(100% - 58px);
+  height: calc(100% - 120px);
+  overflow: visible;
+}
+
+.crash-chart-shadow {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.18);
+  stroke-width: 1.4;
+}
+
+.crash-chart-line {
+  fill: none;
+  stroke: #8f57e8;
+  stroke-width: 0.78;
+  stroke-linecap: round;
+  stroke-dasharray: var(--trail) 1;
+  filter: drop-shadow(0 0 6px rgba(154, 93, 255, 0.58));
+}
+
+.crash-casino-rocket {
+  position: absolute;
+  z-index: 5;
+  width: 86px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  transform: translate(-42%, -52%) rotate(-18deg);
+  transition: left 90ms linear, top 90ms linear;
+}
+
+.crash-casino-rocket .ui-icon {
+  width: 64px;
+  height: 64px;
+  color: #f2f6ff;
+  filter:
+    drop-shadow(0 0 2px rgba(255, 255, 255, 0.7))
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
+}
+
+.crash-casino-rocket i {
+  position: absolute;
+  right: 56px;
+  top: 26px;
+  width: 130px;
+  height: 30px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 14% 50%, rgba(255, 224, 103, 0.95), transparent 18%),
+    linear-gradient(90deg, rgba(255, 103, 35, 0), rgba(255, 104, 33, 0.92), rgba(255, 215, 74, 0.88));
+  filter: blur(1px);
+  transform: rotate(9deg);
+}
+
+.crash-casino-stage.is-crashed .crash-casino-rocket {
+  animation: crashRocketBurst 500ms ease-out both;
+}
+
+.crash-payout-readout {
+  position: absolute;
+  left: 50%;
+  top: 43%;
+  z-index: 6;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -50%);
+}
+
+.crash-payout-readout strong {
+  color: #fff;
+  font-size: clamp(64px, 11vw, 116px);
+  line-height: 0.9;
+  font-weight: 1000;
+  letter-spacing: 0;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+}
+
+.crash-payout-readout span {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: clamp(16px, 2.4vw, 26px);
+  font-weight: 1000;
+}
+
+.crash-payout-readout em {
+  margin-top: 10px;
+  color: #2ed47a;
+  font-style: normal;
+  font-size: 15px;
+  font-weight: 1000;
+}
+
+.crash-tick-labels {
+  position: absolute;
+  left: 22%;
+  right: 12%;
+  bottom: 70px;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  color: rgba(227, 225, 246, 0.34);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.crash-casino-history {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  height: 38px;
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(12, 6, 27, 0.72);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+@keyframes crashRocketBurst {
+  45% {
+    transform: translate(-42%, -52%) rotate(6deg) scale(1.08);
+    filter: brightness(1.45);
+  }
+  100% {
+    transform: translate(-42%, -52%) rotate(20deg) scale(0.94);
+    opacity: 0.62;
+  }
+}
+
+@media (max-width: 980px) {
+  .crash-casino-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .crash-casino-sidebar {
+    grid-template-rows: none;
+  }
+
+  .crash-casino-stage {
+    min-height: 480px;
+  }
+}

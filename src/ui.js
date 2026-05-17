@@ -1836,6 +1836,9 @@ export class CaseOpenerUI {
         this.cancelCrashLoop();
         this.renderTab();
         break;
+      case "set-crash-bet":
+        this.setCrashBetShortcut(data.mode);
+        break;
       case "toggle-jackpot-item":
         this.toggleJackpotItem(data.id);
         break;
@@ -4130,103 +4133,138 @@ export class CaseOpenerUI {
     const crashProgress = crash
       ? clamp(Math.log(Math.max(1.0001, displayPoint)) / Math.log(Math.max(1.08, crash.crashPoint || 1.08)), 0, 1)
       : 0;
-    const recentHistory = this.getCrashHistoryEntries(10);
+    const recentHistory = this.getCrashHistoryEntries(18);
     const showCashout = crash?.spinning && !crash?.cashedOutAt;
     const countdownMs = Math.max(0, (this.crashNextRoundAt || 0) - Date.now());
-    const logRows = this.crashBetLog.slice(0, 12);
+    const logRows = this.crashBetLog.slice(0, 9);
+    const playerRows = [
+      {
+        name: this.state.profile?.name || "Tu",
+        bet: Number(crash?.bet || crashBet || 0),
+        multiplier: crash?.cashedOutAt || (crash?.spinning ? displayPoint : crash?.resolvedResult?.cashoutPoint || null),
+        profit: crash?.spinning && !crash?.cashedOutAt ? null : crashProfit,
+        live: Boolean(crash?.spinning && !crash?.cashedOutAt),
+        accent: this.state.profile?.accent || "#f4c32f",
+        icon: "coin"
+      },
+      ...logRows.map((entry, index) => ({
+        name: ["Mosk", "FestusM", "joemick", "Durjoy244", "Keatonj", "Mantis", "Nova", "Rook"][index % 8],
+        bet: entry.bet,
+        multiplier: entry.cashoutPoint || entry.crashPoint || 1,
+        profit: entry.profit,
+        live: entry.status === "live",
+        accent: entry.status === "win" ? "#2ed47a" : "#f15d5d",
+        icon: entry.status === "win" ? "cash" : "coin"
+      }))
+    ].slice(0, 12);
+    const playerTotal = playerRows.reduce((sum, row) => sum + Number(row.bet || 0), 0);
+    const endpointX = 8 + crashProgress * 84;
+    const endpointY = 84 - crashProgress * 58;
+    const trailWidth = Math.max(0.08, crashProgress);
+    const currentPayout = crash?.spinning
+      ? Number((Number(crashBet || 0) * displayPoint).toFixed(2))
+      : crash?.resolvedResult?.payout || 0;
     return `
-      <article class="game-card crash-card social-card full-width">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("plane", "button-icon")} Crash</span>
-            <h3>Crash</h3>
+      <article class="crash-casino-shell full-width">
+        <aside class="crash-casino-sidebar">
+          <header class="crash-casino-title">
+            <b>${iconMarkup("rocket")}</b>
+            <strong>Crash</strong>
+          </header>
+          <div class="crash-casino-tabs">
+            <button class="${autoPlay ? "" : "is-active"}" type="button" data-action="stop-crash-autoplay">MANUAL</button>
+            <button class="${autoPlay ? "is-active" : ""}" type="button" data-action="toggle-crash-autoplay">AUTO</button>
           </div>
-          <div class="social-chip-stack">
-            ${statTile("Bet", formatCredits(crashBet), "per round")}
-            ${statTile("Auto", `x${Number(crashAutoCashout).toFixed(2)}`, showCashout ? "pronto" : "set")}
-            ${statTile("Loop", autoPlay ? (crash?.spinning ? "live" : compactTime(countdownMs)) : "Off", `${roundDelay}s`)}
-          </div>
-        </div>
-        <div class="crash-history-strip">
-          ${recentHistory.length
-            ? recentHistory.map((entry) => `
-              <span class="crash-history-pill ${entry.playerWon ? "is-win" : "is-loss"}">
-                x${Number(entry.crashPoint || entry.outcome || 1).toFixed(Number(entry.crashPoint || entry.outcome || 1) >= 10 ? 1 : 2)}
-              </span>
-            `).join("")
-            : `<span class="crash-history-pill">Nessun round ancora</span>`}
-        </div>
-        <div class="crash-visual ${crash?.spinning ? "is-live" : ""} ${crash?.crashed ? "is-crashed" : ""}">
-          <div class="crash-sky">
-            <div class="crash-flight-path">
-              <i style="width:${Math.max(8, crashProgress * 100)}%"></i>
+          <label class="crash-casino-field">
+            <span>Bet Amount</span>
+            <div>
+              <i>$</i>
+              <input id="crashBet" type="text" inputmode="decimal" value="${escapeHtml(crashBet)}" ${crash?.spinning ? "disabled" : ""} />
+              <button type="button" data-action="set-crash-bet" data-mode="half" ${crash?.spinning ? "disabled" : ""}>1/2</button>
+              <button type="button" data-action="set-crash-bet" data-mode="double" ${crash?.spinning ? "disabled" : ""}>2x</button>
+              <button type="button" data-action="set-crash-bet" data-mode="max" ${crash?.spinning ? "disabled" : ""}>Max</button>
             </div>
-            <div class="crash-plane" style="left:calc(${Math.max(8, crashProgress * 100)}% - 18px); bottom:calc(14px + ${crashProgress * 54}%);">
-              ${iconMarkup("plane")}
+          </label>
+          <label class="crash-casino-field">
+            <span>Auto Cashout</span>
+            <div>
+              <input id="crashAutoCashout" type="text" inputmode="decimal" value="${escapeHtml(crashAutoCashout)}" ${crash?.spinning ? "disabled" : ""} />
+              <button type="button" data-action="set-crash-bet" data-mode="clear-auto" ${crash?.spinning ? "disabled" : ""}>x</button>
             </div>
-            ${crash?.crashed ? `<div class="crash-burst">Crash x${Number(crash.crashPoint || 1).toFixed(crash.crashPoint >= 10 ? 1 : 2)}</div>` : ""}
-          </div>
-          <div class="crash-readout">
-            <strong>x${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}</strong>
-            <small>${crash?.spinning
-              ? crash.cashedOutAt
-                ? `Cashout bloccato a x${Number(crash.cashedOutAt).toFixed(2)} - in attesa del crash`
-                : "Round live... clicca cashout prima del crash"
-              : crash?.resolvedResult
-                ? escapeHtml(crash.resolvedResult.detail)
-                : "pronto"}</small>
-            <em>${crash?.spinning
-              ? crash.cashedOutAt
-                ? `${formatCredits((crash.bet || 0) * crash.cashedOutAt, true)} pending`
-                : "..." 
-              : crash?.resolvedResult
-                ? `${crashProfit >= 0 ? "+" : ""}${formatCredits(crashProfit)}`
-                : formatCredits(0, true)}</em>
-          </div>
-        </div>
-        <div class="game-controls social-inline-controls">
-          <label class="field-inline">
-            <span>Puntata</span>
-            <input id="crashBet" type="text" inputmode="decimal" value="${escapeHtml(crashBet)}" ${crash?.spinning ? "disabled" : ""} />
           </label>
-          <label class="field-inline">
-            <span>Auto cashout</span>
-            <input id="crashAutoCashout" type="text" inputmode="decimal" value="${escapeHtml(crashAutoCashout)}" ${crash?.spinning ? "disabled" : ""} />
-          </label>
-          <label class="field-inline">
-            <span>Intervallo</span>
-            <input id="crashRoundDelay" type="text" inputmode="numeric" value="${escapeHtml(roundDelay)}" ${crash?.spinning ? "disabled" : ""} />
-          </label>
-          <label class="inline-toggle">
-            <input id="crashAutoPlayEnabled" type="checkbox" ${autoPlay ? "checked" : ""} />
-            <span>Autoplay</span>
+          <label class="crash-casino-field compact">
+            <span>Round Delay</span>
+            <div>
+              <input id="crashRoundDelay" type="text" inputmode="numeric" value="${escapeHtml(roundDelay)}" ${crash?.spinning ? "disabled" : ""} />
+              <em>${autoPlay ? (crash?.spinning ? "live" : compactTime(countdownMs)) : "manual"}</em>
+            </div>
           </label>
           ${showCashout
-            ? `<button class="primary-button crash-cashout-button" data-action="cashout-crash">${iconMarkup("circle-dollar-sign", "button-icon")} Cashout x${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}</button>`
-            : `<button class="primary-button" data-action="play-crash" ${crash?.spinning ? "disabled" : ""}>${iconMarkup("rocket", "button-icon")} Avvia round</button>`}
-          <button class="ghost-button" data-action="${autoPlay ? "stop-crash-autoplay" : "toggle-crash-autoplay"}" ${crash?.spinning && !autoPlay ? "disabled" : ""}>
-            ${iconMarkup(autoPlay ? "pause" : "repeat", "button-icon")} ${autoPlay ? "Ferma loop" : "Avvia loop"}
-          </button>
+            ? `<button class="crash-casino-play is-cashout" data-action="cashout-crash">Cashout x${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}</button>`
+            : `<button class="crash-casino-play" data-action="play-crash" ${crash?.spinning ? "disabled" : ""}>Play Demo</button>`}
           ${crash?.spinning && crash?.cashedOutAt
-            ? `<button class="ghost-button" disabled>${iconMarkup("shield-check", "button-icon")} Incassato x${Number(crash.cashedOutAt).toFixed(2)}</button>`
+            ? `<div class="crash-casino-locked">Incassato x${Number(crash.cashedOutAt).toFixed(2)}</div>`
             : ""}
-        </div>
-        <div class="crash-bet-log">
-          <div class="crash-bet-log-head">
-            <strong>Giocate piazzate</strong>
-            <small>${logRows.length ? "ultimi round" : "nessuna puntata"}</small>
+          <section class="crash-player-board">
+            <div class="crash-player-head">
+              <strong>${playerRows.length} Players</strong>
+              <span>${formatCredits(playerTotal, true)}</span>
+            </div>
+            <div class="crash-player-list">
+              ${playerRows.map((row, index) => `
+                <div class="crash-player-row ${row.live ? "is-live" : Number(row.profit || 0) > 0 ? "is-win" : Number(row.profit || 0) < 0 ? "is-loss" : ""}">
+                  <span>${escapeHtml(index > 5 && index % 3 === 0 ? "(Hidden)" : row.name)}</span>
+                  <strong>${formatCredits(row.bet || 0, true)}</strong>
+                  <small>${row.multiplier ? `${Number(row.multiplier).toFixed(Number(row.multiplier) >= 10 ? 1 : 2)}x` : ""}</small>
+                  <em>${row.profit === null || row.profit === undefined ? "" : `${row.profit >= 0 ? "+" : ""}${formatCredits(row.profit, true)}`}</em>
+                  <b style="--player-accent:${row.accent}">${row.icon === "cash" ? iconMarkup("wallet") : iconMarkup("bitcoin")}</b>
+                </div>
+              `).join("")}
+            </div>
+          </section>
+        </aside>
+        <section class="crash-casino-stage ${crash?.spinning ? "is-live" : ""} ${crash?.crashed ? "is-crashed" : ""}">
+          <div class="crash-stage-top">
+            <span>${crash?.resolvedResult ? escapeHtml(crash.resolvedResult.detail) : "Max Profit"}</span>
+            <strong>${crash?.resolvedResult ? `${crashProfit >= 0 ? "+" : ""}${formatCredits(crashProfit, true)}` : formatCredits(Math.max(0, this.state.credits * 35), true)}</strong>
           </div>
-          <div class="crash-bet-log-list">
-            ${logRows.length ? logRows.map((entry) => `
-              <div class="crash-bet-row ${entry.status === "win" ? "is-win" : entry.status === "loss" ? "is-loss" : "is-live"}">
-                <span>${new Date(entry.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span>
-                <strong>${formatCredits(entry.bet, true)}</strong>
-                <small>${entry.status === "live" ? "in volo" : `x${Number(entry.crashPoint || entry.cashoutPoint || 1).toFixed(2)}`}</small>
-                <em>${entry.status === "live" ? "..." : `${entry.profit >= 0 ? "+" : ""}${formatCredits(entry.profit, true)}`}</em>
-              </div>
-            `).join("") : `<div class="empty-state small">Il log parte al prossimo round.</div>`}
+          <div class="crash-graph-grid">
+            <span style="--y:16%">3.00x</span>
+            <span style="--y:34%">2.50x</span>
+            <span style="--y:52%">2.00x</span>
+            <span style="--y:70%">1.50x</span>
+            <span style="--y:88%">1.00x</span>
           </div>
-        </div>
+          <svg class="crash-casino-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <path class="crash-chart-shadow" pathLength="1" d="M0 92 C16 88 28 80 40 72 C55 61 66 52 78 36 C88 23 95 14 100 9" />
+            <path class="crash-chart-line" pathLength="1" style="--trail:${trailWidth}" d="M0 92 C16 88 28 80 40 72 C55 61 66 52 78 36 C88 23 95 14 100 9" />
+          </svg>
+          <div class="crash-casino-rocket" style="left:${endpointX}%; top:${endpointY}%;">
+            <i></i>
+            ${iconMarkup("rocket")}
+          </div>
+          <div class="crash-payout-readout">
+            <strong>${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}x</strong>
+            <span>${crash?.spinning ? "Current Payout" : crash?.resolvedResult ? "Last Payout" : "Ready"}</span>
+            <em>${formatCredits(currentPayout, true)}</em>
+          </div>
+          <div class="crash-tick-labels">
+            <span>4s</span>
+            <span>6s</span>
+            <span>8s</span>
+            <span>10s</span>
+            <span>12s</span>
+          </div>
+          <div class="crash-history-strip crash-casino-history">
+            ${recentHistory.length
+              ? recentHistory.map((entry) => `
+                <span class="crash-history-pill ${entry.playerWon ? "is-win" : "is-loss"}">
+                  ${Number(entry.crashPoint || entry.outcome || 1).toFixed(Number(entry.crashPoint || entry.outcome || 1) >= 10 ? 1 : 2)}x
+                </span>
+              `).join("")
+              : `<span class="crash-history-pill">Nessun round ancora</span>`}
+          </div>
+        </section>
       </article>
     `;
   }
@@ -6448,6 +6486,24 @@ export class CaseOpenerUI {
     this.state.minigames.crash.autoCashout = Number(autoCashout.toFixed(2));
     this.state.minigames.crash.roundDelay = Number(roundDelay.toFixed(0));
     return { bet, autoCashout, roundDelay };
+  }
+
+  setCrashBetShortcut(mode) {
+    if (this.crashAnimation?.spinning) {
+      return;
+    }
+    this.state.minigames.crash ||= {};
+    const current = Number(String(this.root.querySelector("#crashBet")?.value ?? this.state.minigames.crash.bet ?? 4).replace(",", ".")) || 1;
+    if (mode === "half") {
+      this.state.minigames.crash.bet = Math.max(1, Number((current / 2).toFixed(2)));
+    } else if (mode === "double") {
+      this.state.minigames.crash.bet = Math.min(this.state.credits, Number((current * 2).toFixed(2)));
+    } else if (mode === "max") {
+      this.state.minigames.crash.bet = Math.max(1, Number(this.state.credits || 1));
+    } else if (mode === "clear-auto") {
+      this.state.minigames.crash.autoCashout = 25;
+    }
+    this.renderTab();
   }
 
   scheduleCrashLoop() {
