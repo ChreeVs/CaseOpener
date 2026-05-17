@@ -3998,6 +3998,101 @@ body {
   grid-template-columns: 1fr;
 }
 
+.admin-sync-note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.admin-promo-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-promo-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.admin-promo-field small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-promo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-promo-preview {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 209, 102, 0.06);
+}
+
+.admin-promo-preview span {
+  color: var(--gold);
+}
+
+.admin-promo-preview strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.admin-promo-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.admin-promo-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-promo-row div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-promo-row strong,
+.admin-promo-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-promo-row small {
+  color: var(--muted);
+}
+
+@media (max-width: 680px) {
+  .admin-promo-grid,
+  .admin-promo-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tech-menu-cloud small {
   color: var(--muted);
   line-height: 1.35;
@@ -8501,6 +8596,332 @@ body {
   }
 }
 
+/* CaseOpener v1.0.0 UI pass */
+.app-version {
+  position: fixed;
+  left: 50%;
+  bottom: 6px;
+  z-index: 180;
+  transform: translateX(-50%);
+  color: rgba(244, 247, 251, 0.42);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+#apiStatus:empty {
+  display: none;
+}
+
+.top-stat-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
+    rgba(13, 18, 25, 0.95);
+}
+
+.top-stat-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-top: 2px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.top-stat-card:nth-child(1)::after {
+  border-top-color: rgba(255, 209, 102, 0.5);
+}
+
+.top-stat-card:nth-child(2)::after {
+  border-top-color: rgba(100, 215, 227, 0.46);
+}
+
+.top-stat-card:nth-child(3)::after {
+  border-top-color: rgba(69, 196, 134, 0.48);
+}
+
+.top-stat-mini {
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.tab-content .social-card-head p,
+.tab-content .cheat-header p,
+.tab-content .cheat-header span,
+.tab-content .contract-panel p,
+.tab-content .prestige-panel p {
+  display: none !important;
+}
+
+.login-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.login-gate[hidden] {
+  display: none;
+}
+
+.login-gate-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.login-gate-card {
+  position: relative;
+  z-index: 1;
+  width: min(420px, calc(100vw - 28px));
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(126, 151, 179, 0.18);
+  border-radius: 12px;
+  background: rgba(13, 18, 25, 0.98);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.login-gate-head {
+  display: grid;
+  gap: 6px;
+}
+
+.login-gate-head span,
+.login-gate-head small {
+  color: var(--muted);
+}
+
+.login-gate-head h2 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.login-gate-form,
+.login-gate-form label {
+  display: grid;
+  gap: 9px;
+}
+
+.login-gate-form label span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.login-gate-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.progress-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.progress-chart-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.progress-chart-card h3 {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.pie-chart {
+  width: 132px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: conic-gradient(var(--pie));
+  box-shadow:
+    inset 0 0 0 14px rgba(8, 12, 18, 0.78),
+    0 0 0 1px rgba(126, 151, 179, 0.14);
+}
+
+.chart-legend {
+  display: grid;
+  gap: 6px;
+}
+
+.chart-legend span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-left: 11px;
+  border-left: 4px solid var(--rarity);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-legend strong {
+  color: var(--text);
+}
+
+.game-inventory-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, auto) minmax(112px, auto);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.upgrader-selected-stack {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.coin-side-buttons {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.coin-side-button {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 209, 102, 0.42);
+  border-radius: 999px;
+  color: #101318;
+  background: linear-gradient(135deg, #ffd166, #7fe37c);
+  font-weight: 1000;
+}
+
+.coin-side-button + .coin-side-button {
+  color: #fff;
+  background: linear-gradient(135deg, #f2a541, #eb4b4b);
+}
+
+.coin-side-button.is-active {
+  box-shadow:
+    0 0 0 3px rgba(255, 209, 102, 0.18),
+    0 0 24px rgba(255, 209, 102, 0.26);
+}
+
+.roulette-number-strip {
+  left: 50%;
+  transform: translateX(calc(var(--roulette-offset) - 25px));
+}
+
+.roulette-modern-visual.is-spinning .roulette-number-strip {
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+.pachinko-classic-board.is-dropping .pachinko-chip,
+.coinflip-stage.is-flipping .coinflip-coin {
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+.jackpot-win-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 205;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.jackpot-win-overlay[hidden] {
+  display: none;
+}
+
+.jackpot-win-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.jackpot-win-card {
+  position: relative;
+  z-index: 1;
+  width: min(860px, calc(100vw - 28px));
+  max-height: min(720px, calc(100vh - 28px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid rgba(255, 209, 102, 0.2);
+  border-radius: 12px;
+  background: rgba(13, 18, 25, 0.98);
+}
+
+.jackpot-win-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.jackpot-win-card h2 {
+  margin: 0;
+}
+
+.jackpot-win-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.contracts-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 0.8fr);
+  gap: 14px;
+}
+
+.contracts-inventory,
+.contracts-result {
+  min-width: 0;
+}
+
+.contract-input-grid {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.contract-result-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.028);
+}
+
+@media (max-width: 840px) {
+  .progress-chart-grid,
+  .contracts-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-chart-card {
+    grid-template-columns: 1fr;
+  }
+
+  .game-inventory-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Layout simplification pass: horizontal nav, compact header, simple cases, round chat. */
 @media (min-width: 1000px) {
   .app-shell {
@@ -9682,5 +10103,53 @@ body {
 
   .legal-links {
     bottom: 84px;
+  }
+}
+
+/* Final overrides for v1.0.0 pass. */
+.app-version {
+  position: fixed;
+  left: 50%;
+  bottom: 6px;
+  z-index: 180;
+  transform: translateX(-50%);
+  color: rgba(244, 247, 251, 0.42);
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+#apiStatus:empty {
+  display: none;
+}
+
+.tab-content .social-card-head p,
+.tab-content .cheat-header p,
+.tab-content .cheat-header span,
+.tab-content .contract-panel p,
+.tab-content .prestige-panel p {
+  display: none !important;
+}
+
+.roulette-number-strip {
+  left: 50%;
+  transform: translateX(calc(var(--roulette-offset) - 25px));
+}
+
+.roulette-modern-visual.is-spinning .roulette-number-strip,
+.pachinko-classic-board.is-dropping .pachinko-chip,
+.coinflip-stage.is-flipping .coinflip-coin {
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+@keyframes rouletteScanner {
+  from {
+    transform: translateX(calc(-80px - 25px));
+  }
+  62% {
+    transform: translateX(calc(var(--roulette-offset) - 285px));
+  }
+  to {
+    transform: translateX(calc(var(--roulette-offset) - 25px));
   }
 }

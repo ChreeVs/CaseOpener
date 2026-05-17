@@ -23,8 +23,16 @@ import {
   fetchCommunityGoalTotals,
   isCommunityGoalsSyncAvailable,
   submitCommunityGoalContribution,
-  subscribeCommunityGoalContributions
+  submitCommunityGoalReset,
+  subscribeCommunityGoalContributions,
+  subscribeCommunityGoalResets
 } from "./network/communityGoals.js";
+import {
+  deleteGlobalPromoCode,
+  fetchGlobalPromoCodes,
+  isGlobalPromoCodesAvailable,
+  upsertGlobalPromoCode
+} from "./network/globalPromoCodes.js";
 import {
   buyGlobalAuction,
   createGlobalAuction,
@@ -66,6 +74,7 @@ import {
   createAuctionListing,
   createPromoCode,
   clearExpiredEvent,
+  deletePromoCode,
   deleteRewardCase,
   depositCommunityGoalCredits,
   formatCredits,
@@ -117,12 +126,15 @@ import {
   settleAuctionListing,
   setAutoOpenerEnabled,
   redeemPromoCode,
+  resetCommunityGoalState,
   syncAchievements,
   toggleItemFlag,
   updateAutoSell,
   normalizeState
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
+
+const GAME_VERSION = "v1.0.0";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -264,7 +276,7 @@ const NAV_TABS = [
   ["inventory", "Locker"],
   ["shop", "Economia"],
   ["stats", "Progress"],
-  ["achievements", "Achievement"],
+  ["achievements", "Achievements"],
   ["prestige", "Prestige"],
   ["games", "Giochi"],
   ["community", "Community"],
@@ -290,7 +302,24 @@ const ADMIN_ONLY_ACTIONS = new Set([
   "cheat-master-case",
   "cheat-reset-cooldowns",
   "cheat-complete-goals",
+  "cheat-reset-community-goals",
+  "admin-edit-promo",
+  "admin-delete-promo",
+  "admin-clear-promo-form",
   "admin-create-promo"
+]);
+
+const LOGIN_GATE_ACTIONS = new Set([
+  "cloud-discord",
+  "cloud-login-password",
+  "cloud-register-password",
+  "cloud-sign-in",
+  "open-legal",
+  "close-legal",
+  "accept-cookies",
+  "reject-cookies",
+  "toggle-admin-gate",
+  "admin-login"
 ]);
 
 const TAB_GROUPS = {
@@ -435,7 +464,11 @@ export class CaseOpenerUI {
     this.inventorySearch = "";
     this.inventoryRarity = "all";
     this.inventoryWear = "all";
+    this.inventoryType = "all";
     this.inventorySort = "newest";
+    this.gameInventorySearch = "";
+    this.gameInventoryRarity = "all";
+    this.gameInventoryType = "skins";
     this.caseSearch = "";
     this.caseStatus = "all";
     this.caseMaxPrice = "";
@@ -461,6 +494,7 @@ export class CaseOpenerUI {
     this.sharedGoalStatus = isCommunityGoalsSyncAvailable() ? "Sync community in attesa" : "Sync community non configurata";
     this.lastSharedGoalSyncAt = 0;
     this.unsubscribeCommunityGoals = null;
+    this.unsubscribeCommunityGoalResets = null;
     this.seenSharedGoalContributionIds = new Set();
     this.sharedGameEvents = [];
     this.sharedGamesStatus = isSharedGamesAvailable() ? "Sync giochi in attesa" : "Sync giochi non configurata";
@@ -471,13 +505,18 @@ export class CaseOpenerUI {
     this.auctionItemId = "";
     this.auctionPrice = "";
     this.upgraderAnimation = null;
+    this.upgraderSelection = new Set();
+    (this.state.minigames?.upgrader?.itemIds || []).forEach((id) => this.upgraderSelection.add(id));
     this.coinflipAnimation = null;
+    this.globalPromoCodes = [];
+    this.globalPromoStatus = isGlobalPromoCodesAvailable() ? "Promo globali in attesa" : "Promo globali non configurati";
     this.adminPromoCode = "";
     this.adminPromoCredits = "1000";
     this.adminPromoCases = "0";
     this.adminPromoTier = "2";
     this.adminPromoWeapons = "0";
     this.adminPromoRarity = "Mil-Spec";
+    this.adminPromoEditingCode = "";
     this.jackpotSelection = new Set();
     this.isAnimating = false;
     this.pendingRevealIds = [];
@@ -500,6 +539,7 @@ export class CaseOpenerUI {
     this.jackpotAnimation = null;
     this.jackpotTimer = null;
     this.jackpotPreview = null;
+    this.jackpotWinPopup = null;
     this.socialClient = null;
     this.socialState = null;
     this.socialClaimInFlight = false;
@@ -537,6 +577,7 @@ export class CaseOpenerUI {
     this.adminGateOpen = false;
     this.adminUserId = "";
     this.adminPassword = "";
+    this.adminPasswordSecret = "";
     this.adminStatus = this.adminAuthenticated ? "Profilo admin attivo." : "";
     this.cookieConsent = this.readCookieConsent();
     this.legalModal = null;
@@ -550,6 +591,7 @@ export class CaseOpenerUI {
     this.renderAll();
     this.initCommunityGoalsSync();
     this.initSharedGamesSync();
+    this.initGlobalPromoCodes();
     this.initCloudChat();
     this.refreshCloudSession();
     this.refreshChat();
@@ -561,6 +603,8 @@ export class CaseOpenerUI {
     this.unsubscribeCloudChat = null;
     this.unsubscribeCommunityGoals?.();
     this.unsubscribeCommunityGoals = null;
+    this.unsubscribeCommunityGoalResets?.();
+    this.unsubscribeCommunityGoalResets = null;
     this.unsubscribeSharedGameEvents?.();
     this.unsubscribeSharedGameEvents = null;
     this.unsubscribeGlobalAuctions?.();
@@ -617,9 +661,11 @@ export class CaseOpenerUI {
       .map((goal) => goal.key);
   }
 
-  mergeSharedGoalTotals(totals = {}) {
+  mergeSharedGoalTotals(totals = {}, { replace = false } = {}) {
     Object.entries(totals || {}).forEach(([key, value]) => {
-      this.sharedGoalTotals[key] = Number(Math.max(Number(this.sharedGoalTotals[key] || 0), Number(value || 0)).toFixed(2));
+      this.sharedGoalTotals[key] = replace
+        ? Number(Number(value || 0).toFixed(2))
+        : Number(Math.max(Number(this.sharedGoalTotals[key] || 0), Number(value || 0)).toFixed(2));
     });
   }
 
@@ -629,6 +675,19 @@ export class CaseOpenerUI {
     }
     this.seenSharedGoalContributionIds.add(entry.id);
     this.sharedGoalTotals[entry.goalKey] = Number(((this.sharedGoalTotals[entry.goalKey] || 0) + Number(entry.amount || 0)).toFixed(2));
+  }
+
+  applyCommunityGoalReset(reset) {
+    if (!reset?.goalKey) {
+      return;
+    }
+    this.sharedGoalTotals[reset.goalKey] = 0;
+    if (this.state.goals?.contributions) {
+      delete this.state.goals.contributions[reset.goalKey];
+    }
+    if (this.state.goals?.claimed) {
+      delete this.state.goals.claimed[reset.goalKey];
+    }
   }
 
   async refreshCommunityGoals({ silent = false } = {}) {
@@ -643,7 +702,8 @@ export class CaseOpenerUI {
     try {
       const totals = await fetchCommunityGoalTotals(keys);
       if (totals) {
-        this.mergeSharedGoalTotals(totals);
+        const normalizedTotals = Object.fromEntries(keys.map((key) => [key, totals[key] || 0]));
+        this.mergeSharedGoalTotals(normalizedTotals, { replace: true });
       }
       this.lastSharedGoalSyncAt = Date.now();
       this.sharedGoalStatus = "Sync community live";
@@ -675,9 +735,49 @@ export class CaseOpenerUI {
           this.renderTab();
         }
       });
+      this.unsubscribeCommunityGoalResets = await subscribeCommunityGoalResets((reset) => {
+        const activeKeys = new Set(this.getCommunityGoalKeys());
+        if (!activeKeys.has(reset.goalKey)) {
+          return;
+        }
+        this.applyCommunityGoalReset(reset);
+        this.sharedGoalStatus = "Goal community resettati";
+        this.toast(`Goal community resettato: ${reset.goalId}.`);
+        this.renderAll();
+      });
     } catch (error) {
       this.sharedGoalStatus = "Realtime community non disponibile";
     }
+  }
+
+  async initGlobalPromoCodes() {
+    if (!isGlobalPromoCodesAvailable()) {
+      this.globalPromoStatus = "Promo globali non configurati";
+      return;
+    }
+    try {
+      this.globalPromoCodes = await fetchGlobalPromoCodes();
+      this.globalPromoStatus = "Promo globali online";
+      this.syncGlobalPromoCodesToState();
+      if (this.activeTab === "admin" || this.activeTab === "community") {
+        this.renderTab();
+      }
+    } catch (error) {
+      this.globalPromoStatus = "Promo globali non disponibili";
+    }
+  }
+
+  syncGlobalPromoCodesToState() {
+    this.state.promoCodes ||= { redeemed: {}, custom: {} };
+    this.state.promoCodes.custom ||= {};
+    this.globalPromoCodes
+      .filter((promo) => promo.active)
+      .forEach((promo) => {
+        this.state.promoCodes.custom[promo.code] = {
+          ...promo.reward,
+          label: `Promo globale ${promo.code}`
+        };
+      });
   }
 
   applySharedGameEvent(entry) {
@@ -1172,10 +1272,13 @@ export class CaseOpenerUI {
       <div class="toast-stack" id="toastStack"></div>
       <div class="rare-reveal" id="rareReveal" hidden></div>
       <div class="open-result-overlay" id="openResultOverlay" hidden></div>
+      <div class="jackpot-win-overlay" id="jackpotWinOverlay" hidden></div>
       <div class="skin-inspector" id="skinInspector" hidden></div>
       <div class="profile-setup" id="profileSetup" hidden></div>
+      <div class="login-gate" id="loginGate" hidden></div>
       <div class="legal-layer" id="legalLayer"></div>
       <div class="global-chat-dock" id="globalChatDock"></div>
+      <div class="app-version">${GAME_VERSION}</div>
     `;
   }
 
@@ -1268,6 +1371,10 @@ export class CaseOpenerUI {
       if (target.matches("#auctionPrice")) {
         this.auctionPrice = target.value;
       }
+      if (target.matches("#gameInventorySearch")) {
+        this.gameInventorySearch = target.value;
+        this.renderTab();
+      }
       if (target.matches("#adminPromoCode")) {
         this.adminPromoCode = target.value;
       }
@@ -1312,6 +1419,19 @@ export class CaseOpenerUI {
       if (target.matches("#wearFilter")) {
         this.inventoryWear = target.value;
         this.inventoryPage = 1;
+        this.renderTab();
+      }
+      if (target.matches("#typeFilter")) {
+        this.inventoryType = target.value;
+        this.inventoryPage = 1;
+        this.renderTab();
+      }
+      if (target.matches("#gameInventoryRarity")) {
+        this.gameInventoryRarity = target.value;
+        this.renderTab();
+      }
+      if (target.matches("#gameInventoryType")) {
+        this.gameInventoryType = target.value;
         this.renderTab();
       }
       if (target.matches("#caseStatus")) {
@@ -1427,6 +1547,11 @@ export class CaseOpenerUI {
   }
 
   handleAction(action, data, element) {
+    if (!this.isCloudLoggedIn?.() && !LOGIN_GATE_ACTIONS.has(action)) {
+      this.toast("Accedi per giocare online.");
+      this.renderLoginGate();
+      return;
+    }
     if ((ADMIN_ONLY_ACTIONS.has(action) || (action === "tab" && ["cheats", "admin"].includes(data.tab))) && !this.isAdmin()) {
       this.toast("Accesso admin richiesto.");
       return;
@@ -1623,7 +1748,12 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "select-upgrader-item":
-        this.state.minigames.upgrader.itemId = data.id || "";
+        this.toggleUpgraderItem(data.id);
+        this.renderTab();
+        break;
+      case "clear-upgrader-selection":
+        this.upgraderSelection.clear();
+        this.state.minigames.upgrader.itemIds = [];
         this.renderTab();
         break;
       case "select-auction-item":
@@ -1642,6 +1772,10 @@ export class CaseOpenerUI {
         break;
       case "play-coinflip":
         this.playCoinflipGame();
+        break;
+      case "set-coinflip-side":
+        this.state.minigames.coinflip.side = data.side === "t" ? "t" : "ct";
+        this.renderTab();
         break;
       case "play-crash":
         this.playCrashGame();
@@ -1668,6 +1802,10 @@ export class CaseOpenerUI {
         break;
       case "play-jackpot":
         this.playJackpotGame();
+        break;
+      case "close-jackpot-win":
+        this.jackpotWinPopup = null;
+        this.renderJackpotWinPopup();
         break;
       case "redeem-promo":
         this.redeemPromo();
@@ -1745,6 +1883,18 @@ export class CaseOpenerUI {
       case "cheat-complete-goals":
         this.cheatCompleteGoals();
         break;
+      case "cheat-reset-community-goals":
+        this.cheatResetCommunityGoals();
+        break;
+      case "admin-edit-promo":
+        this.adminEditPromo(data.code);
+        break;
+      case "admin-delete-promo":
+        this.adminDeletePromo(data.code);
+        break;
+      case "admin-clear-promo-form":
+        this.adminClearPromoForm();
+        break;
       case "admin-create-promo":
         this.adminCreatePromo();
         break;
@@ -1813,15 +1963,95 @@ export class CaseOpenerUI {
     this.renderLegalLayer();
     this.renderApiStatus();
     this.renderProfileSetup();
+    this.renderLoginGate();
+    this.renderJackpotWinPopup();
     this.refreshIcons();
   }
 
   renderApiStatus() {
     const status = this.root.querySelector("#apiStatus");
-    const date = this.metadata.cachedAt ? new Date(this.metadata.cachedAt).toLocaleString("it-IT") : "ora";
-    status.textContent = this.isAdmin()
-      ? `${this.skinData.skins.length.toLocaleString("it-IT")} skin reali - ${this.skinData.cases.length} casse - ${this.metadata.fromCache ? "cache locale" : "API live"} - ${date}`
-      : `${this.skinData.skins.length.toLocaleString("it-IT")} skin ufficiali - ${this.skinData.cases.length} casse`;
+    if (status) {
+      status.textContent = "";
+    }
+  }
+
+  isCloudLoggedIn() {
+    return Boolean(this.cloudSession?.user);
+  }
+
+  renderLoginGate() {
+    const node = this.root.querySelector("#loginGate");
+    if (!node) {
+      return;
+    }
+    const locked = !this.isCloudLoggedIn();
+    node.hidden = !locked;
+    if (!locked) {
+      node.innerHTML = "";
+      return;
+    }
+    node.innerHTML = `
+      <div class="login-gate-backdrop"></div>
+      <section class="login-gate-card" role="dialog" aria-modal="true" aria-label="Login obbligatorio">
+        <div class="login-gate-head">
+          <span>${iconMarkup("cloud", "button-icon")} Online</span>
+          <h2>Accedi per giocare</h2>
+          <small>${escapeHtml(this.cloudStatus || "Serve un account cloud per usare il gioco.")}</small>
+        </div>
+        <div class="login-gate-form">
+          <button class="discord-button" data-action="cloud-discord" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+            ${iconMarkup("message-circle", "button-icon")} Discord
+          </button>
+          <label>
+            <span>Username</span>
+            <input id="authUsername" value="${escapeHtml(this.authUsername)}" maxlength="24" autocomplete="username" placeholder="nomeutente" ${this.cloudBusy ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="authPassword" type="password" value="${escapeHtml(this.authPassword)}" autocomplete="current-password" placeholder="min. 6 caratteri" ${this.cloudBusy ? "disabled" : ""} />
+          </label>
+          <div class="login-gate-actions">
+            <button class="primary-button" data-action="cloud-login-password" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("log-in", "button-icon")} Accedi
+            </button>
+            <button class="ghost-button" data-action="cloud-register-password" ${this.cloudAvailable && !this.cloudBusy ? "" : "disabled"}>
+              ${iconMarkup("user-plus", "button-icon")} Registrati
+            </button>
+          </div>
+        </div>
+      </section>
+    `;
+    this.refreshIcons();
+  }
+
+  renderJackpotWinPopup() {
+    const node = this.root.querySelector("#jackpotWinOverlay");
+    if (!node) {
+      return;
+    }
+    const popup = this.jackpotWinPopup;
+    node.hidden = !popup;
+    if (!popup) {
+      node.innerHTML = "";
+      return;
+    }
+    const items = popup.items || [];
+    node.innerHTML = `
+      <div class="jackpot-win-backdrop" data-action="close-jackpot-win"></div>
+      <article class="jackpot-win-card">
+        <header>
+          <div>
+            <span>${iconMarkup("trophy", "button-icon")} Jackpot</span>
+            <h2>Skin vinte</h2>
+          </div>
+          <button class="ghost-button small" data-action="close-jackpot-win">${iconMarkup("x", "button-icon")} Chiudi</button>
+        </header>
+        <div class="jackpot-win-grid">
+          ${items.map((item) => itemCard(item, { compact: true })).join("")}
+        </div>
+      </article>
+    `;
+    this.refreshIcons();
   }
 
   renderTopStats() {
@@ -1856,17 +2086,17 @@ export class CaseOpenerUI {
     }
     topStats.innerHTML = `
       <article class="top-stat-card top-stat-balance">
-        <span>${iconMarkup("coins", "top-stat-mini")} Crediti</span>
+        <span>${iconMarkup("coins", "top-stat-mini")} CREDITI</span>
         <strong>${formatCredits(this.state.credits)}</strong>
         <small>saldo disponibile</small>
       </article>
       <article class="top-stat-card">
-        <span>${iconMarkup("briefcase", "top-stat-mini")} Locker</span>
+        <span>${iconMarkup("briefcase", "top-stat-mini")} LOCKER</span>
         <strong>${this.state.inventory.length.toLocaleString("it-IT")} skin</strong>
         <small>${formatCredits(inventoryValue)} in inventario</small>
       </article>
       <article class="top-stat-card">
-        <span>${iconMarkup("gem", "top-stat-mini")} Net worth</span>
+        <span>${iconMarkup("gem", "top-stat-mini")} NET WORTH</span>
         <strong>${formatCredits(netWorth)}</strong>
         <small>Prestige ${this.state.prestige.level} - drop x${getDropValueMultiplier(this.state).toFixed(2)}</small>
       </article>
@@ -2656,8 +2886,12 @@ export class CaseOpenerUI {
     const filtered = this.state.inventory.filter((item) => {
       const matchesRarity = this.inventoryRarity === "all" || item.rarity === this.inventoryRarity;
       const matchesWear = this.inventoryWear === "all" || item.wear === this.inventoryWear;
-      const matchesSearch = !query || `${item.name} ${item.weapon} ${item.caseName} ${item.wear}`.toLowerCase().includes(query);
-      return matchesRarity && matchesWear && matchesSearch;
+      const isCase = item.type === "rewardCase";
+      const matchesType = this.inventoryType === "all" ||
+        (this.inventoryType === "cases" && isCase) ||
+        (this.inventoryType === "skins" && !isCase);
+      const matchesSearch = !query || `${item.name} ${item.weapon || ""} ${item.caseName || ""} ${item.wear || ""} ${isCase ? "cassa reward case" : "skin"}`.toLowerCase().includes(query);
+      return matchesRarity && matchesWear && matchesType && matchesSearch;
     });
 
     filtered.sort((a, b) => {
@@ -2703,6 +2937,11 @@ export class CaseOpenerUI {
         <select id="wearFilter">
           <option value="all">Tutte le usure</option>
           ${["Factory New", "Minimal Wear", "Field-Tested", "Well-Worn", "Battle-Scarred"].map((wear) => `<option value="${wear}" ${this.inventoryWear === wear ? "selected" : ""}>${wear}</option>`).join("")}
+        </select>
+        <select id="typeFilter">
+          <option value="all" ${this.inventoryType === "all" ? "selected" : ""}>Skin e casse</option>
+          <option value="skins" ${this.inventoryType === "skins" ? "selected" : ""}>Solo skin</option>
+          <option value="cases" ${this.inventoryType === "cases" ? "selected" : ""}>Solo casse</option>
         </select>
         <select id="sortFilter">
           <option value="newest" ${this.inventorySort === "newest" ? "selected" : ""}>Piu' recenti</option>
@@ -2864,7 +3103,7 @@ export class CaseOpenerUI {
       ${this.renderSectionTabs("prestige")}
       <div class="prestige-panel">
         <div>
-          <span>Prestige ${this.state.prestige.level}</span>
+          <span>Prestige ${this.state.prestige.level}/15</span>
           <h3>Bonus permanente x${getPrestigeMultiplier(this.state).toFixed(2)}</h3>
           <p>Resetta saldo, upgrade e inventario. Mantieni statistiche, achievement, livello profilo e ottieni shard permanenti.</p>
         </div>
@@ -2872,7 +3111,7 @@ export class CaseOpenerUI {
       </div>
       <div class="stats-grid">
         ${statTile("Net worth", formatCredits(netWorth), `Richiesto ${formatCredits(requirement)}`)}
-        ${statTile("Casse aperte", this.state.stats.casesOpened, "minimo 60")}
+        ${statTile("Casse aperte", this.state.stats.casesOpened, `minimo ${60 + this.state.prestige.level * 8}`)}
         ${statTile("Shard", this.state.prestige.shards, `${this.state.prestige.lifetimeShards || 0} lifetime`)}
         ${statTile("Reset", this.state.prestige.totalResets, "totali")}
       </div>
@@ -2936,23 +3175,56 @@ export class CaseOpenerUI {
       map[rarity] = this.state.inventory.filter((item) => item.rarity === rarity && !item.locked && !item.favorite).length;
       return map;
     }, {});
+    const inputs = this.state.inventory
+      .filter((item) => item.rarity === this.contractRarity && !item.locked && !item.favorite && item.type !== "rewardCase")
+      .sort((a, b) => a.value - b.value)
+      .slice(0, inputCount);
+    const inputValue = inputs.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
+    const rarityIndex = RARITY_ORDER.indexOf(this.contractRarity);
+    const nextRarity = RARITY_ORDER[Math.min(RARITY_ORDER.length - 1, rarityIndex + 1)] || this.contractRarity;
+    const previewPool = this.selectedCase.pool?.[nextRarity]?.length
+      ? this.selectedCase.pool[nextRarity]
+      : this.skinData.globalPool?.[nextRarity] || [];
+    const previewSkin = previewPool[0];
+    const canRun = (counts[this.contractRarity] || 0) >= inputCount;
     return `
       ${this.renderSectionTabs("inventory")}
-      <div class="contract-panel">
-        <div>
-          <span>Trade-up contract</span>
-          <h3>Consuma ${inputCount} skin per rollare la rarita' successiva</h3>
-          <p>Usa automaticamente le skin dal valore piu' basso della rarita' scelta. Il drop usa il pool della cassa selezionata.</p>
-        </div>
-        <div class="contract-controls">
-          <select id="contractRarity">
-            ${RARITY_ORDER.slice(0, -1).map((rarity) => `<option value="${rarity}" ${this.contractRarity === rarity ? "selected" : ""}>${rarity} (${counts[rarity] || 0})</option>`).join("")}
-          </select>
-          <button class="primary-button" data-action="contract" ${(counts[this.contractRarity] || 0) >= inputCount ? "" : "disabled"}>Completa contratto</button>
-        </div>
-      </div>
-      <div class="inventory-summary">
-        ${RARITY_ORDER.slice(0, -1).map((rarity) => statTile(rarity, counts[rarity] || 0, `${Math.floor((counts[rarity] || 0) / inputCount)} contratti`)).join("")}
+      <div class="contracts-layout">
+        <section class="contracts-inventory">
+          <div class="contract-panel">
+            <div>
+              <h3>Inventario</h3>
+            </div>
+            <div class="contract-controls">
+              <select id="contractRarity">
+                ${RARITY_ORDER.slice(0, -1).map((rarity) => `<option value="${rarity}" ${this.contractRarity === rarity ? "selected" : ""}>${rarity} (${counts[rarity] || 0})</option>`).join("")}
+              </select>
+              <button class="primary-button" data-action="contract" ${canRun ? "" : "disabled"}>Completa contratto</button>
+            </div>
+          </div>
+          <div class="contract-input-grid">
+            ${inputs.length ? inputs.map((item) => itemCard(item, { compact: true })).join("") : `<div class="empty-state">Nessuna skin valida per questa rarita'.</div>`}
+          </div>
+        </section>
+        <section class="contracts-result">
+          <div class="contract-result-card">
+            <h3>Skin risultante</h3>
+            ${previewSkin ? `
+              <article class="item-card compact rarity-${RARITIES[nextRarity]?.key || "unknown"}" style="--rarity:${RARITIES[nextRarity]?.color || "#ffd166"}">
+                <div class="item-art"><img src="${previewSkin.image}" alt="${escapeHtml(previewSkin.name)}" loading="lazy" /></div>
+                <div class="item-info">
+                  <strong title="${escapeHtml(previewSkin.name)}">${escapeHtml(previewSkin.name)}</strong>
+                  <span>${escapeHtml(nextRarity)}</span>
+                </div>
+                <div class="item-value">${formatCredits(inputValue * Math.max(1, ECONOMY_CONFIG.tradeUpFloor), true)}</div>
+              </article>
+            ` : `<div class="empty-state">Pool risultato non disponibile.</div>`}
+            <div class="inventory-summary">
+              ${statTile("Input", `${inputs.length}/${inputCount}`, formatCredits(inputValue, true))}
+              ${statTile("Rarita'", nextRarity, this.selectedCase.name)}
+            </div>
+          </div>
+        </section>
       </div>
     `;
   }
@@ -3021,10 +3293,10 @@ export class CaseOpenerUI {
     });
     const selectedItems = this.state.inventory.filter((item) => this.jackpotSelection.has(item.id) && !item.locked);
     const selectedTotal = selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
-    const availableItems = [...this.state.inventory]
+    const availableItems = this.getFilteredGameInventory([...this.state.inventory]
       .filter((item) => !item.locked)
       .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.value - a.value)
-      .slice(0, 12);
+      .slice(0, 80), { allowCases: false, limit: 24 });
     return {
       availableItems,
       selectedItems,
@@ -3043,6 +3315,41 @@ export class CaseOpenerUI {
       .filter((item) => !item.locked)
       .sort((a, b) => Number(b.favorite) - Number(a.favorite) || Number(b.value || 0) - Number(a.value || 0))
       .slice(0, 500);
+  }
+
+  getFilteredGameInventory(items = this.getSocialLockerCandidates(), { allowCases = false, limit = 80 } = {}) {
+    const query = String(this.gameInventorySearch || "").trim().toLowerCase();
+    return [...items]
+      .filter((item) => {
+        const isCase = item.type === "rewardCase";
+        if (!allowCases && isCase) {
+          return false;
+        }
+        const activeType = allowCases ? this.gameInventoryType : "skins";
+        const matchesType = activeType === "all" ||
+          (activeType === "cases" && isCase) ||
+          (activeType === "skins" && !isCase);
+        const matchesRarity = this.gameInventoryRarity === "all" || item.rarity === this.gameInventoryRarity;
+        const haystack = `${item.name || ""} ${item.rarity || ""} ${item.wear || ""} ${item.caseName || ""} ${isCase ? "cassa reward case" : "skin"}`.toLowerCase();
+        return matchesType && matchesRarity && (!query || haystack.includes(query));
+      })
+      .slice(0, limit);
+  }
+
+  renderGameInventoryFilters({ allowCases = false } = {}) {
+    return `
+      <div class="game-inventory-filters">
+        <input id="gameInventorySearch" type="search" value="${escapeHtml(this.gameInventorySearch)}" placeholder="Filtra inventario..." />
+        <select id="gameInventoryRarity">
+          <option value="all">Tutte le rarita'</option>
+          ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.gameInventoryRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
+        </select>
+        <select id="gameInventoryType">
+          <option value="skins" ${this.gameInventoryType === "skins" ? "selected" : ""}>Skin</option>
+          ${allowCases ? `<option value="cases" ${this.gameInventoryType === "cases" ? "selected" : ""}>Casse</option><option value="all" ${this.gameInventoryType === "all" ? "selected" : ""}>Tutto</option>` : ""}
+        </select>
+      </div>
+    `;
   }
 
   getSelectedTradeTarget() {
@@ -3123,14 +3430,10 @@ export class CaseOpenerUI {
   }
 
   renderGamesHeader() {
-    const minigames = this.state.minigames || {};
     return `
       <div class="games-header">
-        ${statTile("Saldo minigiochi", `${minigames.earned >= 0 ? "+" : ""}${formatCredits(minigames.earned || 0)}`, `${minigames.played || 0} partite`)}
-        ${statTile("Miglior vincita", formatCredits(minigames.bestWin || 0), "singolo colpo")}
-        ${statTile("Soft cap oggi", formatCredits(Math.max(0, ECONOMY_CONFIG.minigameDailySoftCap - (minigames.dailyEarned || 0))), "profit pieno rimasto")}
         ${statTile("Rete giochi", this.sharedGamesStatus.replace("Sync giochi ", ""), `${this.sharedGameEvents.length} eventi live`)}
-        ${statTile("Totale payout", formatCredits(this.state.stats.minigameEarned || 0), `${formatCredits(this.state.stats.minigameSpent || 0)} puntati`)}
+        ${statTile("Modalita'", "7", "roulette, pachinko, upgrader, coinflip, crash, jackpot, aste")}
       </div>
     `;
   }
@@ -3197,37 +3500,51 @@ export class CaseOpenerUI {
   }
 
   renderUpgraderGame() {
-    const candidates = this.getSocialLockerCandidates().filter((item) => item.type !== "rewardCase").slice(0, 40);
-    const selectedId = this.state.minigames.upgrader?.itemId || candidates[0]?.id || "";
-    const selected = candidates.find((item) => item.id === selectedId);
+    const candidates = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 });
+    const candidateIds = new Set(candidates.map((item) => item.id));
+    [...this.upgraderSelection].forEach((id) => {
+      if (!candidateIds.has(id) && !this.state.inventory.some((item) => item.id === id)) {
+        this.upgraderSelection.delete(id);
+      }
+    });
+    const selectedItems = this.state.inventory.filter((item) => this.upgraderSelection.has(item.id) && !item.locked && item.type !== "rewardCase");
+    const selectedTotal = Number(selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0).toFixed(2));
+    const selected = selectedItems
+      .slice()
+      .sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier || b.value - a.value)[0] || null;
+    const effectiveSelectedItems = this.state.inventory.filter((item) => this.upgraderSelection.has(item.id) && !item.locked && item.type !== "rewardCase");
+    const effectiveTotal = Number(effectiveSelectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0).toFixed(2));
+    const primarySelected = effectiveSelectedItems
+      .slice()
+      .sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier || b.value - a.value)[0] || selected;
     const multiplier = Math.max(1.25, Math.min(12, Number(this.state.minigames.upgrader?.targetMultiplier || 2)));
     const chance = Math.max(6, Math.min(72, (92 / multiplier) * (1 + getProfileSkillBonus(this.state).luck * 1.6)));
-    const target = this.getUpgraderTargetPreview(selected, multiplier);
+    const target = this.getUpgraderTargetPreview(primarySelected ? { ...primarySelected, value: effectiveTotal || primarySelected.value } : null, multiplier);
     const animation = this.upgraderAnimation;
     return `
       <article class="game-card full-width upgrader-card">
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("arrow-up-circle", "button-icon")} Upgrader</span>
-            <h3>Rischia una skin per moltiplicarla</h3>
-            <p>La skin viene consumata. Se vinci ricevi una skin migliore, se perdi sparisce.</p>
+            <h3>Upgrader</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Chance", `${chance.toFixed(1)}%`, `x${multiplier.toFixed(2)}`)}
-            ${statTile("Target", selected ? formatCredits(selected.value * multiplier, true) : "-", "valore stimato")}
+            ${statTile("Input", formatCredits(effectiveTotal || 0, true), `${effectiveSelectedItems.length} skin`)}
+            ${statTile("Target", effectiveTotal ? formatCredits(effectiveTotal * multiplier, true) : "-", "valore stimato")}
           </div>
         </div>
         <div class="upgrader-layout">
           <section class="upgrader-inventory-panel">
             <div class="social-card-head compact-head">
               <div>
-                <span>Inventario</span>
-                <h3>Seleziona skin</h3>
+                <h3>Inventario</h3>
               </div>
             </div>
+            ${this.renderGameInventoryFilters()}
             <div class="upgrade-item-grid">
               ${candidates.length ? candidates.map((item) => `
-                <button class="upgrade-item-card ${item.id === selected?.id ? "is-selected" : ""}" data-action="select-upgrader-item" data-id="${item.id}" style="--rarity:${item.rarityColor}">
+                <button class="upgrade-item-card ${this.upgraderSelection.has(item.id) ? "is-selected" : ""}" data-action="select-upgrader-item" data-id="${item.id}" style="--rarity:${item.rarityColor}">
                   <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
                   <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
                   <span>${formatCredits(item.value, true)}</span>
@@ -3239,7 +3556,12 @@ export class CaseOpenerUI {
             <div class="upgrader-stage ${animation?.spinning ? "is-upgrading" : ""} ${animation && !animation.spinning ? (animation.won ? "is-win" : "is-loss") : ""}">
               <div class="upgrade-side">
                 <span>Input</span>
-                ${selected ? itemCard(animation?.consumedItem || selected, { compact: true }) : `<div class="empty-state small">Nessuna skin</div>`}
+                ${effectiveSelectedItems.length ? `
+                  <div class="upgrader-selected-stack">
+                    ${(animation?.consumedItems || effectiveSelectedItems).slice(0, 4).map((item) => itemCard(item, { compact: true })).join("")}
+                    ${effectiveSelectedItems.length > 4 ? `<small>+${effectiveSelectedItems.length - 4} altre skin</small>` : ""}
+                  </div>
+                ` : `<div class="empty-state small">Nessuna skin</div>`}
               </div>
               <div class="upgrade-core">
                 <div class="upgrade-energy">${iconMarkup("sparkles")}</div>
@@ -3264,8 +3586,10 @@ export class CaseOpenerUI {
               <label class="field-inline">
                 <span>Moltiplicatore</span>
                 <input id="upgraderMultiplier" type="range" min="1.25" max="12" step="0.25" value="${multiplier}" />
+                <strong>x${multiplier.toFixed(2)}</strong>
               </label>
-              <button class="primary-button" data-action="play-upgrader" ${selected && !animation?.spinning ? "" : "disabled"}>${iconMarkup("sparkles", "button-icon")} Upgrade</button>
+              <button class="ghost-button" data-action="clear-upgrader-selection" ${effectiveSelectedItems.length && !animation?.spinning ? "" : "disabled"}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
+              <button class="primary-button" data-action="play-upgrader" ${effectiveSelectedItems.length && !animation?.spinning ? "" : "disabled"}>${iconMarkup("sparkles", "button-icon")} Upgrade</button>
             </div>
           </section>
         </div>
@@ -3277,20 +3601,20 @@ export class CaseOpenerUI {
   renderCoinflipGame() {
     const coin = this.state.minigames.coinflip || {};
     const animation = this.coinflipAnimation;
+    const coinDelay = animation?.spinning ? -Math.min(Date.now() - (animation.startedAt || Date.now()), animation.durationMs || 1500) : 0;
     return `
       <article class="game-card full-width coinflip-card">
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("coins", "button-icon")} Coinflip</span>
-            <h3>CT o T, round rapido</h3>
-            <p>Payout x1.94 con fee leggera. Utile early game senza rompere l'economia.</p>
+            <h3>Coinflip</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Puntata", formatCredits(coin.bet || 4), "crediti")}
             ${statTile("Scelta", (coin.side || "ct").toUpperCase(), "lato")}
           </div>
         </div>
-        <div class="coinflip-stage ${animation?.spinning ? "is-flipping" : ""} ${animation && !animation.spinning ? (animation.playerWon ? "is-win" : "is-loss") : ""}">
+        <div class="coinflip-stage ${animation?.spinning ? "is-flipping" : ""} ${animation && !animation.spinning ? (animation.playerWon ? "is-win" : "is-loss") : ""}" style="--anim-delay:${coinDelay}ms;">
           <div class="coinflip-coin">
             <span>CT</span>
             <span>T</span>
@@ -3302,10 +3626,10 @@ export class CaseOpenerUI {
         </div>
         <div class="game-controls social-inline-controls">
           <input id="coinflipBet" type="text" inputmode="decimal" value="${escapeHtml(coin.bet || 4)}" />
-          <select id="coinflipSide">
-            <option value="ct" ${coin.side !== "t" ? "selected" : ""}>CT</option>
-            <option value="t" ${coin.side === "t" ? "selected" : ""}>T</option>
-          </select>
+          <div class="coin-side-buttons" role="group" aria-label="Lato coinflip">
+            <button class="coin-side-button ${coin.side === "t" ? "is-active" : ""}" data-action="set-coinflip-side" data-side="t" type="button">T</button>
+            <button class="coin-side-button ${coin.side !== "t" ? "is-active" : ""}" data-action="set-coinflip-side" data-side="ct" type="button">CT</button>
+          </div>
           <button class="primary-button" data-action="play-coinflip" ${animation?.spinning ? "disabled" : ""}>${iconMarkup("rotate-3d", "button-icon")} Lancia</button>
         </div>
       </article>
@@ -3314,7 +3638,7 @@ export class CaseOpenerUI {
   }
 
   renderAuctionHouse() {
-    const items = this.getSocialLockerCandidates().filter((item) => item.type !== "rewardCase").slice(0, 40);
+    const items = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 });
     const selected = items.find((item) => item.id === this.auctionItemId) || items[0];
     const fair = selected ? getSellReturn(this.state, selected) : 0;
     const min = fair * 0.82;
@@ -3339,10 +3663,10 @@ export class CaseOpenerUI {
           <section class="auction-inventory-panel">
             <div class="social-card-head compact-head">
               <div>
-                <span>Inventario</span>
                 <h3>Metti all'asta</h3>
               </div>
             </div>
+            ${this.renderGameInventoryFilters()}
             <div class="upgrade-item-grid auction-item-grid">
               ${items.length ? items.map((item) => `
                 <button class="upgrade-item-card ${item.id === selected?.id ? "is-selected" : ""}" data-action="select-auction-item" data-id="${item.id}" style="--rarity:${item.rarityColor}">
@@ -3401,13 +3725,13 @@ export class CaseOpenerUI {
     const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
     const outcome = Number(roulette?.outcome || 0);
     const strip = Array.from({ length: 111 }, (_, index) => index % 37);
+    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), roulette.durationMs || 2200) : 0;
     return `
       <article class="game-card full-width roulette-card modern-roulette-card">
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("circle-dot", "button-icon")} Roulette</span>
-            <h3>Neon scanner roulette</h3>
-            <p>La puntata viene pubblicata nel feed globale. Il risultato resta animato fino al reveal finale.</p>
+            <h3>Roulette</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Puntata", formatCredits(rouletteBet), "crediti")}
@@ -3415,7 +3739,7 @@ export class CaseOpenerUI {
             ${statTile("Rete", this.sharedGamesStatus.replace("Sync giochi ", ""), "globale")}
           </div>
         </div>
-        <div class="roulette-modern-visual ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-offset:${roulette ? -((outcome + 37) * 58) : -980}px;">
+        <div class="roulette-modern-visual ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-offset:${roulette ? -((outcome + 37) * 58) : -980}px; --anim-delay:${rouletteDelay}ms;">
           <div class="roulette-scanline"></div>
           <div class="roulette-number-strip">
             ${strip.map((number) => {
@@ -3453,6 +3777,7 @@ export class CaseOpenerUI {
     const pachinkoBet = minigames.pachinko?.bet || 4;
     const pachinko = this.pachinkoAnimation;
     const pachinkoProfit = pachinko ? pachinko.payout - pachinko.bet : 0;
+    const pachinkoDelay = pachinko?.spinning ? -Math.min(Date.now() - (pachinko.startedAt || Date.now()), pachinko.durationMs || 2300) : 0;
     const rows = Array.from({ length: 8 }, (_, row) => `
       <div class="pachinko-peg-row" style="--row:${row}">
         ${Array.from({ length: row + 3 }, (_, peg) => `<i style="--peg:${peg}"></i>`).join("")}
@@ -3463,15 +3788,14 @@ export class CaseOpenerUI {
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("waypoints", "button-icon")} Pachinko</span>
-            <h3>Classic drop pyramid</h3>
-            <p>La pallina scende tra i pin e finisce in uno slot payout. Ogni round viene salvato nel feed globale.</p>
+            <h3>Pachinko</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Puntata", formatCredits(pachinkoBet), "crediti")}
             ${statTile("Ultimo", pachinko ? pachinko.label : "-", pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit, true)}` : "nessun drop")}
           </div>
         </div>
-        <div class="pachinko-classic-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${pachinko?.chipLeft || 50}%;">
+        <div class="pachinko-classic-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${pachinko?.chipLeft || 50}%; --anim-delay:${pachinkoDelay}ms;">
           <div class="pachinko-funnel"></div>
           <div class="pachinko-peg-field">${rows}</div>
           ${pachinko ? `<div class="pachinko-chip"></div>` : ""}
@@ -3749,13 +4073,12 @@ export class CaseOpenerUI {
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("plane", "button-icon")} Crash</span>
-            <h3>Round live in stile Aviator</h3>
-            <p>Avvii il volo, il moltiplicatore sale in tempo reale e puoi uscire in qualunque momento prima del crash. L'esito entra nello storico solo quando il round e' davvero finito.</p>
+            <h3>Crash</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Bet", formatCredits(crashBet), "per round")}
             ${statTile("Auto", `x${Number(crashAutoCashout).toFixed(2)}`, showCashout ? "pronto" : "set")}
-            ${statTile("Loop", autoPlay ? (crash?.spinning ? "live" : compactTime(countdownMs)) : "Off", `${roundDelay}s tra round`)}
+            ${statTile("Loop", autoPlay ? (crash?.spinning ? "live" : compactTime(countdownMs)) : "Off", `${roundDelay}s`)}
           </div>
         </div>
         <div class="crash-history-strip">
@@ -3805,7 +4128,7 @@ export class CaseOpenerUI {
             <input id="crashAutoCashout" type="text" inputmode="decimal" value="${escapeHtml(crashAutoCashout)}" ${crash?.spinning ? "disabled" : ""} />
           </label>
           <label class="field-inline">
-            <span>Delay</span>
+            <span>Intervallo</span>
             <input id="crashRoundDelay" type="text" inputmode="numeric" value="${escapeHtml(roundDelay)}" ${crash?.spinning ? "disabled" : ""} />
           </label>
           <label class="inline-toggle">
@@ -3843,8 +4166,6 @@ export class CaseOpenerUI {
   }
 
   renderMultiplayerJackpot() {
-    const minigames = this.state.minigames || {};
-    const jackpotBots = minigames.jackpot?.targetBots || 2;
     const jackpotState = this.getJackpotSelectionState();
     const jackpotPreview = this.jackpotPreview;
     const jackpotAnimation = this.jackpotAnimation;
@@ -3856,8 +4177,7 @@ export class CaseOpenerUI {
         <div class="social-card-head">
           <div>
             <span>${iconMarkup("coins", "button-icon")} Jackpot</span>
-            <h3>Piatto con skin</h3>
-            <p>Qui si giocano davvero le skin: entri col tuo inventario, i bot mettono le loro e chi vince si prende il piatto intero in armi.</p>
+            <h3>Jackpot</h3>
           </div>
           <div class="social-chip-stack">
             ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
@@ -3865,10 +4185,10 @@ export class CaseOpenerUI {
           </div>
         </div>
         <div class="game-controls social-inline-controls">
-          <input id="jackpotBots" type="number" min="1" max="3" step="1" value="${Number(jackpotBots)}" />
           <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
           <button class="primary-button" data-action="play-jackpot" ${jackpotState.selectedItems.length && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup("flame", "button-icon")} Avvia jackpot</button>
         </div>
+        ${this.renderGameInventoryFilters()}
         <div class="jackpot-item-grid">
           ${jackpotState.availableItems.length
             ? jackpotState.availableItems.map((item) => `
@@ -4227,18 +4547,42 @@ export class CaseOpenerUI {
     `;
   }
 
+  getAdminPromoRows() {
+    const rows = new Map();
+    this.globalPromoCodes.forEach((promo) => {
+      rows.set(promo.code, {
+        code: promo.code,
+        reward: promo.reward || {},
+        source: "Globale",
+        active: promo.active !== false
+      });
+    });
+    Object.entries(this.state.promoCodes?.custom || {}).forEach(([code, reward]) => {
+      const normalized = String(code || "").trim().toUpperCase();
+      const existing = rows.get(normalized);
+      rows.set(normalized, {
+        code: normalized,
+        reward: existing?.reward || reward || {},
+        source: existing ? "Globale + locale" : "Locale",
+        active: existing?.active ?? true
+      });
+    });
+    return [...rows.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }
+
   renderAdminPanel() {
     if (!this.isAdmin()) {
       return `<div class="empty-state">Accesso admin richiesto.</div>`;
     }
-    const customCodes = Object.entries(this.state.promoCodes?.custom || {});
+    const promoRows = this.getAdminPromoRows();
+    const globalSyncHint = isGlobalPromoCodesAvailable()
+      ? (this.adminPasswordSecret ? this.globalPromoStatus : "Rifai login admin dopo un refresh per salvare online.")
+      : "Promo globali non configurati.";
     return `
       <div class="admin-panel">
         <div class="cheat-console">
           <div class="cheat-header">
-            <span>Staff</span>
             <h3>Pannello admin</h3>
-            <p>Cheat, promo code, test goal e strumenti di bilanciamento restano separati dalla UI giocatore.</p>
           </div>
           ${this.renderCheats()}
           <div class="cheat-grid">
@@ -4247,23 +4591,64 @@ export class CaseOpenerUI {
               <h4>Test reward</h4>
               <div class="cheat-controls">
                 <button class="primary-button small" data-action="cheat-complete-goals">Completa/scade goal</button>
+                <button class="ghost-button small danger" data-action="cheat-reset-community-goals">Reset community</button>
               </div>
             </section>
             <section class="cheat-card">
               <span>Promo code</span>
-              <h4>Crea codice</h4>
+              <h4>${this.adminPromoEditingCode ? `Modifica ${escapeHtml(this.adminPromoEditingCode)}` : "Crea codice"}</h4>
+              <p class="admin-sync-note">${escapeHtml(globalSyncHint)}</p>
               <div class="cheat-controls vertical">
-                <input id="adminPromoCode" value="${escapeHtml(this.adminPromoCode)}" placeholder="CODICE" />
-                <input id="adminPromoCredits" type="number" min="0" step="100" value="${escapeHtml(this.adminPromoCredits)}" placeholder="Crediti" />
-                <input id="adminPromoCases" type="number" min="0" step="1" value="${escapeHtml(this.adminPromoCases)}" placeholder="Casse" />
-                <input id="adminPromoTier" type="number" min="1" max="5" step="1" value="${escapeHtml(this.adminPromoTier)}" placeholder="Tier casse" />
-                <input id="adminPromoWeapons" type="number" min="0" max="12" step="1" value="${escapeHtml(this.adminPromoWeapons)}" placeholder="Armi" />
-                <select id="adminPromoRarity">
-                  ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.adminPromoRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
-                </select>
-                <button class="primary-button small" data-action="admin-create-promo">Crea promo</button>
+                <label class="admin-promo-field">
+                  <span>Codice</span>
+                  <input id="adminPromoCode" value="${escapeHtml(this.adminPromoCode)}" placeholder="MARCUS2" ${this.adminPromoEditingCode ? "readonly" : ""} />
+                  <small>3-24 caratteri, lettere/numeri/_/-</small>
+                </label>
+                <div class="admin-promo-grid">
+                  <label class="admin-promo-field">
+                    <span>Crediti</span>
+                    <input id="adminPromoCredits" type="number" min="0" step="100" value="${escapeHtml(this.adminPromoCredits)}" placeholder="0" />
+                  </label>
+                  <label class="admin-promo-field">
+                    <span>Casse reward</span>
+                    <input id="adminPromoCases" type="number" min="0" step="1" value="${escapeHtml(this.adminPromoCases)}" placeholder="0" />
+                  </label>
+                  <label class="admin-promo-field">
+                    <span>Tier casse</span>
+                    <input id="adminPromoTier" type="number" min="1" max="5" step="1" value="${escapeHtml(this.adminPromoTier)}" placeholder="2" />
+                  </label>
+                  <label class="admin-promo-field">
+                    <span>Armi</span>
+                    <input id="adminPromoWeapons" type="number" min="0" max="12" step="1" value="${escapeHtml(this.adminPromoWeapons)}" placeholder="0" />
+                  </label>
+                </div>
+                <label class="admin-promo-field">
+                  <span>Rarita' armi</span>
+                  <select id="adminPromoRarity">
+                    ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.adminPromoRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
+                  </select>
+                </label>
+                <div class="admin-promo-preview">
+                  <span>Reward generato</span>
+                  <strong>${formatCredits(Number(this.adminPromoCredits || 0), true)} · ${Number(this.adminPromoCases || 0)} casse Tier ${Number(this.adminPromoTier || 1)} · ${Number(this.adminPromoWeapons || 0)} armi ${escapeHtml(this.adminPromoRarity)}</strong>
+                </div>
+                <div class="cheat-controls">
+                  <button class="primary-button small" data-action="admin-create-promo">${this.adminPromoEditingCode ? "Aggiorna promo" : "Crea promo"}</button>
+                  <button class="ghost-button small" data-action="admin-clear-promo-form">Pulisci</button>
+                </div>
               </div>
-              <small>${customCodes.length ? customCodes.map(([code, reward]) => `${code}: ${formatCredits(reward.credits || 0, true)} + ${reward.cases || 0} casse + ${reward.weapons || 0} armi`).join(" · ") : "Nessun codice custom."}</small>
+              <div class="admin-promo-list">
+                ${promoRows.length ? promoRows.map(({ code, reward, source, active }) => `
+                  <div class="admin-promo-row">
+                    <div>
+                      <strong>${escapeHtml(code)}</strong>
+                      <small>${escapeHtml(source)}${active ? "" : " · disattivo"} · ${formatCredits(reward.credits || 0, true)} · ${reward.cases || 0} casse T${reward.rewardTier || 1} · ${reward.weapons || 0} armi ${escapeHtml(reward.weaponRarity || "Mil-Spec")}</small>
+                    </div>
+                    <button class="ghost-button tiny" data-action="admin-edit-promo" data-code="${escapeHtml(code)}">Modifica</button>
+                    <button class="ghost-button tiny danger" data-action="admin-delete-promo" data-code="${escapeHtml(code)}">Elimina</button>
+                  </div>
+                `).join("") : `<small>Nessun codice custom.</small>`}
+              </div>
             </section>
           </div>
         </div>
@@ -4277,9 +4662,7 @@ export class CaseOpenerUI {
     return `
       <div class="cheat-console">
         <div class="cheat-header">
-          <span>Debug locale</span>
           <h3>Cheat menu</h3>
-          <p>Strumenti rapidi per testare progressione, drop, Prestige e bilanciamento senza grind manuale.</p>
         </div>
         <div class="games-header">
           ${statTile("Saldo", formatCredits(this.state.credits), "saldo attuale")}
@@ -4453,6 +4836,26 @@ export class CaseOpenerUI {
       .slice(0, 8);
     const maxMastery = topMastery[0]?.mastery.level || 0;
     const skill = getProfileSkillBonus(this.state);
+    const totalDrops = Math.max(1, RARITY_ORDER.reduce((sum, rarity) => sum + (this.state.stats.rarityCounts[rarity] || 0), 0));
+    const rarityStops = [];
+    let rarityCursor = 0;
+    RARITY_ORDER.forEach((rarity) => {
+      const next = rarityCursor + ((this.state.stats.rarityCounts[rarity] || 0) / totalDrops) * 100;
+      rarityStops.push(`${RARITIES[rarity].color} ${rarityCursor.toFixed(2)}% ${next.toFixed(2)}%`);
+      rarityCursor = next;
+    });
+    const minigameSpent = Number(this.state.stats.minigameSpent || 0);
+    const minigameEarned = Number(this.state.stats.minigameEarned || 0);
+    const economyTotal = Math.max(1, this.state.stats.totalSpent + this.state.stats.totalEarned + getInventoryValue(this.state) + minigameSpent);
+    const spentPct = (this.state.stats.totalSpent / economyTotal) * 100;
+    const earnedPct = (this.state.stats.totalEarned / economyTotal) * 100;
+    const inventoryPct = (getInventoryValue(this.state) / economyTotal) * 100;
+    const economyStops = [
+      `#f05d5e 0% ${spentPct.toFixed(2)}%`,
+      `#45c486 ${spentPct.toFixed(2)}% ${(spentPct + earnedPct).toFixed(2)}%`,
+      `#64d7e3 ${(spentPct + earnedPct).toFixed(2)}% ${(spentPct + earnedPct + inventoryPct).toFixed(2)}%`,
+      `#ffd166 ${(spentPct + earnedPct + inventoryPct).toFixed(2)}% 100%`
+    ];
     return `
       ${this.renderSectionTabs("stats")}
       <div class="stats-grid">
@@ -4461,10 +4864,28 @@ export class CaseOpenerUI {
         ${statTile("Venduto", formatCredits(this.state.stats.totalEarned), "incassi skin")}
         ${statTile("Profit / Loss", `${profit >= 0 ? "+" : ""}${formatCredits(profit)}`, "include inventario")}
         ${statTile("Special", this.state.stats.jackpotHits, "knife / gloves / special")}
-        ${statTile("Offline", formatCredits(this.state.stats.offlineEarned), "idle income")}
         ${statTile("Collezioni", this.state.stats.collections, `bonus x${getCollectionMultiplier(this.state).toFixed(2)}`)}
-        ${statTile("Economia", formatCredits(this.state.stats.insuranceEarned || 0), `${this.state.stats.autoSold} auto-sell - ${this.state.stats.marketFlips} flip`)}
+        ${statTile("Minigiochi", `${minigameEarned - minigameSpent >= 0 ? "+" : ""}${formatCredits(minigameEarned - minigameSpent)}`, `${formatCredits(minigameSpent, true)} puntati`)}
         ${statTile("Sessione", session.opens, `${session.opensPerMinute.toFixed(1)}/min - ${compactTime(session.durationMs)}`)}
+      </div>
+      <div class="progress-chart-grid">
+        <section class="data-panel progress-chart-card">
+          <h3>Drop per rarita'</h3>
+          <div class="pie-chart" style="--pie:${rarityStops.join(", ")}"></div>
+          <div class="chart-legend">
+            ${RARITY_ORDER.map((rarity) => `<span style="--rarity:${RARITIES[rarity].color}">${escapeHtml(rarity)} <strong>${this.state.stats.rarityCounts[rarity] || 0}</strong></span>`).join("")}
+          </div>
+        </section>
+        <section class="data-panel progress-chart-card">
+          <h3>Economia</h3>
+          <div class="pie-chart" style="--pie:${economyStops.join(", ")}"></div>
+          <div class="chart-legend">
+            <span style="--rarity:#f05d5e">Speso <strong>${formatCredits(this.state.stats.totalSpent, true)}</strong></span>
+            <span style="--rarity:#45c486">Venduto <strong>${formatCredits(this.state.stats.totalEarned, true)}</strong></span>
+            <span style="--rarity:#64d7e3">Locker <strong>${formatCredits(getInventoryValue(this.state), true)}</strong></span>
+            <span style="--rarity:#ffd166">Minigiochi <strong>${formatCredits(minigameSpent, true)}</strong></span>
+          </div>
+        </section>
       </div>
       <div class="split-layout">
         <section class="data-panel">
@@ -4477,19 +4898,12 @@ export class CaseOpenerUI {
           </div>
         </section>
         <section class="data-panel">
-          <h3>Conteggio rarita'</h3>
+          <h3>Minigiochi</h3>
           <div class="rarity-bars">
-            ${RARITY_ORDER.map((rarity) => {
-              const count = this.state.stats.rarityCounts[rarity] || 0;
-              const total = Math.max(1, this.state.stats.casesOpened);
-              return `
-                <div class="rarity-row" style="--rarity:${RARITIES[rarity].color}">
-                  <span>${rarity}</span>
-                  <div><i style="width:${Math.max(2, (count / total) * 100)}%"></i></div>
-                  <strong>${count}</strong>
-                </div>
-              `;
-            }).join("")}
+            <div class="rarity-row"><span>Partite</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.played || 0) / 100))}"></i></div><strong>${this.state.minigames?.played || 0}</strong></div>
+            <div class="rarity-row"><span>Puntato</span><div><i style="width:${percent(Math.min(1, minigameSpent / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameSpent, true)}</strong></div>
+            <div class="rarity-row"><span>Payout</span><div><i style="width:${percent(Math.min(1, minigameEarned / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameEarned, true)}</strong></div>
+            <div class="rarity-row"><span>Best win</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.bestWin || 0) / Math.max(1, minigameEarned)))}"></i></div><strong>${formatCredits(this.state.minigames?.bestWin || 0, true)}</strong></div>
           </div>
         </section>
         <section class="data-panel">
@@ -4571,6 +4985,13 @@ export class CaseOpenerUI {
   }
 
   async openSelectedCase(auto = false, forcedCount = null) {
+    if (!this.isCloudLoggedIn()) {
+      if (!auto) {
+        this.toast("Accedi per giocare online.");
+        this.renderLoginGate();
+      }
+      return;
+    }
     if (this.isAnimating && !auto) {
       return;
     }
@@ -5332,6 +5753,8 @@ export class CaseOpenerUI {
     this.rouletteAnimation = {
       ...result,
       angle: (Number(result.outcome) / 37) * 360 + 4,
+      startedAt: Date.now(),
+      durationMs: 2200,
       spinning: true
     };
     this.playUiPulse("tick", 0.42);
@@ -5373,6 +5796,8 @@ export class CaseOpenerUI {
     this.pachinkoAnimation = {
       ...result,
       chipLeft: chipMap[result.label] || 50,
+      startedAt: Date.now(),
+      durationMs: 2300,
       spinning: true
     };
     this.playUiPulse("tick", 0.3);
@@ -5395,15 +5820,21 @@ export class CaseOpenerUI {
   }
 
   playUpgraderGame() {
-    const fallback = this.getSocialLockerCandidates().find((item) => item.type !== "rewardCase" && !item.locked);
-    const itemId = this.state.minigames.upgrader.itemId || fallback?.id;
+    const fallback = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 })
+      .find((item) => item.type !== "rewardCase" && !item.locked);
+    const selectedIds = [...this.upgraderSelection];
+    const itemId = selectedIds[0] || this.state.minigames.upgrader.itemId || fallback?.id;
     const targetMultiplier = this.root.querySelector("#upgraderMultiplier")?.value || this.state.minigames.upgrader.targetMultiplier;
-    const result = playUpgrader(this.state, this.skinData, { itemId, targetMultiplier });
+    const result = playUpgrader(this.state, this.skinData, { itemId, itemIds: selectedIds.length ? selectedIds : [itemId], targetMultiplier });
     if (!result.ok) {
       this.toast(result.reason);
       return;
     }
-    this.selectedInventory.delete(result.consumedItem?.id);
+    (result.consumedItems || [result.consumedItem]).filter(Boolean).forEach((item) => {
+      this.selectedInventory.delete(item.id);
+      this.upgraderSelection.delete(item.id);
+    });
+    this.state.minigames.upgrader.itemIds = [];
     this.upgraderAnimation = {
       ...result,
       won: Boolean(result.playerWon),
@@ -5433,7 +5864,7 @@ export class CaseOpenerUI {
 
   playCoinflipGame() {
     const bet = this.root.querySelector("#coinflipBet")?.value ?? this.state.minigames.coinflip.bet;
-    const side = this.root.querySelector("#coinflipSide")?.value ?? this.state.minigames.coinflip.side;
+    const side = this.state.minigames.coinflip.side;
     const result = playCoinflip(this.state, { bet, side });
     if (!result.ok) {
       this.toast(result.reason);
@@ -5441,6 +5872,8 @@ export class CaseOpenerUI {
     }
     this.coinflipAnimation = {
       ...result,
+      startedAt: Date.now(),
+      durationMs: 1500,
       spinning: true
     };
     this.playUiPulse("tick", 0.44);
@@ -5462,7 +5895,11 @@ export class CaseOpenerUI {
     }, 1500);
   }
 
-  redeemPromo() {
+  async redeemPromo() {
+    if (isGlobalPromoCodesAvailable() && !this.globalPromoCodes.length) {
+      await this.initGlobalPromoCodes();
+    }
+    this.syncGlobalPromoCodesToState();
     const code = this.root.querySelector("#promoCodeInput")?.value || this.promoCodeDraft;
     const result = redeemPromoCode(this.state, code, this.skinData);
     this.toast(result.ok
@@ -5695,6 +6132,20 @@ export class CaseOpenerUI {
     if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
       this.renderTab();
     }
+  }
+
+  toggleUpgraderItem(id) {
+    const item = this.state.inventory.find((candidate) => candidate.id === id && !candidate.locked && candidate.type !== "rewardCase");
+    if (!item) {
+      return;
+    }
+    if (this.upgraderSelection.has(id)) {
+      this.upgraderSelection.delete(id);
+    } else {
+      this.upgraderSelection.add(id);
+    }
+    this.state.minigames.upgrader.itemIds = [...this.upgraderSelection];
+    this.state.minigames.upgrader.itemId = [...this.upgraderSelection][0] || "";
   }
 
   async sendSocialChat() {
@@ -6110,10 +6561,9 @@ export class CaseOpenerUI {
   }
 
   playJackpotGame() {
-    const targetBots = this.root.querySelector("#jackpotBots")?.value ?? this.state.minigames?.jackpot?.targetBots;
     const result = playJackpot(this.state, this.skinData, {
       itemIds: [...this.jackpotSelection],
-      targetBots
+      targetBots: 0
     });
     if (!result.ok) {
       this.toast(result.reason);
@@ -6170,6 +6620,9 @@ export class CaseOpenerUI {
         });
         this.reportSocialGameResult("jackpot", result);
         this.queueSocialProfileSync();
+        if (result.playerWon && result.wonItems?.length) {
+          this.jackpotWinPopup = { items: result.wonItems };
+        }
         this.toast(`${result.game}: ${result.winnerName} - ${result.profit >= 0 ? "+" : ""}${formatCredits(result.profit)}.`);
         this.renderAll();
       }
@@ -6264,7 +6717,30 @@ export class CaseOpenerUI {
     this.renderAll();
   }
 
-  adminCreatePromo() {
+  async cheatResetCommunityGoals() {
+    const goals = this.getCommunityGoalRows();
+    resetCommunityGoalState(this.state);
+    this.sharedGoalTotals = {};
+    this.seenSharedGoalContributionIds.clear();
+    if (isCommunityGoalsSyncAvailable()) {
+      try {
+        const resets = await submitCommunityGoalReset(
+          goals.filter((goal) => goal.scope === "community").map((goal) => goal.key),
+          this.state.profile?.name || "Admin",
+          this.getAdminRpcCredentials()
+        );
+        resets.forEach((reset) => this.applyCommunityGoalReset(reset));
+        this.sharedGoalStatus = "Goal community resettati";
+      } catch (error) {
+        this.sharedGoalStatus = "Reset community non sincronizzato";
+        this.toast("Reset locale completato, ma Supabase non ha accettato il reset globale.");
+      }
+    }
+    this.toast("Goal community resettati.");
+    this.renderAll();
+  }
+
+  async adminCreatePromo() {
     const result = createPromoCode(this.state, {
       code: this.adminPromoCode,
       credits: this.adminPromoCredits,
@@ -6273,12 +6749,86 @@ export class CaseOpenerUI {
       weapons: this.adminPromoWeapons,
       weaponRarity: this.adminPromoRarity
     });
-    this.toast(result.ok ? `Promo ${result.code} creata.` : result.reason);
+    if (result.ok && isGlobalPromoCodesAvailable()) {
+      try {
+        const promo = await upsertGlobalPromoCode({
+          code: result.code,
+          reward: result.reward,
+          active: true,
+          ...this.getAdminRpcCredentials()
+        });
+        if (promo) {
+          this.globalPromoCodes = [promo, ...this.globalPromoCodes.filter((entry) => entry.code !== promo.code)];
+          this.globalPromoStatus = "Promo globali online";
+          this.syncGlobalPromoCodesToState();
+        }
+      } catch (error) {
+        this.globalPromoStatus = "Promo globale non salvato online";
+        this.toast(error.message || "Promo locale creato, ma sync online fallita.");
+      }
+    }
+    this.toast(result.ok ? `Promo ${result.code} ${this.adminPromoEditingCode ? "aggiornata" : "creata"}.` : result.reason);
     if (result.ok) {
       this.adminPromoCode = "";
+      this.adminPromoEditingCode = "";
       this.adminPromoWeapons = "0";
       this.renderAll();
     }
+  }
+
+  adminEditPromo(code) {
+    const normalized = String(code || "").trim().toUpperCase();
+    const reward = this.globalPromoCodes.find((promo) => promo.code === normalized)?.reward ||
+      this.state.promoCodes?.custom?.[normalized];
+    if (!reward) {
+      this.toast("Promo code non trovato.");
+      return;
+    }
+    this.adminPromoEditingCode = normalized;
+    this.adminPromoCode = normalized;
+    this.adminPromoCredits = String(reward.credits || 0);
+    this.adminPromoCases = String(reward.cases || 0);
+    this.adminPromoTier = String(reward.rewardTier || 1);
+    this.adminPromoWeapons = String(reward.weapons || 0);
+    this.adminPromoRarity = reward.weaponRarity || "Mil-Spec";
+    this.renderAll();
+  }
+
+  async adminDeletePromo(code) {
+    const normalized = String(code || "").trim().toUpperCase();
+    const isGlobal = this.globalPromoCodes.some((promo) => promo.code === normalized);
+    const result = deletePromoCode(this.state, normalized);
+    if (!result.ok && !isGlobal) {
+      this.toast(result.reason);
+      return;
+    }
+    if (isGlobalPromoCodesAvailable() && isGlobal) {
+      try {
+        await deleteGlobalPromoCode(normalized, this.getAdminRpcCredentials());
+        this.globalPromoCodes = this.globalPromoCodes.filter((promo) => promo.code !== normalized);
+        this.globalPromoStatus = "Promo globale eliminato";
+      } catch (error) {
+        this.globalPromoStatus = "Eliminazione promo online fallita";
+        this.toast(error.message || "Promo eliminato localmente, ma non online.");
+      }
+    }
+    this.toast(`Promo ${normalized} eliminata.`);
+    if (this.adminPromoEditingCode === normalized) {
+      this.adminClearPromoForm();
+    } else {
+      this.renderAll();
+    }
+  }
+
+  adminClearPromoForm() {
+    this.adminPromoEditingCode = "";
+    this.adminPromoCode = "";
+    this.adminPromoCredits = "1000";
+    this.adminPromoCases = "0";
+    this.adminPromoTier = "2";
+    this.adminPromoWeapons = "0";
+    this.adminPromoRarity = "Mil-Spec";
+    this.renderAll();
   }
 
   showExport(button) {
@@ -6350,6 +6900,9 @@ export class CaseOpenerUI {
   }
 
   autoTick() {
+    if (!this.isCloudLoggedIn()) {
+      return;
+    }
     const interval = getAutoInterval(this.state);
     if (this.isAnimating || !Number.isFinite(interval) || this.selectedCase.manualOnly || Date.now() - this.lastAutoAt < interval) {
       return;
@@ -6680,12 +7233,27 @@ export class CaseOpenerUI {
       this.cloudStatus = this.cloudSession?.user ? "Sessione cloud attiva." : "Accedi per salvare online.";
       if (this.cloudSession?.user) {
         this.applyCloudIdentityProfile(this.cloudSession);
+        const cloud = await loadCloudState().catch(() => null);
+        if (cloud?.state) {
+          this.state = normalizeState(cloud.state);
+          this.selectedInventory.clear();
+          this.jackpotSelection.clear();
+          this.upgraderSelection = new Set(this.state.minigames?.upgrader?.itemIds || []);
+          this.selectedCase = this.getInitialCase();
+          this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
+          this.profileSetupOpen = false;
+          this.cloudStatus = `Caricato cloud rev ${cloud.revision}.`;
+          saveState(this.state);
+          this.renderAll();
+        }
       }
       this.renderTechMenu();
+      this.renderLoginGate();
       return this.cloudSession;
     } catch (error) {
       this.cloudStatus = error.message || "Cloud non disponibile.";
       this.renderTechMenu();
+      this.renderLoginGate();
       return null;
     }
   }
@@ -6702,6 +7270,16 @@ export class CaseOpenerUI {
 
   isAdmin() {
     return Boolean(this.adminAuthenticated);
+  }
+
+  getAdminRpcCredentials() {
+    if (!this.adminPasswordSecret) {
+      return {};
+    }
+    return {
+      adminId: ADMIN_USER_ID,
+      adminPassword: this.adminPasswordSecret
+    };
   }
 
   getAdminCredentials() {
@@ -6729,6 +7307,7 @@ export class CaseOpenerUI {
       return false;
     }
     this.adminAuthenticated = true;
+    this.adminPasswordSecret = password;
     this.adminPassword = "";
     this.adminStatus = "Profilo admin attivo.";
     try {
@@ -6746,6 +7325,7 @@ export class CaseOpenerUI {
     this.adminGateOpen = false;
     this.adminUserId = "";
     this.adminPassword = "";
+    this.adminPasswordSecret = "";
     this.adminStatus = "";
     this.sessionPanelOpen = false;
     if (this.activeTab === "cheats") {
@@ -6802,6 +7382,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 
@@ -6860,6 +7441,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 
@@ -6893,6 +7475,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 
@@ -6917,6 +7500,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 
@@ -6952,6 +7536,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 
@@ -6973,6 +7558,7 @@ export class CaseOpenerUI {
     } finally {
       this.cloudBusy = false;
       this.renderTechMenu();
+      this.renderLoginGate();
     }
   }
 

@@ -107,6 +107,10 @@ setInterval(() => {
   if (!ui) {
     return;
   }
+  if (!ui.isCloudLoggedIn?.()) {
+    lastTickAt = Date.now();
+    return;
+  }
   const now = Date.now();
   applyPassiveIncome(ui.state, now - lastTickAt);
   lastTickAt = now;

@@ -26,6 +26,7 @@ import {
 
 const UPGRADE_BY_ID = new Map(UPGRADE_DEFINITIONS.map((upgrade) => [upgrade.id, upgrade]));
 const PRESTIGE_NODE_BY_ID = new Map(PRESTIGE_TREE.map((node) => [node.id, node]));
+const MAX_PRESTIGE_LEVEL = 15;
 
 function emptyRarityCounts() {
   return RARITY_ORDER.reduce((counts, rarity) => {
@@ -187,6 +188,7 @@ export function createDefaultState() {
       },
       upgrader: {
         itemId: "",
+        itemIds: [],
         targetMultiplier: 2
       },
       coinflip: {
@@ -257,6 +259,7 @@ export function normalizeState(raw) {
   state.minigames.pachinko = { ...createDefaultState().minigames.pachinko, ...(raw?.minigames?.pachinko || {}) };
   state.minigames.crash = { ...createDefaultState().minigames.crash, ...(raw?.minigames?.crash || {}) };
   state.minigames.upgrader = { ...createDefaultState().minigames.upgrader, ...(raw?.minigames?.upgrader || {}) };
+  state.minigames.upgrader.itemIds = Array.isArray(raw?.minigames?.upgrader?.itemIds) ? raw.minigames.upgrader.itemIds : [];
   state.minigames.coinflip = { ...createDefaultState().minigames.coinflip, ...(raw?.minigames?.coinflip || {}) };
   state.minigames.jackpot = { ...createDefaultState().minigames.jackpot, ...(raw?.minigames?.jackpot || {}) };
   state.minigames.history = Array.isArray(raw?.minigames?.history) ? raw.minigames.history.slice(0, 24) : [];
@@ -380,12 +383,14 @@ export function getTradeUpInputCount(state) {
 }
 
 export function getPrestigeMultiplier(state) {
-  return 1 + state.prestige.level * 0.04 + (state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.003;
+  const level = Math.min(MAX_PRESTIGE_LEVEL, state.prestige.level || 0);
+  return 1 + level * 0.032 + Math.sqrt(state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.012;
 }
 
 export function getDropValueMultiplier(state) {
   const limited = getLimitedEventEffect(state);
-  return (1 + state.prestige.level * 0.03 + (state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.0025) *
+  const level = Math.min(MAX_PRESTIGE_LEVEL, state.prestige.level || 0);
+  return (1 + level * 0.022 + Math.sqrt(state.prestige.lifetimeShards || state.prestige.shards || 0) * 0.009) *
     getCollectionMultiplier(state) *
     (1 + getPrestigeNodeEffect(state, "value")) *
     (limited.valueMultiplier || 1);
@@ -397,7 +402,8 @@ export function getUpgradeCost(state, upgradeId) {
   if (!definition || level >= definition.maxLevel) {
     return Infinity;
   }
-  return Math.floor(definition.baseCost * Math.pow(definition.growth, level) * Math.pow(1.16, state.prestige.level));
+  const endgameScale = 1 + Math.pow(Math.max(0, state.prestige.level - 6), 1.55) * 0.075;
+  return Math.floor(definition.baseCost * Math.pow(definition.growth + 0.012, level) * Math.pow(1.2, state.prestige.level) * endgameScale);
 }
 
 export function getOpenDuration(state) {
@@ -558,7 +564,9 @@ export function getProfileLevel(xp) {
 }
 
 export function getPrestigeRequirement(state) {
-  return Math.floor(560 * Math.pow(state.prestige.level + 1, 2.18));
+  const nextLevel = Math.min(MAX_PRESTIGE_LEVEL, (state.prestige.level || 0) + 1);
+  const endgameScale = nextLevel > 8 ? Math.pow(1.28, nextLevel - 8) : 1;
+  return Math.floor(720 * Math.pow(nextLevel, 2.42) * endgameScale);
 }
 
 function getPrestigeResetCredits(level) {
@@ -567,7 +575,9 @@ function getPrestigeResetCredits(level) {
 }
 
 export function canPrestige(state) {
-  return getNetWorth(state) >= getPrestigeRequirement(state) && state.stats.casesOpened >= 40;
+  return state.prestige.level < MAX_PRESTIGE_LEVEL &&
+    getNetWorth(state) >= getPrestigeRequirement(state) &&
+    state.stats.casesOpened >= 60 + state.prestige.level * 8;
 }
 
 export function isCaseUnlocked(state, caseDef) {
@@ -1193,6 +1203,7 @@ function ensureMinigameState(state) {
     roulette: { ...defaults.roulette, ...(state.minigames?.roulette || {}) },
     pachinko: { ...defaults.pachinko, ...(state.minigames?.pachinko || {}) },
     crash: { ...defaults.crash, ...(state.minigames?.crash || {}) },
+    upgrader: { ...defaults.upgrader, ...(state.minigames?.upgrader || {}) },
     jackpot: { ...defaults.jackpot, ...(state.minigames?.jackpot || {}) },
     history: Array.isArray(state.minigames?.history) ? state.minigames.history : []
   };
@@ -1205,8 +1216,8 @@ function ensureMinigameState(state) {
 }
 
 function normalizeBet(state, value) {
-  const bet = Math.max(1, Math.floor(Number(value) || 0));
-  return Math.min(bet, Math.floor(state.credits));
+  const bet = Math.max(1, Number(String(value ?? 0).replace(",", ".")) || 0);
+  return Number(Math.min(bet, Number(state.credits || 0)).toFixed(2));
 }
 
 /**
@@ -1245,13 +1256,13 @@ function applySoftCap(state, bet, rawPayout) {
   const profit = rawPayout - bet;
   const cap = ECONOMY_CONFIG.minigameDailySoftCap;
   if (minigames.dailyEarned >= cap) {
-    return Number((bet + profit * 0.35).toFixed(2));
+    return Number((bet + profit * 0.18).toFixed(2));
   }
   if (minigames.dailyEarned + profit <= cap) {
     return rawPayout;
   }
   const fullProfit = Math.max(0, cap - minigames.dailyEarned);
-  const reducedProfit = (profit - fullProfit) * 0.35;
+  const reducedProfit = (profit - fullProfit) * 0.18;
   return Number((bet + fullProfit + reducedProfit).toFixed(2));
 }
 
@@ -1389,18 +1400,24 @@ export function playCoinflip(state, { bet, side } = {}) {
   return { ok: true, ...entry };
 }
 
-export function playUpgrader(state, skinData, { itemId, targetMultiplier } = {}) {
-  const item = state.inventory.find((candidate) => candidate.id === itemId && !candidate.locked);
-  if (!item) {
+export function playUpgrader(state, skinData, { itemId, itemIds = [], targetMultiplier } = {}) {
+  const ids = Array.isArray(itemIds) && itemIds.length ? [...new Set(itemIds)] : [itemId].filter(Boolean);
+  const selectedItems = state.inventory.filter((candidate) => ids.includes(candidate.id) && !candidate.locked && candidate.type !== "rewardCase");
+  if (!selectedItems.length) {
     return { ok: false, reason: "Seleziona una skin non bloccata." };
   }
+  const item = selectedItems
+    .slice()
+    .sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier || b.value - a.value)[0];
+  const inputValue = Number(selectedItems.reduce((sum, candidate) => sum + getSellReturn(state, candidate), 0).toFixed(2));
   const multiplier = Math.max(1.25, Math.min(12, Number(targetMultiplier) || 2));
   const winChance = Math.max(0.06, Math.min(0.72, (0.92 / multiplier) * (1 + getProfileSkillBonus(state).luck * 1.6)));
-  state.inventory = state.inventory.filter((candidate) => candidate.id !== item.id);
+  const selectedIdSet = new Set(selectedItems.map((candidate) => candidate.id));
+  state.inventory = state.inventory.filter((candidate) => !selectedIdSet.has(candidate.id));
   const won = Math.random() < winChance;
   let upgraded = null;
   if (won) {
-    const targetValue = item.value * multiplier;
+    const targetValue = inputValue * multiplier;
     const rarity = RARITY_ORDER.find((candidate) => RARITIES[candidate].baseValue >= RARITIES[item.rarity].baseValue * Math.min(4, multiplier)) ||
       getNextRarity(item.rarity);
     const pool = skinData.globalPool?.[rarity]?.length ? skinData.globalPool[rarity] : skinData.skins.filter((skin) => skin.rarity === rarity);
@@ -1411,16 +1428,17 @@ export function playUpgrader(state, skinData, { itemId, targetMultiplier } = {})
     state.inventory.unshift(upgraded);
     rememberDrop(state, upgraded);
   }
-  state.minigames.upgrader = { itemId: "", targetMultiplier: multiplier };
+  state.minigames.upgrader = { itemId: "", itemIds: [], targetMultiplier: multiplier };
   const entry = recordMinigame(state, {
     game: "Upgrader",
-    bet: getSellReturn(state, item),
+    bet: inputValue,
     payout: upgraded ? getSellReturn(state, upgraded) : 0,
     outcome: won ? "win" : "loss",
     label: `x${multiplier.toFixed(2)} · ${(winChance * 100).toFixed(1)}%`,
-    detail: won ? upgraded.name : `${item.name} bruciata`,
+    detail: won ? upgraded.name : `${selectedItems.length} skin bruciate`,
     playerWon: won,
     consumedItem: item,
+    consumedItems: selectedItems,
     upgradedItem: upgraded
   });
   return { ok: true, ...entry, chance: winChance };
@@ -1599,7 +1617,7 @@ export function playJackpot(state, skinData, { itemIds = [], targetBots } = {}) 
     return { ok: false, reason: "Le skin selezionate non hanno valore utile per il jackpot." };
   }
 
-  const bots = Math.max(1, Math.min(4, Math.floor(Number(targetBots) || state.minigames?.jackpot?.targetBots || 3)));
+  const bots = Math.max(0, Math.min(4, Math.floor(Number(targetBots) || 0)));
   state.inventory = state.inventory.filter((item) => !ids.includes(item.id));
   state.minigames.jackpot = { targetBots: bots };
   const botState = createBotRoundState(state);
@@ -1692,8 +1710,11 @@ export function claimDailyReward(state) {
  * @returns {Object} Result with ok flag, gained shards, and net worth at reset
  */
 export function prestige(state) {
+  if (state.prestige.level >= MAX_PRESTIGE_LEVEL) {
+    return { ok: false, reason: "Prestige massimo raggiunto (15)." };
+  }
   if (!canPrestige(state)) {
-    return { ok: false, reason: "Serve piu' net worth e almeno 40 casse aperte." };
+    return { ok: false, reason: "Serve piu' net worth e piu' casse aperte." };
   }
 
   const netWorth = getNetWorth(state);
@@ -1993,9 +2014,9 @@ export function buyMarketOffer(state, offerId) {
 
 export const COMMUNITY_GOAL_DEFINITIONS = [
   { id: "solo-12h", label: "Rush personale", scope: "solo", durationMs: 12 * 60 * 60 * 1000, target: 450, rewardTier: 1, rewardCount: 1 },
-  { id: "community-24h", label: "Drop della community", scope: "community", durationMs: 24 * 60 * 60 * 1000, target: 2600, rewardTier: 2, rewardCount: 1 },
-  { id: "community-3d", label: "Operazione 3 giorni", scope: "community", durationMs: 3 * 24 * 60 * 60 * 1000, target: 9000, rewardTier: 3, rewardCount: 2 },
-  { id: "community-7d", label: "Vault settimanale", scope: "community", durationMs: 7 * 24 * 60 * 60 * 1000, target: 22000, rewardTier: 4, rewardCount: 2 },
+  { id: "community-24h", label: "Drop della community", scope: "community", durationMs: 24 * 60 * 60 * 1000, target: 18000, rewardTier: 2, rewardCount: 1 },
+  { id: "community-3d", label: "Operazione 3 giorni", scope: "community", durationMs: 3 * 24 * 60 * 60 * 1000, target: 62000, rewardTier: 3, rewardCount: 2 },
+  { id: "community-7d", label: "Vault settimanale", scope: "community", durationMs: 7 * 24 * 60 * 60 * 1000, target: 160000, rewardTier: 4, rewardCount: 2 },
   { id: "solo-10d", label: "Contratto personale", scope: "solo", durationMs: 10 * 24 * 60 * 60 * 1000, target: 12500, rewardTier: 5, rewardCount: 3 }
 ];
 
@@ -2202,6 +2223,25 @@ export function createPromoCode(state, { code, credits = 0, cases = 0, rewardTie
     createdAt: Date.now()
   };
   return { ok: true, code: normalized, reward: state.promoCodes.custom[normalized] };
+}
+
+export function deletePromoCode(state, code) {
+  const normalized = String(code || "").trim().toUpperCase();
+  if (!normalized || PROMO_CODE_REWARDS[normalized]) {
+    return { ok: false, reason: "Questo codice non puo' essere eliminato dal pannello locale." };
+  }
+  state.promoCodes ||= createDefaultState().promoCodes;
+  state.promoCodes.custom ||= {};
+  if (!state.promoCodes.custom[normalized]) {
+    return { ok: false, reason: "Promo code non trovato." };
+  }
+  delete state.promoCodes.custom[normalized];
+  return { ok: true, code: normalized };
+}
+
+export function resetCommunityGoalState(state) {
+  state.goals = createDefaultState().goals;
+  return getCommunityGoals(state);
 }
 
 export function createAuctionListing(state, itemId, price) {

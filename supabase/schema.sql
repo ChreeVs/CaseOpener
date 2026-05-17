@@ -209,6 +209,192 @@ create policy "community goals insert public"
     and (player_id is null or auth.uid() = player_id)
   );
 
+drop policy if exists "community goals admin reset" on public.community_goal_contributions;
+create policy "community goals admin reset"
+  on public.community_goal_contributions
+  for delete
+  using (auth.role() = 'authenticated');
+
+create table if not exists public.community_goal_resets (
+  id uuid primary key default gen_random_uuid(),
+  goal_id text not null check (char_length(goal_id) between 1 and 48),
+  goal_key text not null check (char_length(goal_key) between 1 and 96),
+  admin_name text not null default 'Admin' check (char_length(admin_name) between 1 and 24),
+  reset_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists community_goal_resets_key_idx
+  on public.community_goal_resets (goal_key, reset_at desc);
+
+alter table public.community_goal_resets enable row level security;
+
+drop policy if exists "community goal resets read public" on public.community_goal_resets;
+create policy "community goal resets read public"
+  on public.community_goal_resets
+  for select
+  using (true);
+
+drop policy if exists "community goal resets insert auth" on public.community_goal_resets;
+create policy "community goal resets insert auth"
+  on public.community_goal_resets
+  for insert
+  with check (auth.role() = 'authenticated');
+
+create table if not exists public.global_promo_codes (
+  code text primary key check (char_length(code) between 3 and 32),
+  reward jsonb not null default '{}'::jsonb,
+  active boolean not null default true,
+  created_by uuid null references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.global_promo_codes enable row level security;
+
+drop policy if exists "promo codes read active" on public.global_promo_codes;
+create policy "promo codes read active"
+  on public.global_promo_codes
+  for select
+  using (active = true or auth.role() = 'authenticated');
+
+drop policy if exists "promo codes admin insert" on public.global_promo_codes;
+create policy "promo codes admin insert"
+  on public.global_promo_codes
+  for insert
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "promo codes admin update" on public.global_promo_codes;
+create policy "promo codes admin update"
+  on public.global_promo_codes
+  for update
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "promo codes admin delete" on public.global_promo_codes;
+create policy "promo codes admin delete"
+  on public.global_promo_codes
+  for delete
+  using (auth.role() = 'authenticated');
+
+create or replace function public.is_caseopener_admin(admin_id text, admin_password text)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select lower(coalesce(admin_id, '')) = 'salernitana'
+    and lower(coalesce(admin_password, '')) = 'your_secure_password';
+$$;
+
+create or replace function public.admin_reset_community_goals(
+  admin_id text,
+  admin_password text,
+  goal_keys text[]
+)
+returns setof public.community_goal_resets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  reset_time timestamptz := now();
+begin
+  if not public.is_caseopener_admin(admin_id, admin_password) then
+    raise exception 'invalid admin credentials';
+  end if;
+
+  return query
+    insert into public.community_goal_resets (goal_id, goal_key, admin_name, reset_at)
+    select
+      split_part(key_value, ':', 1),
+      key_value,
+      'Admin',
+      reset_time
+    from unnest(goal_keys) as key_value
+    where char_length(key_value) between 1 and 96
+    returning *;
+end;
+$$;
+
+create or replace function public.admin_upsert_global_promo_code(
+  admin_id text,
+  admin_password text,
+  promo_code text,
+  promo_reward jsonb,
+  promo_active boolean default true
+)
+returns public.global_promo_codes
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_code text;
+  normalized_reward jsonb;
+  result public.global_promo_codes;
+begin
+  if not public.is_caseopener_admin(admin_id, admin_password) then
+    raise exception 'invalid admin credentials';
+  end if;
+
+  normalized_code := upper(regexp_replace(coalesce(promo_code, ''), '[^A-Za-z0-9_-]', '', 'g'));
+  if char_length(normalized_code) < 3 or char_length(normalized_code) > 32 then
+    raise exception 'invalid promo code';
+  end if;
+
+  normalized_reward := jsonb_build_object(
+    'credits', greatest(0, floor(coalesce(nullif(promo_reward->>'credits', '')::numeric, 0))),
+    'cases', greatest(0, floor(coalesce(nullif(promo_reward->>'cases', '')::numeric, 0))),
+    'rewardTier', least(6, greatest(1, floor(coalesce(nullif(promo_reward->>'rewardTier', '')::numeric, 2)))),
+    'weapons', least(24, greatest(0, floor(coalesce(nullif(promo_reward->>'weapons', '')::numeric, 0)))),
+    'weaponRarity', coalesce(nullif(promo_reward->>'weaponRarity', ''), 'Mil-Spec')
+  );
+
+  insert into public.global_promo_codes (code, reward, active, updated_at)
+  values (normalized_code, normalized_reward, coalesce(promo_active, true), now())
+  on conflict (code) do update set
+    reward = excluded.reward,
+    active = excluded.active,
+    updated_at = now()
+  returning * into result;
+
+  return result;
+end;
+$$;
+
+create or replace function public.admin_delete_global_promo_code(
+  admin_id text,
+  admin_password text,
+  promo_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_code text;
+  deleted_code text;
+begin
+  if not public.is_caseopener_admin(admin_id, admin_password) then
+    raise exception 'invalid admin credentials';
+  end if;
+
+  normalized_code := upper(regexp_replace(coalesce(promo_code, ''), '[^A-Za-z0-9_-]', '', 'g'));
+  delete from public.global_promo_codes
+  where code = normalized_code
+  returning code into deleted_code;
+
+  return deleted_code is not null;
+end;
+$$;
+
+grant execute on function public.is_caseopener_admin(text, text) to anon, authenticated;
+grant execute on function public.admin_reset_community_goals(text, text, text[]) to anon, authenticated;
+grant execute on function public.admin_upsert_global_promo_code(text, text, text, jsonb, boolean) to anon, authenticated;
+grant execute on function public.admin_delete_global_promo_code(text, text, text) to anon, authenticated;
+
 create table if not exists public.shared_game_events (
   id uuid primary key default gen_random_uuid(),
   mode text not null check (char_length(mode) between 1 and 32),
@@ -303,12 +489,22 @@ begin
       when duplicate_object then null;
     end;
     begin
+      alter publication supabase_realtime add table public.community_goal_resets;
+    exception
+      when duplicate_object then null;
+    end;
+    begin
       alter publication supabase_realtime add table public.shared_game_events;
     exception
       when duplicate_object then null;
     end;
     begin
       alter publication supabase_realtime add table public.global_auction_listings;
+    exception
+      when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.global_promo_codes;
     exception
       when duplicate_object then null;
     end;
