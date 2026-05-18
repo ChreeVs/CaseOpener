@@ -2175,6 +2175,7 @@ this.refreshIcons();
     if (meta) {
       meta.textContent = `${visibleCases.length} casse`;
     }
+    list.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 12px; padding: 8px;">
         ${visibleCases
       .map((caseDef) => {
