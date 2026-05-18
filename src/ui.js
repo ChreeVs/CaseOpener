@@ -2467,6 +2467,7 @@ this.refreshIcons();
     const history = (this.state.dropHistory || [])
       .filter((item) => !blockedIds.has(item.id))
       .slice(0, 6);
+    node.innerHTML = `
       <div class="panel-heading history-heading" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;">
         <span style="font-weight: bold; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("clock", "button-icon")} Ultimi Drop</span>
         <small style="color: var(--text-secondary); background: var(--surface-2); padding: 4px 10px; border-radius: 12px; font-weight: bold;">${history.length}/6</small>
