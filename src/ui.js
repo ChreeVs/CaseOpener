@@ -1,4 +1,4 @@
-﻿import {
+import {
   ACHIEVEMENTS
 } from "./config/achievementsConfig.js";
 import {
@@ -135,9 +135,9 @@ import {
   normalizeState
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
-import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, ROULETTE_RED_NUMBERS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
+import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, ROULETTE_RED_NUMBERS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.0.6";
+const GAME_VERSION = "v1.1.3";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;

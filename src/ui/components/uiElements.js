@@ -1,6 +1,6 @@
 
-import { RARITIES, RARITY_ORDER } from "../config/rarityConfig.js";
-import { formatCredits, getSellReturn, getOpenDuration, getLuckMultiplier, isAutoOpenerEnabled, getAutoInterval, getMultiOpenCount, getPassiveRate, getMarketAnalystDiscount, getDropInsuranceRate, getCollectionMultiplier, getTradeUpInputCount } from "../gameLogic.js";
+import { RARITIES, RARITY_ORDER } from "../../config/rarityConfig.js";
+import { formatCredits, getSellReturn, getOpenDuration, getLuckMultiplier, isAutoOpenerEnabled, getAutoInterval, getMultiOpenCount, getPassiveRate, getMarketAnalystDiscount, getDropInsuranceRate, getCollectionMultiplier, getTradeUpInputCount } from "../../gameLogic.js";
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -127,7 +127,7 @@ export function tabIcon(id) {
   return iconMarkup(icons[id] || "circle");
 }
 
-async function hashText(value) {
+export async function hashText(value) {
   const bytes = new TextEncoder().encode(String(value || ""));
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
