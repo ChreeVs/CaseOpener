@@ -60,7 +60,12 @@ function scheduleRoulette(ui) {
       runRouletteRound(ui);
     } else {
       ui.rouletteTimer = setTimeout(tick, 200);
-      if (ui.activeTab === "games" && ui.gamesView === "roulette") ui.renderTab();
+      if (ui.activeTab === "games" && ui.gamesView === "roulette") {
+        const root = ui.root;
+        const countdownStr = compactTime(ui.rouletteCountdown);
+        const statusNode = root.querySelector('.roulette-game .status-waiting');
+        if (statusNode) statusNode.textContent = 'Prossimo round: ' + countdownStr;
+      }
     }
   };
   ui.rouletteTimer = setTimeout(tick, 200);
@@ -116,7 +121,28 @@ function scheduleCrash(ui) {
       runCrashRound(ui);
     } else {
       ui.crashTimer = setTimeout(tick, 200);
-      if (ui.activeTab === "games" && ui.gamesView === "crash") ui.renderTab();
+      if (ui.activeTab === "games" && ui.gamesView === "crash") {
+        const root = ui.root;
+        const anim = ui.crashAnim;
+        
+        // Update countdown if waiting
+        if (!anim) {
+          const countdownStr = compactTime(ui.crashCountdown);
+          const statusNode = root.querySelector('.crash-game .status-waiting');
+          if (statusNode) statusNode.textContent = 'Prossimo round: ' + countdownStr;
+        } else {
+          // Update graph and text if flying
+          const graphLine = root.querySelector('.crash-game .crash-line');
+          if (graphLine) {
+            const progress = Math.min(1, (Date.now() - anim.startedAt) / anim.flightMs);
+            graphLine.style.setProperty('--progress', progress);
+          }
+          const multText = root.querySelector('.crash-game .crash-multiplier strong');
+          if (multText && !anim.cashedOut) {
+             multText.textContent = anim.displayPoint.toFixed(2) + 'x';
+          }
+        }
+      }
     }
   };
   ui.crashTimer = setTimeout(tick, 200);
@@ -166,7 +192,28 @@ function runCrashRound(ui) {
         scheduleCrash(ui);
       }, 2500);
     }
-    if (ui.activeTab === "games" && ui.gamesView === "crash") ui.renderTab();
+    if (ui.activeTab === "games" && ui.gamesView === "crash") {
+        const root = ui.root;
+        const anim = ui.crashAnim;
+        
+        // Update countdown if waiting
+        if (!anim) {
+          const countdownStr = compactTime(ui.crashCountdown);
+          const statusNode = root.querySelector('.crash-game .status-waiting');
+          if (statusNode) statusNode.textContent = 'Prossimo round: ' + countdownStr;
+        } else {
+          // Update graph and text if flying
+          const graphLine = root.querySelector('.crash-game .crash-line');
+          if (graphLine) {
+            const progress = Math.min(1, (Date.now() - anim.startedAt) / anim.flightMs);
+            graphLine.style.setProperty('--progress', progress);
+          }
+          const multText = root.querySelector('.crash-game .crash-multiplier strong');
+          if (multText && !anim.cashedOut) {
+             multText.textContent = anim.displayPoint.toFixed(2) + 'x';
+          }
+        }
+      }
   }, CRASH_TICK_MS);
 }
 
