@@ -966,8 +966,8 @@ export function createInventoryItem(skin, rarity, caseDef, state) {
     locked: false,
     favorite: false,
     marketCost: 0,
-    caseId: caseDef.id,
-    caseName: caseDef.name,
+    caseId: caseDef?.id || "market",
+    caseName: caseDef?.name || "Global Market",
     collection: skin.collections[0] || "No Collection",
     obtainedAt: Date.now()
   };
