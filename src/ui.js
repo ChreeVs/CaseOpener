@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.6";
+const GAME_VERSION = "v1.4.7";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2471,6 +2471,11 @@ this.refreshIcons();
 
   renderTab() {
     const focusedId = document.activeElement?.id;
+    const activeInput = document.activeElement;
+    const isTextInput = activeInput && activeInput.tagName === "INPUT" && (activeInput.type === "text" || activeInput.type === "password" || activeInput.type === "search");
+    const selectionStart = isTextInput ? activeInput.selectionStart : null;
+    const selectionEnd = isTextInput ? activeInput.selectionEnd : null;
+
     const content = this.root.querySelector("#tabContent");
     const workspace = this.root.querySelector("#workspace");
     const grid = this.root.querySelector(".main-grid");
@@ -2491,7 +2496,7 @@ this.refreshIcons();
       shop: () => this.renderShop(),
       stats: () => this.renderStats(),
       prestige: () => this.renderPrestige(),
-community: () => this.renderCommunityGoals(),
+      community: () => this.renderCommunityGoals(),
       achievements: () => this.renderAchievements(),
       contracts: () => this.renderContracts(),
       collections: () => this.renderCollections(),
@@ -2503,7 +2508,12 @@ community: () => this.renderCommunityGoals(),
     this.refreshIcons();
     if (focusedId) {
       const el = document.getElementById(focusedId);
-      if (el && el.tagName === "INPUT") el.focus();
+      if (el && el.tagName === "INPUT") {
+        el.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          el.setSelectionRange(selectionStart, selectionEnd);
+        }
+      }
     }
   }
 
