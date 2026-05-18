@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.4";
+const GAME_VERSION = "v1.4.5";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -1463,11 +1463,7 @@ if (target.matches("#coinflipSide")) {
       case "buy-offer":
         this.buyOffer(data.id);
         break;
-      case "refresh-market":
-        this.state.market.lastRefreshAt = 0;
-        refreshMarket(this.state, this.skinData, this.selectedCase);
-        this.renderTab();
-        break;case "redeem-promo":
+      case "redeem-promo":
         this.redeemPromo();
         break;
       case "deposit-goal":
@@ -2909,9 +2905,8 @@ community: () => this.renderCommunityGoals(),
             <div>
               <span class="marketplace-kicker">${iconMarkup("candlestick-chart", "button-icon")} Offerte economy</span>
               <h3>Marketplace economy</h3>
-              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">Le offerte scalano col tuo Prestigio (una per livello) e si ricaricano ogni 12h.</p>
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">Le offerte cambiano ogni 12h.</p>
             </div>
-            <button class="ghost-button" data-action="refresh-market">${iconMarkup("refresh-cw", "button-icon")} Aggiorna (Salta Timer)</button>
           </div>
           
           ${offers && offers.length > 0 ? `
@@ -2934,8 +2929,7 @@ community: () => this.renderCommunityGoals(),
             <div class="market-empty-state" style="text-align: center; padding: 48px 24px; color: var(--text-secondary); background: var(--surface-2); border-radius: 8px; margin-top: 16px;">
               ${iconMarkup("shopping-bag", "button-icon")}
               <h4 style="margin: 12px 0 8px;">Tutto esaurito!</h4>
-              <p style="margin-bottom: 24px;">Hai acquistato tutte le offerte attuali o il negozio è vuoto.</p>
-              <button class="primary-button" data-action="refresh-market">Genera Nuove Offerte Subito</button>
+              <p style="margin-bottom: 24px;">Hai acquistato tutte le offerte attuali. Attendi il termine del timer di refresh in alto per visualizzarne di nuove.</p>
             </div>
           `}
         </section>

@@ -1981,7 +1981,7 @@ export function refreshMarket(state, skinData, selectedCase) {
 
   const rarities = ["Mil-Spec", "Restricted", "Classified", "Covert"];
   const limited = getLimitedEventEffect(state);
-  const offerCount = Math.max(1, (state.prestige?.level || 0) + 1);
+  const offerCount = ECONOMY_CONFIG.marketplaceOfferCount;
   state.market.offers = Array.from({ length: offerCount }, (_, index) => {
     const rarity = rarities[Math.min(rarities.length - 1, Math.floor(Math.random() * rarities.length))];
     const skin = pickSkin(selectedCase, rarity, skinData);
