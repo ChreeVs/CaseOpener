@@ -104,7 +104,8 @@ function runRouletteRound(ui) {
 
   setTimeout(() => {
     if (ui.rouletteAnim) ui.rouletteAnim.spinning = false;
-    if (ui.activeTab === "games") ui.renderTab();
+    ui.renderTopStats();
+    if (ui.activeTab === "games" && ui.gamesView === "roulette") ui.renderTab();
     setTimeout(() => {
       ui.rouletteAnim = null;
       scheduleRoulette(ui);
@@ -188,7 +189,7 @@ function runCrashRound(ui) {
       clearInterval(interval);
       ui.crashAnim.spinning = false;
       ui.crashAnim.displayPoint = crashPoint;
-      if (ui.activeTab === "games") ui.renderTab();
+      if (ui.activeTab === "games" && ui.gamesView === "crash") ui.renderTab();
       setTimeout(() => {
         ui.crashAnim = null;
         scheduleCrash(ui);
@@ -226,7 +227,7 @@ export function crashCashout(ui) {
   const win = Number((ui.crashAnim.bet * ui.crashAnim.displayPoint).toFixed(2));
   ui.state.credits += win;
   ui.crashAnim.profit = win - ui.crashAnim.bet;
-  if (ui.activeTab === "games") ui.renderTab();
+  if (ui.activeTab === "games" && ui.gamesView === "crash") ui.renderTab();
 }
 
 // ── Coinflip (manual, instant) ──
@@ -245,7 +246,7 @@ export function playCoinflipGame(ui) {
   if (ui.activeTab === "games" && ui.gamesView === "coinflip") ui.renderTab();
   setTimeout(() => {
     if (ui.coinflipAnim) ui.coinflipAnim.spinning = false;
-    if (ui.activeTab === "games") ui.renderTab();
+    if (ui.activeTab === "games" && ui.gamesView === "coinflip") ui.renderTab();
   }, 1600);
 }
 
@@ -262,7 +263,7 @@ export function playUpgraderGame(ui) {
   if (ui.activeTab === "games" && ui.gamesView === "upgrader") ui.renderTab();
   setTimeout(() => {
     if (ui.upgraderAnim) ui.upgraderAnim.spinning = false;
-    if (ui.activeTab === "games") ui.renderTab();
+    if (ui.activeTab === "games" && ui.gamesView === "upgrader") ui.renderTab();
   }, 2200);
 }
 
@@ -278,20 +279,14 @@ export function playJackpotGame(ui) {
   const result = playJackpot(ui.state, { itemIds: ids });
   if (!result.ok) return;
 
-  ui.jackpotAnim = { ...result, spinning: true, startedAt: Date.now(), tick: 0 };
+  ui.jackpotAnim = { ...result, spinning: true, startedAt: Date.now() };
   ui.renderTopStats();
   if (ui.activeTab === "games" && ui.gamesView === "jackpot") ui.renderTab();
-  let tick = 0;
-  const interval = setInterval(() => {
-    tick++;
-    if (ui.jackpotAnim) ui.jackpotAnim.tick = tick;
-    if (ui.activeTab === "games") ui.renderTab();
-    if (tick >= 24) {
-      clearInterval(interval);
-      if (ui.jackpotAnim) ui.jackpotAnim.spinning = false;
-      if (ui.activeTab === "games") ui.renderTab();
-    }
-  }, 160);
+  
+  setTimeout(() => {
+    if (ui.jackpotAnim) ui.jackpotAnim.spinning = false;
+    if (ui.activeTab === "games" && ui.gamesView === "jackpot") ui.renderTab();
+  }, 3840);
 }
 
 // ══════════════════════════════════════════
