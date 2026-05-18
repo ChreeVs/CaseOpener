@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.8";
+const GAME_VERSION = "v1.4.10";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2175,8 +2175,7 @@ this.refreshIcons();
     if (meta) {
       meta.textContent = `${visibleCases.length} casse`;
     }
-    list.innerHTML = `
-      <div class="case-list-stack">
+      <div style="display: flex; flex-direction: column; gap: 12px; padding: 8px;">
         ${visibleCases
       .map((caseDef) => {
         const unlocked = isCaseUnlocked(this.state, caseDef);
@@ -2184,27 +2183,35 @@ this.refreshIcons();
         const mastery = getCaseMastery(this.state, caseDef.id);
         const priceLabel = caseDef.price <= 0 ? "Gratis" : formatCredits(caseDef.price, true);
         return `
-          <article class="case-row case-list-item ${active ? "is-active" : ""} ${unlocked ? "" : "is-locked"}" style="--case-accent:${caseDef.accent}">
-            <button class="case-button"
-              data-action="select-case"
-              data-id="${caseDef.id}"
-              ${unlocked ? "" : "disabled"}>
-              <span class="case-art-shell">
-                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
-              </span>
-              <span class="case-row-copy">
-                <strong>${escapeHtml(caseDef.name)}</strong>
-                <div class="case-compact-meta">
-                  <small>${escapeHtml(priceLabel)}</small>
-                  <small>Lv ${mastery.level}</small>
+          <button data-action="select-case" data-id="${caseDef.id}" ${unlocked ? "" : "disabled"} 
+            style="all: unset; display: block; box-sizing: border-box; width: 100%; background: ${active ? 'var(--surface-2)' : 'var(--surface-1)'}; border: 1px solid ${active ? 'var(--loot-legendary)' : 'var(--border-color)'}; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; ${unlocked ? 'cursor: pointer;' : 'opacity: 0.6; filter: grayscale(1);'}" 
+            onmouseover="if(${unlocked} && !${active}) { this.style.borderColor='rgba(255, 255, 255, 0.4)'; this.style.transform='translateY(-2px)'; }"
+            onmouseout="if(${unlocked} && !${active}) { this.style.borderColor='var(--border-color)'; this.style.transform='translateY(0)'; }">
+            
+            <div style="display: flex; align-items: center; gap: 16px; padding: 12px;">
+              <div style="width: 72px; height: 72px; display: grid; place-items: center; background: radial-gradient(circle, ${caseDef.accent}40 0%, transparent 70%); border-radius: 8px;">
+                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" style="width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
+              </div>
+              
+              <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; text-align: left;">
+                <strong style="font-size: 1.1rem; color: ${active ? 'var(--loot-legendary)' : 'var(--text-primary)'};">${escapeHtml(caseDef.name)}</strong>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 0.9rem; color: var(--text-secondary); background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 4px; font-weight: bold;">
+                    ${escapeHtml(priceLabel)}
+                  </span>
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">
+                    Lv ${mastery.level}
+                  </span>
                 </div>
-                <div class="progress-line"><i style="width:${percent(mastery.progress)}"></i></div>
-              </span>
-            </button>
-          </article>
+                <div style="width: 100%; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden; margin-top: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
+                  <div style="height: 100%; width: ${percent(mastery.progress)}; background: linear-gradient(90deg, ${caseDef.accent}, var(--loot-legendary));"></div>
+                </div>
+              </div>
+            </div>
+          </button>
         `;
       })
-      .join("") || `<div class="empty-state small">Nessuna cassa con questi filtri.</div>`}
+      .join("") || `<div class="empty-state small" style="padding: 24px; text-align: center; color: var(--text-secondary);">Nessuna cassa trovata.</div>`}
       </div>
     `;
     this.refreshIcons();
@@ -2218,47 +2225,72 @@ this.refreshIcons();
     
     node.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px; margin-bottom: 24px;">
-        <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: var(--surface-2); border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-          <img src="${caseDef.image || ''}" alt="Case" style="width: 96px; height: 96px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));" />
+        <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: linear-gradient(135deg, var(--surface-2), var(--surface-1)); border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+          <div style="position: relative;">
+            <div style="position: absolute; inset: 0; background: radial-gradient(circle, ${caseDef.accent || 'var(--loot-legendary)'}40 0%, transparent 70%); filter: blur(10px);"></div>
+            <img src="${caseDef.image || ''}" alt="Case" style="position: relative; width: 110px; height: 110px; object-fit: contain; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.6));" />
+          </div>
           <div style="flex-grow: 1;">
-            <h2 style="margin: 0 0 8px 0; font-size: 1.8rem; color: var(--text-primary); text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${escapeHtml(caseDef.name)}</h2>
-            <div style="display: flex; flex-wrap: wrap; gap: 16px; color: var(--text-secondary); font-size: 0.95rem;">
-              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("tag", "button-icon")} Costo: <strong style="color: var(--text-primary);">${formatCredits(caseDef.price)}</strong></span>
-              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("trending-up", "button-icon")} EV: <strong style="color: var(--text-primary);">${formatCredits(table.expectedValue)}</strong> (ROI ${(table.roi * 100).toFixed(1)}%)</span>
-              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("box", "button-icon")} Aperte: <strong style="color: var(--text-primary);">${openedToday}</strong></span>
+            <h2 style="margin: 0 0 8px 0; font-size: 2rem; color: var(--text-primary); text-shadow: 0 2px 4px rgba(0,0,0,0.4); font-weight: 800; letter-spacing: -0.5px;">${escapeHtml(caseDef.name)}</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; color: var(--text-secondary); font-size: 0.95rem;">
+              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("tag", "button-icon")} Costo: <strong style="color: var(--loot-restricted);">${formatCredits(caseDef.price)}</strong></span>
+              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("trending-up", "button-icon")} EV: <strong style="color: var(--loot-legendary);">${formatCredits(table.expectedValue)}</strong> <span style="opacity: 0.7;">(ROI ${(table.roi * 100).toFixed(1)}%)</span></span>
+              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("box", "button-icon")} Aperte: <strong style="color: var(--text-primary);">${openedToday}</strong></span>
             </div>
           </div>
-          <button class="ghost-button" data-action="toggle-case-details" style="white-space: nowrap; padding: 12px 20px; font-weight: bold;">
-            ${iconMarkup(this.caseDetailsOpen ? "chevron-up" : "chevron-down", "button-icon")} ${this.caseDetailsOpen ? "Nascondi Loot" : "Mostra Loot"}
-          </button>
         </div>
         
-        ${this.caseDetailsOpen ? `
-          <div class="case-details-panel" style="background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
-            <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem;">Probabilità di Drop</h4>
-            <div class="drop-table" style="margin-bottom: 32px;">
-              ${table.rows.map((row) => `
-                <div class="drop-row" style="--rarity:${row.color}; background: rgba(0,0,0,0.2); padding: 10px 16px; border-radius: 8px; margin-bottom: 6px; display: grid; grid-template-columns: 140px 1fr 90px 120px; align-items: center; gap: 16px;">
-                  <span style="font-weight: bold; color: var(--rarity); text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${escapeHtml(row.rarity)}</span>
-                  <div style="height: 8px; background: var(--surface-1); border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);"><i style="height: 100%; display: block; background: var(--rarity); width:${percent(row.probability)}; box-shadow: 0 0 8px var(--rarity);"></i></div>
-                  <strong style="text-align: right; font-size: 1.05rem;">${formatPercent(row.probability)}</strong>
-                  <small style="text-align: right; color: var(--text-secondary); font-size: 0.9rem;">${formatCredits(row.estimatedValue, true)} EV</small>
-                </div>
-              `).join("")}
+        <div style="background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+          <button data-action="toggle-case-details" style="all: unset; box-sizing: border-box; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: ${this.caseDetailsOpen ? 'var(--surface-2)' : 'transparent'}; cursor: pointer; transition: background 0.2s;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 36px; height: 36px; border-radius: 8px; background: var(--loot-legendary); color: #000; display: grid; place-items: center;">
+                ${iconMarkup("search")}
+              </div>
+              <div>
+                <strong style="display: block; font-size: 1.1rem; color: var(--text-primary);">Dettagli e Contenuto Cassa</strong>
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">Esamina probabilità di drop e gli oggetti più rari</span>
+              </div>
             </div>
-            <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem;">Migliori Drop Possibili</h4>
-            <div class="best-preview" style="display: flex; gap: 16px; overflow-x: auto; padding-bottom: 12px;">
-              ${table.bestPreview.map((skin) => `
-                <div class="best-skin" style="--rarity:${RARITIES[skin.rarity].color}; min-width: 140px; background: var(--surface-1); border: 1px solid var(--border-color); border-bottom: 4px solid var(--rarity); border-radius: 10px; padding: 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; transition: transform 0.2s;">
-                  <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" style="width: 90px; height: 70px; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
-                  <span style="font-size: 0.85rem; line-height: 1.3; font-weight: 500; color: var(--text-primary);">${escapeHtml(skin.name)}</span>
-                </div>
-              `).join("")}
+            <div style="color: var(--text-secondary); transition: transform 0.3s; transform: rotate(${this.caseDetailsOpen ? '180deg' : '0deg'});">
+              ${iconMarkup("chevron-down")}
             </div>
-          </div>
-        ` : ""}
+          </button>
+          
+          ${this.caseDetailsOpen ? `
+            <div style="padding: 24px; border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px;">
+                <div>
+                  <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">${iconMarkup("pie-chart", "button-icon")} Probabilità di Drop</h4>
+                  <div style="display: flex; flex-direction: column; gap: 8px;">
+                    ${table.rows.map((row) => `
+                      <div style="--rarity:${row.color}; background: var(--surface-1); padding: 10px 16px; border-radius: 8px; display: grid; grid-template-columns: 100px 1fr 70px 100px; align-items: center; gap: 16px; border-left: 3px solid var(--rarity);">
+                        <span style="font-weight: bold; color: var(--rarity); text-shadow: 0 1px 2px rgba(0,0,0,0.5); font-size: 0.9rem;">${escapeHtml(row.rarity)}</span>
+                        <div style="height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden;"><i style="height: 100%; display: block; background: var(--rarity); width:${percent(row.probability)}; box-shadow: 0 0 8px var(--rarity);"></i></div>
+                        <strong style="text-align: right; font-size: 0.95rem; color: var(--text-primary);">${formatPercent(row.probability)}</strong>
+                        <small style="text-align: right; color: var(--text-secondary); font-size: 0.85rem;">${formatCredits(row.estimatedValue, true)} EV</small>
+                      </div>
+                    `).join("")}
+                  </div>
+                </div>
+                
+                <div>
+                  <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">${iconMarkup("star", "button-icon")} Migliori Drop Possibili</h4>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px;">
+                    ${table.bestPreview.map((skin) => `
+                      <div style="--rarity:${RARITIES[skin.rarity].color}; background: var(--surface-1); border: 1px solid var(--border-color); border-bottom: 4px solid var(--rarity); border-radius: 10px; padding: 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: transform 0.2s;">
+                        <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" style="width: 80px; height: 60px; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
+                        <span style="font-size: 0.8rem; line-height: 1.2; font-weight: 500; color: var(--text-primary);">${escapeHtml(skin.name)}</span>
+                      </div>
+                    `).join("")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ` : ""}
+        </div>
       </div>
     `;
+    this.refreshIcons();
   }
 
   renderOpenerActions() {
@@ -2299,37 +2331,37 @@ this.refreshIcons();
         </div>
 
         ${this.openerSettingsOpen ? `
-          <div class="opener-settings-menu" style="width: min(400px, calc(100vw - 48px)); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
-            <div class="opener-settings-head" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+          <div class="opener-settings-menu" style="width: min(420px, 90vw); right: auto; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+            <div class="opener-settings-head" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); text-align: left;">
               <strong style="font-size: 1.2rem; color: var(--text-primary);">Impostazioni Automazioni</strong>
-              <small style="display: block; color: var(--text-secondary); margin-top: 4px;">${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita automatica."}</small>
+              <small style="display: block; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita automatica."}</small>
             </div>
             
             <div style="display: flex; flex-direction: column; gap: 16px;">
               <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px;">
-                    <strong style="font-size: 1.05rem; color: var(--text-primary);">Auto-opener</strong>
-                    <small style="color: var(--text-secondary);">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
+                <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%;">
+                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
+                    <strong style="font-size: 1.1rem; color: var(--text-primary); white-space: nowrap;">Auto-opener</strong>
+                    <small style="color: var(--text-secondary); line-height: 1.3;">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
                   </span>
-                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.2); flex-shrink: 0;" />
+                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.4); flex-shrink: 0; margin-left: auto;" />
                 </label>
               </div>
               
               <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 16px;">
-                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px;">
-                    <strong style="font-size: 1.05rem; color: var(--text-primary);">Vendita Automatica</strong>
-                    <small style="color: var(--text-secondary);">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
+                <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 16px; width: 100%;">
+                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
+                    <strong style="font-size: 1.1rem; color: var(--text-primary); white-space: nowrap;">Vendita Automatica</strong>
+                    <small style="color: var(--text-secondary); line-height: 1.3;">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
                   </span>
-                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.2); flex-shrink: 0;" />
+                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.4); flex-shrink: 0; margin-left: auto;" />
                 </label>
                 
-                <div class="opener-settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                  <select id="quickAutoSellMaxTier" style="padding: 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <select id="quickAutoSellMaxTier" style="padding: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%;">
                     ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a ${rarity}</option>`).join("")}
                   </select>
-                  <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary);" title="Valore massimo da vendere" />
+                  <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%;" title="Valore massimo da vendere" />
                 </div>
               </div>
             </div>
@@ -2434,21 +2466,25 @@ this.refreshIcons();
     const history = (this.state.dropHistory || [])
       .filter((item) => !blockedIds.has(item.id))
       .slice(0, 6);
-    node.innerHTML = `
-      <div class="panel-heading history-heading">
-        <span>Ultimi drop</span>
-        <small>${history.length}/6</small>
+      <div class="panel-heading history-heading" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;">
+        <span style="font-weight: bold; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("clock", "button-icon")} Ultimi Drop</span>
+        <small style="color: var(--text-secondary); background: var(--surface-2); padding: 4px 10px; border-radius: 12px; font-weight: bold;">${history.length}/6</small>
       </div>
-      <div class="mini-history">
+      <div class="mini-history" style="display: flex; flex-direction: column; gap: 10px;">
         ${history.length ? history.map((item) => `
-          <div class="history-item" style="--rarity:${item.rarityColor}">
-            <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
-            <span>${escapeHtml(item.name)}</span>
-            <strong>${item.autoSold ? "Auto" : formatCredits(item.value, true)}</strong>
+          <div style="background: linear-gradient(90deg, var(--surface-1), transparent); border: 1px solid var(--border-color); border-left: 4px solid var(--rarity); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 14px; --rarity:${item.rarityColor}; transition: transform 0.2s; cursor: default;" onmouseover="this.style.transform='translateX(4px)'" onmouseout="this.style.transform='translateX(0)'">
+            <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" style="width: 54px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+            <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+              <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.name)}</span>
+              <strong style="font-size: 0.85rem; color: ${item.autoSold ? 'var(--text-secondary)' : 'var(--loot-restricted)'}; display: flex; align-items: center; gap: 4px;">
+                ${item.autoSold ? iconMarkup("zap", "button-icon") + " Venduto in Auto" : formatCredits(item.value, true)}
+              </strong>
+            </div>
           </div>
-        `).join("") : `<div class="empty-state small">${blockedIds.size ? "Apertura in corso..." : "Apri una cassa per iniziare."}</div>`}
+        `).join("") : `<div style="padding: 24px; text-align: center; color: var(--text-secondary); background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; display: flex; flex-direction: column; align-items: center; gap: 8px;">${iconMarkup("box")} <br/> ${blockedIds.size ? "Animazione in corso..." : "Apri una cassa per iniziare."}</div>`}
       </div>
     `;
+    this.refreshIcons();
   }
 
   renderQuickActions() {
