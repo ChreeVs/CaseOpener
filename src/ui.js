@@ -137,7 +137,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, ROULETTE_RED_NUMBERS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.1.3";
+const GAME_VERSION = "v1.2.0";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;
@@ -1561,7 +1561,7 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "games-view":
-        this.gamesView = ["upgrader", "coinflip"].includes(data.view) ? data.view : "upgrader";
+        this.gamesView = ["roulette", "pachinko", "upgrader", "coinflip", "crash", "jackpot"].includes(data.view) ? data.view : "upgrader";
         this.renderTab();
         break;
       case "select-upgrader-item":
@@ -3424,8 +3424,8 @@ export class CaseOpenerUI {
     return `
       <div class="workspace-tabs game-mode-tabs">
         ${modes.map(([id, label]) => `
-          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""} ${["upgrader", "coinflip"].includes(id) ? "" : "is-disabled"}" data-action="games-view" data-view="${id}" ${["upgrader", "coinflip"].includes(id) ? "" : "disabled"}>
-            ${escapeHtml(label)}${["upgrader", "coinflip"].includes(id) ? "" : " Off"}
+          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""}" data-action="games-view" data-view="${id}">
+            ${escapeHtml(label)}
           </button>
         `).join("")}
       </div>
@@ -3835,14 +3835,17 @@ export class CaseOpenerUI {
 
   renderGames() {
     const gameNav = this.renderGameModeTabs();
-    if (this.gamesView === "upgrader") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
-    }
-    if (this.gamesView === "coinflip") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderCoinflipGame()}</div>`;
-    }
-    this.gamesView = "upgrader";
-    return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
+    const sectionTabs = this.renderSectionTabs("games");
+    const views = {
+      roulette: () => this.renderRouletteGame(),
+      pachinko: () => this.renderPachinkoGame(),
+      upgrader: () => this.renderUpgraderGame(),
+      coinflip: () => this.renderCoinflipGame(),
+      crash: () => this.renderMultiplayerCrash(),
+      jackpot: () => this.renderMultiplayerJackpot()
+    };
+    const renderer = views[this.gamesView] || views.upgrader;
+    return `${sectionTabs}<div class="games-shell">${gameNav}${renderer()}</div>`;
   }
 
   renderMultiplayerSummaryHeader() {
@@ -5853,6 +5856,8 @@ export class CaseOpenerUI {
     window.clearTimeout(this.jackpotLoopTimer);
     this.jackpotLoopTimer = null;
     this.jackpotNextRoundAt = 0;
+    this.scheduleRouletteLoop(AUTO_ROULETTE_START_DELAY_MS);
+    this.scheduleCrashLoop(AUTO_CRASH_START_DELAY_MS);
   }
 
   buildRouletteNumberSequence(outcome) {
