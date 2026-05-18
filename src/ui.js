@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.3";
+const GAME_VERSION = "v1.4.4";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2939,7 +2939,6 @@ community: () => this.renderCommunityGoals(),
             </div>
           `}
         </section>
-        ${this.renderAuctionHouse()}
       </div>
     `;
   }
