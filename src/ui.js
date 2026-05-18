@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.5";
+const GAME_VERSION = "v1.4.6";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2612,36 +2612,65 @@ community: () => this.renderCommunityGoals(),
 
     return `
       ${this.renderSectionTabs("shop")}
-      <div class="upgrade-tree">
-        ${Object.entries(grouped).map(([branch, upgrades]) => `
-          <section class="upgrade-branch">
-            <div class="branch-title">
-              <span>${escapeHtml(branch)}</span>
-              <strong>${upgrades.reduce((sum, upgrade) => sum + (this.state.upgrades[upgrade.id] || 0), 0)} livelli</strong>
-            </div>
-            <div class="branch-lane">
-              ${upgrades.map((upgrade) => {
-                const level = this.state.upgrades[upgrade.id] || 0;
-                const maxed = level >= upgrade.maxLevel;
-                const cost = getUpgradeCost(this.state, upgrade.id);
-                return `
-                  <article class="upgrade-card branch-node">
-                    <div>
-                      <span>${escapeHtml(upgrade.name)}</span>
-                      <strong>Lv ${level}/${upgrade.maxLevel}</strong>
-                      <p>${escapeHtml(upgrade.description)}</p>
-                      <small>${upgradeEffectText(this.state, upgrade)}</small>
-                    </div>
-                    <div class="progress-line"><i style="width:${percent(level / upgrade.maxLevel)}"></i></div>
-                    <button class="primary-button small" data-action="buy-upgrade" data-id="${upgrade.id}" ${maxed || this.state.credits < cost ? "disabled" : ""}>
-                      ${maxed ? "Max" : formatCredits(cost)}
-                    </button>
-                  </article>
-                `;
-              }).join("")}
-            </div>
-          </section>
-        `).join("")}
+      <div class="shop-page" style="padding: 16px; max-width: 1200px; margin: 0 auto;">
+        <div style="margin-bottom: 32px;">
+          <h2 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">${iconMarkup("zap", "button-icon")} Potenziamenti Base</h2>
+          <p style="color: var(--text-secondary); font-size: 0.95rem;">Investi i crediti per migliorare permanentemente le statistiche del tuo account. I costi scalano ad ogni livello.</p>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 40px;">
+          ${Object.entries(grouped).map(([branch, upgrades]) => `
+            <section>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 20px;">
+                <h3 style="font-size: 1.25rem; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 8px;">
+                  ${iconMarkup("git-branch", "button-icon")} ${escapeHtml(branch)}
+                </h3>
+                <span style="font-size: 0.9rem; color: var(--text-secondary); font-weight: 500;">
+                  ${upgrades.reduce((sum, upgrade) => sum + (this.state.upgrades[upgrade.id] || 0), 0)} livelli acquisiti
+                </span>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                ${upgrades.map((upgrade) => {
+                  const level = this.state.upgrades[upgrade.id] || 0;
+                  const maxed = level >= upgrade.maxLevel;
+                  const cost = getUpgradeCost(this.state, upgrade.id);
+                  const progressPct = Math.floor((level / upgrade.maxLevel) * 100);
+                  
+                  return `
+                    <article style="background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                          <strong style="display: block; font-size: 1.1rem; margin-bottom: 4px; color: var(--text-primary);">${escapeHtml(upgrade.name)}</strong>
+                          <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">Livello ${level} / ${upgrade.maxLevel}</span>
+                        </div>
+                        <div style="background: ${maxed ? 'rgba(255, 215, 0, 0.1)' : 'var(--surface-1)'}; border: 1px solid ${maxed ? 'var(--loot-legendary)' : 'var(--border-color)'}; border-radius: 6px; padding: 6px 10px; font-size: 0.8rem; font-weight: bold; color: ${maxed ? 'var(--loot-legendary)' : 'var(--text-secondary)'};">
+                          ${maxed ? "MAX" : progressPct + "%"}
+                        </div>
+                      </div>
+                      
+                      <p style="font-size: 0.9rem; color: var(--text-secondary); margin: 0; line-height: 1.5; flex-grow: 1;">
+                        ${escapeHtml(upgrade.description)}
+                      </p>
+                      
+                      <div style="font-size: 0.85rem; color: var(--text-primary); background: var(--surface-1); padding: 12px; border-radius: 8px; display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--loot-covert);">
+                        ${iconMarkup("info", "button-icon")} <span>${upgradeEffectText(this.state, upgrade)}</span>
+                      </div>
+                      
+                      <div style="width: 100%; height: 6px; background: var(--surface-1); border-radius: 3px; overflow: hidden; margin-top: auto;">
+                        <div style="height: 100%; width: ${progressPct}%; background: ${maxed ? 'var(--loot-legendary)' : 'var(--loot-covert)'}; transition: width 0.3s ease;"></div>
+                      </div>
+                      
+                      <button class="primary-button" style="width: 100%; justify-content: center; padding: 12px; font-weight: bold; font-size: 0.95rem;" data-action="buy-upgrade" data-id="${upgrade.id}" ${maxed || this.state.credits < cost ? "disabled" : ""}>
+                        ${maxed ? "Massimo Raggiunto" : `${iconMarkup("arrow-up-circle", "button-icon")} Espandi (${formatCredits(cost)})`}
+                      </button>
+                    </article>
+                  `;
+                }).join("")}
+              </div>
+            </section>
+          `).join("")}
+        </div>
       </div>
     `;
   }
