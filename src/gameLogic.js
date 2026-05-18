@@ -1974,7 +1974,8 @@ export function getMarketTrend(state) {
 export function refreshMarket(state, skinData, selectedCase) {
   const now = Date.now();
   const trend = getMarketTrend(state);
-  if (state.market.offers.length && now - state.market.lastRefreshAt < ECONOMY_CONFIG.marketplaceRefreshMs) {
+  if (now - state.market.lastRefreshAt < ECONOMY_CONFIG.marketplaceRefreshMs) {
+    if (!state.market.offers) state.market.offers = [];
     return state.market.offers;
   }
 

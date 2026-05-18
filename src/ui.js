@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.2";
+const GAME_VERSION = "v1.4.3";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2909,24 +2909,35 @@ community: () => this.renderCommunityGoals(),
             <div>
               <span class="marketplace-kicker">${iconMarkup("candlestick-chart", "button-icon")} Offerte economy</span>
               <h3>Marketplace economy</h3>
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">Le offerte scalano col tuo Prestigio (una per livello) e si ricaricano ogni 12h.</p>
             </div>
-            <button class="ghost-button" data-action="refresh-market">Refresh offerte</button>
+            <button class="ghost-button" data-action="refresh-market">${iconMarkup("refresh-cw", "button-icon")} Aggiorna (Salta Timer)</button>
           </div>
-          <div class="market-grid">
-            ${offers.map((offer) => `
-              <article class="market-card">
-                ${itemCard(offer.item, { compact: true })}
-                <div class="market-meta">
-                  <span>Fair ${formatCredits(offer.fairValue, true)}</span>
-                  <span class="${offer.edge >= 0 ? "positive" : "negative"}">${offer.edge >= 0 ? "+" : ""}${offer.edge}% edge</span>
-                  <span>Bot ${offer.botInterest}%</span>
-                </div>
-                <button class="primary-button small" data-action="buy-offer" data-id="${offer.id}" ${this.state.credits < offer.price ? "disabled" : ""}>
-                  Compra ${formatCredits(offer.price)}
-                </button>
-              </article>
-            `).join("")}
-          </div>
+          
+          ${offers && offers.length > 0 ? `
+            <div class="market-grid">
+              ${offers.map((offer) => `
+                <article class="market-card">
+                  ${itemCard(offer.item, { compact: true })}
+                  <div class="market-meta">
+                    <span>Fair ${formatCredits(offer.fairValue, true)}</span>
+                    <span class="${offer.edge >= 0 ? "positive" : "negative"}">${offer.edge >= 0 ? "+" : ""}${offer.edge}% edge</span>
+                    <span>Bot ${offer.botInterest}%</span>
+                  </div>
+                  <button class="primary-button small" data-action="buy-offer" data-id="${offer.id}" ${this.state.credits < offer.price ? "disabled" : ""}>
+                    Compra ${formatCredits(offer.price)}
+                  </button>
+                </article>
+              `).join("")}
+            </div>
+          ` : `
+            <div class="market-empty-state" style="text-align: center; padding: 48px 24px; color: var(--text-secondary); background: var(--surface-2); border-radius: 8px; margin-top: 16px;">
+              ${iconMarkup("shopping-bag", "button-icon")}
+              <h4 style="margin: 12px 0 8px;">Tutto esaurito!</h4>
+              <p style="margin-bottom: 24px;">Hai acquistato tutte le offerte attuali o il negozio è vuoto.</p>
+              <button class="primary-button" data-action="refresh-market">Genera Nuove Offerte Subito</button>
+            </div>
+          `}
         </section>
         ${this.renderAuctionHouse()}
       </div>
