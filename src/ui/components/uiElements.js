@@ -154,7 +154,6 @@ export const NAV_TABS = [
   ["stats", "Progress"],
   ["achievements", "Achievements"],
   ["prestige", "Prestige"],
-  ["games", "Giochi"],
   ["community", "Community"],
   ["admin", "Admin"]
 ];

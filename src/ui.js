@@ -137,7 +137,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, ROULETTE_RED_NUMBERS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.2.0";
+const GAME_VERSION = "v1.2.1";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;
@@ -5856,8 +5856,6 @@ export class CaseOpenerUI {
     window.clearTimeout(this.jackpotLoopTimer);
     this.jackpotLoopTimer = null;
     this.jackpotNextRoundAt = 0;
-    this.scheduleRouletteLoop(AUTO_ROULETTE_START_DELAY_MS);
-    this.scheduleCrashLoop(AUTO_CRASH_START_DELAY_MS);
   }
 
   buildRouletteNumberSequence(outcome) {
