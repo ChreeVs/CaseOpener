@@ -13,7 +13,7 @@ export const ECONOMY_CONFIG = {
   sellFee: 0.08,
   tradeUpFloor: 0.58,
   tradeUpCeiling: 1.02,
-  marketplaceRefreshMs: 1000 * 60 * 2,
+  marketplaceRefreshMs: 1000 * 60 * 60 * 12,
   marketplaceOfferCount: 8,
   rareRevealTier: 4,
   collectionCreditBase: 22,

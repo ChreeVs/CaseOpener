@@ -842,7 +842,7 @@ function getProfileWithProbabilities(caseDef, state) {
 function estimateRarityValue(state, rarity, caseDef) {
   const wearAverage = WEAR_TIERS.reduce((sum, wear) => sum + wear.multiplier, 0) / WEAR_TIERS.length;
   const critExpected = 1 + getCritChance(state) * 0.72;
-  return RARITIES[rarity].baseValue * wearAverage * getDropValueMultiplier(state) * critExpected * Number(caseDef.valueScale || 1);
+  return RARITIES[rarity].baseValue * wearAverage * getDropValueMultiplier(state) * critExpected * Number(caseDef?.valueScale || 1);
 }
 
 export function getCaseDropTable(state, caseDef) {
@@ -886,9 +886,9 @@ export function rollRarity(caseDef, state) {
 }
 
 export function pickSkin(caseDef, rarity, skinData) {
-  const pool = caseDef.pool[rarity]?.length ? caseDef.pool[rarity] : skinData.globalPool[rarity] || [];
+  const pool = caseDef?.pool?.[rarity]?.length ? caseDef.pool[rarity] : skinData?.globalPool?.[rarity] || skinData?.skins?.filter(s => s.rarity === rarity) || [];
   if (!pool.length) {
-    const fallback = RARITY_ORDER.map((candidate) => caseDef.pool[candidate] || skinData.globalPool[candidate] || []).find((items) => items.length);
+    const fallback = RARITY_ORDER.map((candidate) => caseDef?.pool?.[candidate] || skinData?.globalPool?.[candidate] || skinData?.skins?.filter(s => s.rarity === candidate) || []).find((items) => items.length);
     return fallback[Math.floor(Math.random() * fallback.length)];
   }
   return pool[Math.floor(Math.random() * pool.length)];
@@ -931,7 +931,7 @@ function calculateValue(skin, rarity, floatValue, state, flags, caseDef) {
       specialNameBonus *
       lowFloatBonus *
       crit *
-      Number(caseDef.valueScale || 1) *
+      Number(caseDef?.valueScale || 1) *
       getDropValueMultiplier(state)
   );
 }
@@ -1980,7 +1980,8 @@ export function refreshMarket(state, skinData, selectedCase) {
 
   const rarities = ["Mil-Spec", "Restricted", "Classified", "Covert"];
   const limited = getLimitedEventEffect(state);
-  state.market.offers = Array.from({ length: ECONOMY_CONFIG.marketplaceOfferCount }, (_, index) => {
+  const offerCount = Math.max(1, (state.prestige?.level || 0) + 1);
+  state.market.offers = Array.from({ length: offerCount }, (_, index) => {
     const rarity = rarities[Math.min(rarities.length - 1, Math.floor(Math.random() * rarities.length))];
     const skin = pickSkin(selectedCase, rarity, skinData);
     const fakeCase = selectedCase;
