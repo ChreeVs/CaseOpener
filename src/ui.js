@@ -1592,53 +1592,6 @@ if (target.matches("#coinflipSide")) {
       case "cloud-sign-out":
         this.signOutFromCloud();
         break;
-      // ── Games ──
-      case "games-view":
-        this.gamesView = data.view || "roulette";
-        this.renderTab();
-        break;
-      case "set-roulette-choice":
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.roulette) this.state.minigames.roulette = {};
-        this.state.minigames.roulette.choice = data.choice;
-        this.renderTab();
-        break;
-      case "crash-cashout":
-        crashCashout(this);
-        break;
-      case "play-coinflip":
-        playCoinflipGame(this);
-        break;
-      case "set-coinflip-side":
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.coinflip) this.state.minigames.coinflip = {};
-        this.state.minigames.coinflip.side = data.side;
-        this.renderTab();
-        break;
-      case "play-upgrader":
-        playUpgraderGame(this);
-        break;
-      case "toggle-upgrader-item":
-        toggleUpgraderItem(this, data.id);
-        this.renderTab();
-        break;
-      case "clear-upgrader":
-        this.upgraderSelection.clear();
-        this.renderTab();
-        break;
-      case "play-jackpot":
-        playJackpotGame(this);
-        break;
-      case "toggle-jackpot-item":
-        if (!this.jackpotSelection) this.jackpotSelection = new Set();
-        if (this.jackpotSelection.has(data.id)) this.jackpotSelection.delete(data.id);
-        else this.jackpotSelection.add(data.id);
-        this.renderTab();
-        break;
-      case "clear-jackpot":
-        if (this.jackpotSelection) this.jackpotSelection.clear();
-        this.renderTab();
-        break;
       default:
         break;
     }
