@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.7";
+const GAME_VERSION = "v1.4.8";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2299,30 +2299,30 @@ this.refreshIcons();
         </div>
 
         ${this.openerSettingsOpen ? `
-          <div class="opener-settings-menu" style="background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
+          <div class="opener-settings-menu" style="width: min(400px, calc(100vw - 48px)); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
             <div class="opener-settings-head" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
               <strong style="font-size: 1.2rem; color: var(--text-primary);">Impostazioni Automazioni</strong>
               <small style="display: block; color: var(--text-secondary); margin-top: 4px;">${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita automatica."}</small>
             </div>
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+            <div style="display: flex; flex-direction: column; gap: 16px;">
               <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
                 <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                  <span style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px;">
                     <strong style="font-size: 1.05rem; color: var(--text-primary);">Auto-opener</strong>
                     <small style="color: var(--text-secondary);">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
                   </span>
-                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.2);" />
+                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.2); flex-shrink: 0;" />
                 </label>
               </div>
               
               <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
                 <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 16px;">
-                  <span style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px;">
                     <strong style="font-size: 1.05rem; color: var(--text-primary);">Vendita Automatica</strong>
                     <small style="color: var(--text-secondary);">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
                   </span>
-                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.2);" />
+                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.2); flex-shrink: 0;" />
                 </label>
                 
                 <div class="opener-settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
