@@ -1,4 +1,4 @@
-﻿import {
+import {
   ACHIEVEMENTS
 } from "./config/achievementsConfig.js";
 import {
@@ -543,7 +543,7 @@ export function getCritChance(state) {
 }
 
 export function getMultiOpenCount(state) {
-  const level = Math.max(0, Math.min(Math.floor(getDiminishedUpgradeLevel(state, "multiOpen", 10)), MULTI_OPEN_LEVELS.length - 1));
+  const level = Math.max(0, Math.min(Number(state.upgrades?.multiOpen) || 0, MULTI_OPEN_LEVELS.length - 1));
   return MULTI_OPEN_LEVELS[level] || 1;
 }
 
