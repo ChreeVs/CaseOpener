@@ -126,7 +126,6 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
-import { initGamesState, startGameLoops, stopGameLoops, renderGamesTab, crashCashout, playCoinflipGame, playUpgraderGame, playJackpotGame, toggleUpgraderItem } from "./ui/minigames/GamesUI.js";
 
 const GAME_VERSION = "v1.4.0";
 
@@ -1136,33 +1135,6 @@ if (target.matches("#gameInventorySearch")) {
       }
       if (target.matches("#adminPassword")) {
         this.adminPassword = target.value;
-      }
-      if (target.matches("#rouletteBet")) {
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.roulette) this.state.minigames.roulette = {};
-        this.state.minigames.roulette.bet = target.value;
-      }
-      if (target.matches("#crashBet")) {
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.crash) this.state.minigames.crash = {};
-        this.state.minigames.crash.bet = target.value;
-      }
-      if (target.matches("#crashAutoCashout")) {
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.crash) this.state.minigames.crash = {};
-        this.state.minigames.crash.autoCashout = target.value;
-      }
-      if (target.matches("#coinflipBet")) {
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.coinflip) this.state.minigames.coinflip = {};
-        this.state.minigames.coinflip.bet = target.value;
-      }
-      if (target.matches("#upgraderMultiplier")) {
-        if (!this.state.minigames) this.state.minigames = {};
-        if (!this.state.minigames.upgrader) this.state.minigames.upgrader = {};
-        this.state.minigames.upgrader.targetMultiplier = target.value;
-        const strong = target.parentElement?.querySelector("strong");
-        if (strong) strong.textContent = "x" + Number(target.value).toFixed(2);
       }
     });
 
@@ -2578,8 +2550,7 @@ community: () => this.renderCommunityGoals(),
       collections: () => this.renderCollections(),
       market: () => this.renderMarket(),
       admin: () => this.renderAdminPanel(),
-      cheats: () => this.renderCheats(),
-      games: () => renderGamesTab(this)
+      cheats: () => this.renderCheats()
     };
     content.innerHTML = renderers[this.activeTab]?.() || "";
     this.refreshIcons();

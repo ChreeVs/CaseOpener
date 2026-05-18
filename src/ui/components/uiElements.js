@@ -152,7 +152,7 @@ export const NAV_TABS = [
   ["stats", "Progress"],
   ["achievements", "Achievements"],
   ["prestige", "Prestige"],
-  ["games", "Giochi"],
+
   ["community", "Community"],
   ["admin", "Admin"]
 ];
@@ -207,17 +207,7 @@ export const LOGIN_GATE_ACTIONS = new Set([
   "close-reveal",
   "case-page-jump",
   "clear-case-filters",
-  "toggle-case-filters",
-  "set-roulette-choice",
-  "crash-cashout",
-  "play-coinflip",
-  "set-coinflip-side",
-  "play-upgrader",
-  "toggle-upgrader-item",
-  "clear-upgrader",
-  "play-jackpot",
-  "toggle-jackpot-item",
-  "clear-jackpot"
+  "toggle-case-filters"
 ]);
 
 export const TAB_GROUPS = {
@@ -228,7 +218,7 @@ export const TAB_GROUPS = {
   stats: ["stats"],
   achievements: ["achievements"],
   prestige: ["prestige"],
-  games: ["games"],
+
   community: ["community"],
   admin: ["admin"],
   cheats: ["cheats"]
