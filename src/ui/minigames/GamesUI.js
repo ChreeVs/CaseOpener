@@ -99,7 +99,8 @@ function runRouletteRound(ui) {
     outcome, type, seq, won, profit, bet: hasBet ? bet : 0,
     payout, choice, spinning: true, startedAt: Date.now(), durationMs: 3200
   };
-  ui.renderAll();
+  ui.renderTopStats();
+  if (ui.activeTab === "games" && ui.gamesView === "roulette") ui.renderTab();
 
   setTimeout(() => {
     if (ui.rouletteAnim) ui.rouletteAnim.spinning = false;
@@ -163,7 +164,8 @@ function runCrashRound(ui) {
     displayPoint: 1.00, cashedOut: false, cashedOutAt: 0,
     spinning: true, startedAt: Date.now(), profit: hasBet ? -bet : 0
   };
-  ui.renderAll();
+  ui.renderTopStats();
+  if (ui.activeTab === "games" && ui.gamesView === "crash") ui.renderTab();
 
   const interval = setInterval(() => {
     if (!ui.crashAnim) { clearInterval(interval); return; }
@@ -239,7 +241,8 @@ export function playCoinflipGame(ui) {
   ui.coinflipAnim = {
     ...result, spinning: true, startedAt: Date.now(), durationMs: 1600
   };
-  ui.renderAll();
+  ui.renderTopStats();
+  if (ui.activeTab === "games" && ui.gamesView === "coinflip") ui.renderTab();
   setTimeout(() => {
     if (ui.coinflipAnim) ui.coinflipAnim.spinning = false;
     if (ui.activeTab === "games") ui.renderTab();
@@ -255,7 +258,8 @@ export function playUpgraderGame(ui) {
   if (!result.ok) return;
 
   ui.upgraderAnim = { ...result, spinning: true, startedAt: Date.now(), durationMs: 2200 };
-  ui.renderAll();
+  ui.renderTopStats();
+  if (ui.activeTab === "games" && ui.gamesView === "upgrader") ui.renderTab();
   setTimeout(() => {
     if (ui.upgraderAnim) ui.upgraderAnim.spinning = false;
     if (ui.activeTab === "games") ui.renderTab();
@@ -275,7 +279,8 @@ export function playJackpotGame(ui) {
   if (!result.ok) return;
 
   ui.jackpotAnim = { ...result, spinning: true, startedAt: Date.now(), tick: 0 };
-  ui.renderAll();
+  ui.renderTopStats();
+  if (ui.activeTab === "games" && ui.gamesView === "jackpot") ui.renderTab();
   let tick = 0;
   const interval = setInterval(() => {
     tick++;

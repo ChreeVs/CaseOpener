@@ -2551,6 +2551,7 @@ this.refreshIcons();
   }
 
   renderTab() {
+    const focusedId = document.activeElement?.id;
     const content = this.root.querySelector("#tabContent");
     const workspace = this.root.querySelector("#workspace");
     const grid = this.root.querySelector(".main-grid");
@@ -2582,6 +2583,10 @@ community: () => this.renderCommunityGoals(),
     };
     content.innerHTML = renderers[this.activeTab]?.() || "";
     this.refreshIcons();
+    if (focusedId) {
+      const el = document.getElementById(focusedId);
+      if (el && el.tagName === "INPUT") el.focus();
+    }
   }
 
   getFilteredInventory() {
