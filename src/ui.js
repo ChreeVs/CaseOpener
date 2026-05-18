@@ -126,8 +126,9 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
+import { initGamesState, startGameLoops, stopGameLoops, renderGamesTab, crashCashout, playCoinflipGame, playUpgraderGame, playJackpotGame, toggleUpgraderItem } from "./ui/minigames/GamesUI.js";
 
-const GAME_VERSION = "v1.3.0";
+const GAME_VERSION = "v1.4.0";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -242,6 +243,7 @@ export class CaseOpenerUI {
     this.legalModal = null;
     this.session = this.createSessionState();
     this.toasts = [];
+    initGamesState(this);
   }
 
   mount() {
@@ -256,7 +258,8 @@ export class CaseOpenerUI {
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
-}
+    startGameLoops(this);
+  }
 
   dispose() {
     this.unsubscribeCloudChat?.();
@@ -1592,6 +1595,53 @@ if (target.matches("#coinflipSide")) {
       case "cloud-sign-out":
         this.signOutFromCloud();
         break;
+      // ── Games ──
+      case "games-view":
+        this.gamesView = data.view || "roulette";
+        this.renderCases();
+        break;
+      case "set-roulette-choice":
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.roulette) this.state.minigames.roulette = {};
+        this.state.minigames.roulette.choice = data.choice;
+        this.renderCases();
+        break;
+      case "crash-cashout":
+        crashCashout(this);
+        break;
+      case "play-coinflip":
+        playCoinflipGame(this);
+        break;
+      case "set-coinflip-side":
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.coinflip) this.state.minigames.coinflip = {};
+        this.state.minigames.coinflip.side = data.side;
+        this.renderCases();
+        break;
+      case "play-upgrader":
+        playUpgraderGame(this);
+        break;
+      case "toggle-upgrader-item":
+        toggleUpgraderItem(this, data.id);
+        this.renderCases();
+        break;
+      case "clear-upgrader":
+        this.upgraderSelection.clear();
+        this.renderCases();
+        break;
+      case "play-jackpot":
+        playJackpotGame(this);
+        break;
+      case "toggle-jackpot-item":
+        if (!this.jackpotSelection) this.jackpotSelection = new Set();
+        if (this.jackpotSelection.has(data.id)) this.jackpotSelection.delete(data.id);
+        else this.jackpotSelection.add(data.id);
+        this.renderCases();
+        break;
+      case "clear-jackpot":
+        if (this.jackpotSelection) this.jackpotSelection.clear();
+        this.renderCases();
+        break;
       default:
         break;
     }
@@ -2500,7 +2550,8 @@ community: () => this.renderCommunityGoals(),
       collections: () => this.renderCollections(),
       market: () => this.renderMarket(),
       admin: () => this.renderAdminPanel(),
-      cheats: () => this.renderCheats()
+      cheats: () => this.renderCheats(),
+      games: () => renderGamesTab(this)
     };
     content.innerHTML = renderers[this.activeTab]?.() || "";
     this.refreshIcons();
