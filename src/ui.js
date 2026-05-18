@@ -136,7 +136,7 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
-const GAME_VERSION = "v1.0.4";
+const GAME_VERSION = "v1.0.5";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;
@@ -506,7 +506,7 @@ export class CaseOpenerUI {
     this.techMenuOpen = false;
     this.openerSettingsOpen = false;
     this.profileSetupOpen = !this.state.profile?.configured;
-    this.gamesView = "roulette";
+    this.gamesView = "upgrader";
     this.promoCodeDraft = "";
     this.goalDepositAmounts = {};
     this.goalSyncBusy = new Set();
@@ -1887,7 +1887,7 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "games-view":
-        this.gamesView = data.view === "pachinko" ? "roulette" : data.view || "roulette";
+        this.gamesView = ["upgrader", "coinflip"].includes(data.view) ? data.view : "upgrader";
         this.renderTab();
         break;
       case "select-upgrader-item":
@@ -1905,15 +1905,17 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "play-roulette":
-        this.playRouletteGame();
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "toggle-roulette-autoplay":
-        this.ensureAutomaticGameLoopState();
-        this.scheduleRouletteLoop(600);
+        window.clearTimeout(this.rouletteLoopTimer);
+        this.rouletteLoopTimer = null;
+        this.rouletteNextRoundAt = 0;
         this.renderTab();
         break;
       case "play-pachinko":
-        this.gamesView = "roulette";
+        this.gamesView = "upgrader";
         this.renderTab();
         break;
       case "play-upgrader":
@@ -1927,55 +1929,44 @@ export class CaseOpenerUI {
         this.renderTab();
         break;
       case "play-crash":
-        this.playCrashGame();
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "cashout-crash":
-        this.cashOutActiveCrash(false);
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "toggle-crash-autoplay":
-        this.ensureAutomaticGameLoopState();
-        this.scheduleCrashLoop(600);
+        this.cancelCrashLoop();
         this.renderTab();
         break;
       case "stop-crash-autoplay":
-        this.ensureAutomaticGameLoopState();
-        this.scheduleCrashLoop(600);
+        this.cancelCrashLoop();
         this.renderTab();
         break;
       case "set-crash-bet":
-        this.setCrashBetShortcut(data.mode);
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "select-jackpot-lobby":
-        this.jackpotLobbyId = data.id || "";
-        this.jackpotSelection.clear();
-        this.jackpotPreview = null;
-        this.jackpotReady = false;
-        this.syncSharedPresenceNow();
-        this.scheduleJackpotLoop(1200);
+        this.gamesView = "upgrader";
         this.renderTab();
         break;
       case "change-jackpot-lobby":
-        this.jackpotLobbyId = "";
-        this.jackpotSelection.clear();
-        this.jackpotReady = false;
-        this.syncSharedPresenceNow();
+        this.gamesView = "upgrader";
         this.renderTab();
         break;
       case "toggle-jackpot-item":
-        this.toggleJackpotItem(data.id);
-        this.jackpotReady = false;
-        this.syncSharedPresenceNow();
-        this.scheduleJackpotLoop(1200);
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "clear-jackpot-selection":
-        this.jackpotSelection.clear();
-        this.jackpotReady = false;
-        this.syncSharedPresenceNow();
-        this.scheduleJackpotLoop(3000);
+        this.gamesView = "upgrader";
         this.renderTab();
         break;
       case "play-jackpot":
-        this.toggleJackpotReady();
+        this.gamesView = "upgrader";
+        this.renderTab();
         break;
       case "close-jackpot-win":
         this.jackpotWinPopup = null;
@@ -3759,8 +3750,8 @@ export class CaseOpenerUI {
     return `
       <div class="workspace-tabs game-mode-tabs">
         ${modes.map(([id, label]) => `
-          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""} ${id === "pachinko" ? "is-disabled" : ""}" data-action="games-view" data-view="${id}" ${id === "pachinko" ? "disabled" : ""}>
-            ${escapeHtml(label)}${id === "pachinko" ? " Off" : ""}
+          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""} ${["upgrader", "coinflip"].includes(id) ? "" : "is-disabled"}" data-action="games-view" data-view="${id}" ${["upgrader", "coinflip"].includes(id) ? "" : "disabled"}>
+            ${escapeHtml(label)}${["upgrader", "coinflip"].includes(id) ? "" : " Off"}
           </button>
         `).join("")}
       </div>
@@ -4170,26 +4161,14 @@ export class CaseOpenerUI {
 
   renderGames() {
     const gameNav = this.renderGameModeTabs();
-    if (this.gamesView === "roulette") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
-    }
-    if (this.gamesView === "pachinko") {
-      this.gamesView = "roulette";
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
-    }
     if (this.gamesView === "upgrader") {
       return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
     }
     if (this.gamesView === "coinflip") {
       return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderCoinflipGame()}</div>`;
     }
-    if (this.gamesView === "crash") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderMultiplayerCrash()}</div>`;
-    }
-    if (this.gamesView === "jackpot") {
-      return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderMultiplayerJackpot()}</div>`;
-    }
-    return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderRouletteGame()}</div>`;
+    this.gamesView = "upgrader";
+    return `${this.renderSectionTabs("games")}<div class="games-shell">${gameNav}${this.renderUpgraderGame()}</div>`;
   }
 
   renderMultiplayerSummaryHeader() {
@@ -6193,19 +6172,13 @@ export class CaseOpenerUI {
   }
 
   startAutomaticGameLoops() {
-    if (!this.isCloudLoggedIn()) {
-      return;
-    }
-    this.ensureAutomaticGameLoopState();
-    if (!this.rouletteAnimation?.spinning && !this.rouletteLoopTimer) {
-      this.scheduleRouletteLoop(AUTO_ROULETTE_START_DELAY_MS);
-    }
-    if (!this.crashAnimation?.spinning && !this.crashLoopTimer) {
-      this.scheduleCrashLoop(AUTO_CRASH_START_DELAY_MS);
-    }
-    if (!this.jackpotAnimation?.spinning && !this.jackpotLoopTimer) {
-      this.scheduleJackpotLoop(AUTO_JACKPOT_START_DELAY_MS);
-    }
+    window.clearTimeout(this.rouletteLoopTimer);
+    this.rouletteLoopTimer = null;
+    this.rouletteNextRoundAt = 0;
+    this.cancelCrashLoop();
+    window.clearTimeout(this.jackpotLoopTimer);
+    this.jackpotLoopTimer = null;
+    this.jackpotNextRoundAt = 0;
   }
 
   buildRouletteNumberSequence(outcome) {
