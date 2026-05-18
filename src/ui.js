@@ -2215,41 +2215,43 @@ this.refreshIcons();
     const caseDef = this.selectedCase;
     const table = getCaseDropTable(this.state, caseDef);
     const openedToday = this.state.stats.caseCounts[caseDef.id] || 0;
-    const cleanPriceNote = caseDef.priceSource === "steam"
-      ? `Steam ${caseDef.steamRawPrice || `${caseDef.realPriceEuro?.toFixed(2)} euro`}`
-      : "fallback bilanciato";
-    const detailSummary = `${formatCredits(table.expectedValue)} EV - ${formatCredits(caseDef.price)} costo - ${openedToday} aperture`;
-    const detailToggleIcon = this.caseDetailsOpen ? "-" : "+";
+    
     node.innerHTML = `
-      <div class="case-economy case-economy-main">
-        <button class="case-details-toggle" data-action="toggle-case-details">
-          <span>Dettagli cassa</span>
-          <strong>${detailSummary}</strong>
-          <i>${detailToggleIcon}</i>
-        </button>
-        ${this.caseDetailsOpen ? `
-          <div class="case-details-panel">
-            <div class="ev-strip">
-              ${statTile("EV stimato", formatCredits(table.expectedValue), `ROI ${(table.roi * 100).toFixed(1)}%`)}
-              ${statTile("Costo", formatCredits(caseDef.price), cleanPriceNote)}
-              ${statTile("Best tier", table.bestRarity || "-", `${table.bestPreview.length} preview`)}
-              ${statTile("Aperture", openedToday, "totali su questa cassa")}
+      <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px; margin-bottom: 24px;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: var(--surface-2); border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+          <img src="${caseDef.image || ''}" alt="Case" style="width: 96px; height: 96px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));" />
+          <div style="flex-grow: 1;">
+            <h2 style="margin: 0 0 8px 0; font-size: 1.8rem; color: var(--text-primary); text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${escapeHtml(caseDef.name)}</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 16px; color: var(--text-secondary); font-size: 0.95rem;">
+              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("tag", "button-icon")} Costo: <strong style="color: var(--text-primary);">${formatCredits(caseDef.price)}</strong></span>
+              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("trending-up", "button-icon")} EV: <strong style="color: var(--text-primary);">${formatCredits(table.expectedValue)}</strong> (ROI ${(table.roi * 100).toFixed(1)}%)</span>
+              <span style="display: flex; align-items: center; gap: 6px;">${iconMarkup("box", "button-icon")} Aperte: <strong style="color: var(--text-primary);">${openedToday}</strong></span>
             </div>
-            <div class="drop-table">
+          </div>
+          <button class="ghost-button" data-action="toggle-case-details" style="white-space: nowrap; padding: 12px 20px; font-weight: bold;">
+            ${iconMarkup(this.caseDetailsOpen ? "chevron-up" : "chevron-down", "button-icon")} ${this.caseDetailsOpen ? "Nascondi Loot" : "Mostra Loot"}
+          </button>
+        </div>
+        
+        ${this.caseDetailsOpen ? `
+          <div class="case-details-panel" style="background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
+            <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem;">Probabilità di Drop</h4>
+            <div class="drop-table" style="margin-bottom: 32px;">
               ${table.rows.map((row) => `
-                <div class="drop-row" style="--rarity:${row.color}">
-                  <span>${escapeHtml(row.rarity)}</span>
-                  <div><i style="width:${percent(row.probability)}"></i></div>
-                  <strong>${formatPercent(row.probability)}</strong>
-                  <small>${formatCredits(row.estimatedValue, true)} EV</small>
+                <div class="drop-row" style="--rarity:${row.color}; background: rgba(0,0,0,0.2); padding: 10px 16px; border-radius: 8px; margin-bottom: 6px; display: grid; grid-template-columns: 140px 1fr 90px 120px; align-items: center; gap: 16px;">
+                  <span style="font-weight: bold; color: var(--rarity); text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${escapeHtml(row.rarity)}</span>
+                  <div style="height: 8px; background: var(--surface-1); border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);"><i style="height: 100%; display: block; background: var(--rarity); width:${percent(row.probability)}; box-shadow: 0 0 8px var(--rarity);"></i></div>
+                  <strong style="text-align: right; font-size: 1.05rem;">${formatPercent(row.probability)}</strong>
+                  <small style="text-align: right; color: var(--text-secondary); font-size: 0.9rem;">${formatCredits(row.estimatedValue, true)} EV</small>
                 </div>
               `).join("")}
             </div>
-            <div class="best-preview">
+            <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem;">Migliori Drop Possibili</h4>
+            <div class="best-preview" style="display: flex; gap: 16px; overflow-x: auto; padding-bottom: 12px;">
               ${table.bestPreview.map((skin) => `
-                <div class="best-skin" style="--rarity:${RARITIES[skin.rarity].color}">
-                  <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" />
-                  <span>${escapeHtml(skin.name)}</span>
+                <div class="best-skin" style="--rarity:${RARITIES[skin.rarity].color}; min-width: 140px; background: var(--surface-1); border: 1px solid var(--border-color); border-bottom: 4px solid var(--rarity); border-radius: 10px; padding: 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; transition: transform 0.2s;">
+                  <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" style="width: 90px; height: 70px; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
+                  <span style="font-size: 0.85rem; line-height: 1.3; font-weight: 500; color: var(--text-primary);">${escapeHtml(skin.name)}</span>
                 </div>
               `).join("")}
             </div>
@@ -2257,18 +2259,6 @@ this.refreshIcons();
         ` : ""}
       </div>
     `;
-    const detailSummaryNode = node.querySelector(".case-details-toggle strong");
-    if (detailSummaryNode) {
-      detailSummaryNode.textContent = detailSummary;
-    }
-    const detailIconNode = node.querySelector(".case-details-toggle i");
-    if (detailIconNode) {
-      detailIconNode.textContent = detailToggleIcon;
-    }
-    const costNoteNode = node.querySelector(".ev-strip .stat-tile:nth-child(2) small");
-    if (costNoteNode) {
-      costNoteNode.textContent = cleanPriceNote;
-    }
   }
 
   renderOpenerActions() {
@@ -2280,57 +2270,85 @@ this.refreshIcons();
     const autoEnabled = Boolean(autoLevel) && this.state.automation?.autoOpenerEnabled !== false && !this.selectedCase.manualOnly;
     const autoSellEnabled = Boolean(this.state.autoSell.enabled);
     node.innerHTML = `
-      <button class="primary-button" data-action="open-case" ${this.isAnimating ? "disabled" : ""}>
-        ${this.selectedCase.price <= 0 ? "Apri gratis" : `Apri x${multi}`}
-        <span>${formatCredits(totalCost)}</span>
-      </button>
-      <button class="ghost-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""}>Apri x1</button>
-      <div class="opener-settings ${this.openerSettingsOpen ? "is-open" : ""}">
-        <button
-          class="ghost-button opener-settings-button"
-          data-action="toggle-opener-settings"
-          type="button"
-          aria-expanded="${this.openerSettingsOpen ? "true" : "false"}"
-          title="Automazioni"
-        >
-          <span aria-hidden="true">${iconMarkup("settings-2")}</span>
-        </button>
+      <div style="display: flex; flex-direction: column; gap: 16px; margin: 24px 0;">
+        <div style="display: flex; gap: 16px; justify-content: center; align-items: stretch;">
+          <button class="primary-button" data-action="open-case" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; max-width: 400px; padding: 20px; font-size: 1.4rem; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); transition: transform 0.1s, box-shadow 0.1s;">
+            <span style="display: flex; align-items: center; gap: 8px;">
+              ${iconMarkup("unlock", "button-icon")} 
+              ${this.selectedCase.price <= 0 ? "Apri Gratis" : `Apri x${multi}`}
+            </span>
+            <span style="font-size: 1.1rem; opacity: 0.9; font-weight: 500;">${formatCredits(totalCost)}</span>
+          </button>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px; min-width: 160px;">
+            <button class="ghost-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; border-radius: 12px; font-weight: bold; border: 1px solid var(--border-color);">
+              ${iconMarkup("mouse-pointer-click", "button-icon")} Singola (x1)
+            </button>
+            
+            <button
+              class="ghost-button opener-settings-button"
+              data-action="toggle-opener-settings"
+              type="button"
+              aria-expanded="${this.openerSettingsOpen ? "true" : "false"}"
+              title="Automazioni"
+              style="flex-grow: 1; border-radius: 12px; border: 1px solid var(--border-color);"
+            >
+              <span aria-hidden="true">${iconMarkup("settings-2", "button-icon")}</span> Automazioni
+            </button>
+          </div>
+        </div>
+
         ${this.openerSettingsOpen ? `
-          <div class="opener-settings-menu">
-            <div class="opener-settings-head">
-              <strong>Automazioni</strong>
-              <small>${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita."}</small>
+          <div class="opener-settings-menu" style="background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);">
+            <div class="opener-settings-head" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+              <strong style="font-size: 1.2rem; color: var(--text-primary);">Impostazioni Automazioni</strong>
+              <small style="display: block; color: var(--text-secondary); margin-top: 4px;">${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita automatica."}</small>
             </div>
-            <label class="opener-toggle-row">
-              <span>
-                <strong>Auto-open</strong>
-                <small>${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
-              </span>
-              <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} />
-            </label>
-            <label class="opener-toggle-row">
-              <span>
-                <strong>Auto-sell</strong>
-                <small>${autoSellEnabled ? `Fino a ${RARITY_ORDER[Number(this.state.autoSell.maxTier) || 0]} - max ${formatCredits(Number(this.state.autoSell.maxValue) || 0, true)}` : "Disattivato"}</small>
-              </span>
-              <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} />
-            </label>
-            <div class="opener-settings-grid">
-              <select id="quickAutoSellMaxTier">
-                ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>${rarity}</option>`).join("")}
-              </select>
-              <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" />
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+              <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
+                <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                  <span style="display: flex; flex-direction: column; gap: 4px;">
+                    <strong style="font-size: 1.05rem; color: var(--text-primary);">Auto-opener</strong>
+                    <small style="color: var(--text-secondary);">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
+                  </span>
+                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.2);" />
+                </label>
+              </div>
+              
+              <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
+                <label class="opener-toggle-row" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 16px;">
+                  <span style="display: flex; flex-direction: column; gap: 4px;">
+                    <strong style="font-size: 1.05rem; color: var(--text-primary);">Vendita Automatica</strong>
+                    <small style="color: var(--text-secondary);">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
+                  </span>
+                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.2);" />
+                </label>
+                
+                <div class="opener-settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <select id="quickAutoSellMaxTier" style="padding: 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary);">
+                    ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a ${rarity}</option>`).join("")}
+                  </select>
+                  <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary);" title="Valore massimo da vendere" />
+                </div>
+              </div>
             </div>
           </div>
         ` : ""}
+        
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="speed-pill" style="background: var(--surface-2); padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; border: 1px solid var(--border-color);">
+            ${this.selectedCase.manualOnly ? "Solo manuale" : `Velocità animazione: ${(getOpenDuration(this.state) / 1000).toFixed(1)}s`}
+          </div>
+          
+          ${lastBatch.count && !this.isAnimating ? `
+            <button class="ghost-button result-sell-button" data-action="sell-last-open" ${this.isAnimating ? "disabled" : ""} style="border: 1px solid var(--loot-restricted); color: var(--loot-restricted); padding: 8px 16px; border-radius: 8px;">
+              ${iconMarkup("banknote", "button-icon")} Vendi Risultato: 
+              <span style="font-weight: bold; margin-left: 6px;">${lastBatch.count} skin - ${formatCredits(lastBatch.total, true)}</span>
+            </button>
+          ` : ""}
+        </div>
       </div>
-      ${lastBatch.count && !this.isAnimating ? `
-        <button class="ghost-button result-sell-button" data-action="sell-last-open" ${this.isAnimating ? "disabled" : ""}>
-          ${iconMarkup("banknote")} Vendi risultato
-          <span>${lastBatch.count} - ${formatCredits(lastBatch.total, true)}</span>
-        </button>
-      ` : ""}
-      <div class="speed-pill">${this.selectedCase.manualOnly ? "solo manuale" : `${(getOpenDuration(this.state) / 1000).toFixed(1)}s`}</div>
     `;
     const resultSellMeta = node.querySelector(".result-sell-button span");
     if (resultSellMeta && lastBatch.count) {
