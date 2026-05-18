@@ -13,7 +13,6 @@ import {
   RARITIES,
   RARITY_ORDER
 } from "./config/rarityConfig.js";
-import { MINIGAME_DEFINITIONS } from "./systems/games/gameDefinitions.js";
 import {
   fetchSupabaseChatMessages,
   isSupabaseChatEnabled,
@@ -73,7 +72,6 @@ import {
   claimCollectionReward,
   claimCommunityGoalReward,
   claimDailyReward,
-  createAuctionListing,
   createPromoCode,
   clearExpiredEvent,
   deletePromoCode,
@@ -113,19 +111,11 @@ import {
   maybeStartLimitedEvent,
   openCases,
   openRewardCase,
-  playCoinflip,
-  playUpgrader,
-  playJackpot,
-  playPachinko,
-  playRoulette,
   prestige,
   refreshMarket,
-  settleCrashRound,
-  startCrashRound,
   runTradeUpContract,
   sellItem,
   sellItems,
-  settleAuctionListing,
   setAutoOpenerEnabled,
   redeemPromoCode,
   resetCommunityGoalState,
@@ -135,15 +125,9 @@ import {
   normalizeState
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
-import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, ROULETTE_RED_NUMBERS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
+import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.2.1";
-const AUTO_ROULETTE_START_DELAY_MS = 1600;
-const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
-const AUTO_CRASH_START_DELAY_MS = 5200;
-const AUTO_JACKPOT_START_DELAY_MS = 20000;
-const AUTO_JACKPOT_WAIT_DELAY_MS = 4200;
-const AUTO_JACKPOT_NEXT_DELAY_MS = 20000;
+const GAME_VERSION = "v1.3.0";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -158,9 +142,6 @@ export class CaseOpenerUI {
     this.inventoryWear = "all";
     this.inventoryType = "all";
     this.inventorySort = "newest";
-    this.gameInventorySearch = "";
-    this.gameInventoryRarity = "all";
-    this.gameInventoryType = "skins";
     this.caseSearch = "";
     this.caseStatus = "all";
     this.caseMaxPrice = "";
@@ -178,7 +159,6 @@ export class CaseOpenerUI {
     this.techMenuOpen = false;
     this.openerSettingsOpen = false;
     this.profileSetupOpen = !this.state.profile?.configured;
-    this.gamesView = "upgrader";
     this.promoCodeDraft = "";
     this.goalDepositAmounts = {};
     this.goalSyncBusy = new Set();
@@ -196,12 +176,6 @@ export class CaseOpenerUI {
     this.unsubscribeSharedGameEvents = null;
     this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions = null;
-    this.auctionItemId = "";
-    this.auctionPrice = "";
-    this.upgraderAnimation = null;
-    this.upgraderSelection = new Set();
-    (this.state.minigames?.upgrader?.itemIds || []).forEach((id) => this.upgraderSelection.add(id));
-    this.coinflipAnimation = null;
     this.globalPromoCodes = [];
     this.globalPromoStatus = isGlobalPromoCodesAvailable() ? "Promo globali in attesa" : "Promo globali non configurati";
     this.adminPromoCode = "";
@@ -211,7 +185,6 @@ export class CaseOpenerUI {
     this.adminPromoWeapons = "0";
     this.adminPromoRarity = "Mil-Spec";
     this.adminPromoEditingCode = "";
-    this.jackpotSelection = new Set();
     this.isAnimating = false;
     this.pendingRevealIds = [];
     this.lastAutoAt = 0;
@@ -223,23 +196,6 @@ export class CaseOpenerUI {
     this.openResultExpanded = false;
     this.openResultAutoTimer = null;
     this.reelTickFrame = 0;
-    this.rouletteAnimation = null;
-    this.rouletteLoopTimer = null;
-    this.rouletteNextRoundAt = 0;
-    this.pachinkoAnimation = null;
-    this.crashAnimation = null;
-    this.crashTimer = null;
-    this.crashLoopTimer = null;
-    this.crashNextRoundAt = 0;
-    this.crashBetLog = [];
-    this.jackpotAnimation = null;
-    this.jackpotTimer = null;
-    this.jackpotLoopTimer = null;
-    this.jackpotNextRoundAt = 0;
-    this.jackpotReady = false;
-    this.jackpotPreview = null;
-    this.jackpotWinPopup = null;
-    this.jackpotLobbyId = "";
     this.socialClient = null;
     this.socialState = null;
     this.socialClaimInFlight = false;
@@ -300,8 +256,7 @@ export class CaseOpenerUI {
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
-    this.startAutomaticGameLoops();
-  }
+}
 
   dispose() {
     this.unsubscribeCloudChat?.();
@@ -326,23 +281,17 @@ export class CaseOpenerUI {
     }
     if (this.crashTimer) {
       window.clearInterval(this.crashTimer);
-      this.crashTimer = null;
     }
     if (this.crashLoopTimer) {
       window.clearTimeout(this.crashLoopTimer);
-      this.crashLoopTimer = null;
     }
     if (this.jackpotTimer) {
       window.clearInterval(this.jackpotTimer);
-      this.jackpotTimer = null;
     }
     if (this.jackpotLoopTimer) {
       window.clearTimeout(this.jackpotLoopTimer);
-      this.jackpotLoopTimer = null;
     }
-    this.jackpotNextRoundAt = 0;
     window.clearTimeout(this.rouletteLoopTimer);
-    this.rouletteNextRoundAt = 0;
     if (this.openResultAutoTimer) {
       window.clearTimeout(this.openResultAutoTimer);
       this.openResultAutoTimer = null;
@@ -725,7 +674,6 @@ export class CaseOpenerUI {
     this.state.inventory = this.state.inventory.filter((item) => !idSet.has(item.id));
     [...idSet].forEach((id) => {
       this.selectedInventory.delete(id);
-      this.jackpotSelection.delete(id);
     });
     this.lastOpenedDropIds = (this.lastOpenedDropIds || []).filter((id) => !idSet.has(id));
     if (this.inspectedItem?.id && idSet.has(this.inspectedItem.id)) {
@@ -1080,7 +1028,6 @@ export class CaseOpenerUI {
       <div class="toast-stack" id="toastStack"></div>
       <div class="rare-reveal" id="rareReveal" hidden></div>
       <div class="open-result-overlay" id="openResultOverlay" hidden></div>
-      <div class="jackpot-win-overlay" id="jackpotWinOverlay" hidden></div>
       <div class="skin-inspector" id="skinInspector" hidden></div>
       <div class="profile-setup" id="profileSetup" hidden></div>
       <div class="login-gate" id="loginGate" hidden></div>
@@ -1136,16 +1083,7 @@ export class CaseOpenerUI {
           valueNode.textContent = `${Math.round(percentValue)}%`;
         }
       }
-      if (target.matches("#crashBet")) {
-        this.state.minigames.crash.bet = target.value;
-      }
-      if (target.matches("#crashAutoCashout")) {
-        this.state.minigames.crash.autoCashout = target.value;
-      }
-      if (target.matches("#crashRoundDelay")) {
-        this.state.minigames.crash.roundDelay = target.value;
-      }
-      if (target.matches("#socialChatInput, #footerChatInput")) {
+if (target.matches("#socialChatInput, #footerChatInput")) {
         this.chatDraft = target.value.slice(0, 180);
         const sendButton = target.closest(".chat-footer-compose")?.querySelector("[data-action='send-chat']");
         if (sendButton) {
@@ -1166,21 +1104,7 @@ export class CaseOpenerUI {
       if (target.matches("[data-goal-deposit-input]")) {
         this.goalDepositAmounts[target.dataset.goalDepositInput] = target.value;
       }
-      if (target.matches("#upgraderMultiplier")) {
-        this.state.minigames.upgrader.targetMultiplier = target.value;
-        this.renderTab();
-      }
-      if (target.matches("#coinflipBet")) {
-        this.state.minigames.coinflip.bet = target.value;
-      }
-      if (target.matches("#rouletteBet")) {
-        this.state.minigames.roulette.bet = target.value;
-      }
-      if (target.matches("#auctionPrice")) {
-        this.auctionPrice = target.value;
-      }
-      if (target.matches("#gameInventorySearch")) {
-        this.gameInventorySearch = target.value;
+if (target.matches("#gameInventorySearch")) {
         this.renderTab();
       }
       if (target.matches("#adminPromoCode")) {
@@ -1235,11 +1159,9 @@ export class CaseOpenerUI {
         this.renderTab();
       }
       if (target.matches("#gameInventoryRarity")) {
-        this.gameInventoryRarity = target.value;
         this.renderTab();
       }
       if (target.matches("#gameInventoryType")) {
-        this.gameInventoryType = target.value;
         this.renderTab();
       }
       if (target.matches("#caseStatus")) {
@@ -1280,12 +1202,7 @@ export class CaseOpenerUI {
       if (target.matches("#profileAvatarUpload")) {
         this.loadProfileAvatarFile(target.files?.[0]);
       }
-      if (target.matches("#crashAutoPlayEnabled")) {
-        this.ensureAutomaticGameLoopState();
-        this.scheduleCrashLoop();
-        this.renderTab();
-      }
-      if (target.matches("#socialMarketItem")) {
+if (target.matches("#socialMarketItem")) {
         this.socialMarketItemId = target.value || "";
         if (!this.socialMarketPrice) {
           const source = this.state.inventory.find((item) => item.id === this.socialMarketItemId);
@@ -1307,21 +1224,12 @@ export class CaseOpenerUI {
       if (target.matches("#socialTradeOfferItem")) {
         this.socialTradeOfferItemId = target.value || "";
       }
-      if (target.matches("#rouletteChoice")) {
-        this.state.minigames.roulette.choice = target.value || "red";
-      }
-      if (target.matches("#upgraderItem")) {
-        this.state.minigames.upgrader.itemId = target.value || "";
-        this.renderTab();
-      }
-      if (target.matches("#coinflipSide")) {
+if (target.matches("#coinflipSide")) {
         this.state.minigames.coinflip.side = target.value === "t" ? "t" : "ct";
       }
       if (target.matches("#auctionItem")) {
-        this.auctionItemId = target.value || "";
         const item = this.state.inventory.find((candidate) => candidate.id === this.auctionItemId);
         if (item) {
-          this.auctionPrice = getSellReturn(this.state, item).toFixed(2);
         }
         this.renderTab();
       }
@@ -1559,94 +1467,7 @@ export class CaseOpenerUI {
         this.state.market.lastRefreshAt = 0;
         refreshMarket(this.state, this.skinData, this.selectedCase);
         this.renderTab();
-        break;
-      case "games-view":
-        this.gamesView = ["roulette", "pachinko", "upgrader", "coinflip", "crash", "jackpot"].includes(data.view) ? data.view : "upgrader";
-        this.renderTab();
-        break;
-      case "select-upgrader-item":
-        this.toggleUpgraderItem(data.id);
-        this.renderTab();
-        break;
-      case "clear-upgrader-selection":
-        this.upgraderSelection.clear();
-        this.state.minigames.upgrader.itemIds = [];
-        this.renderTab();
-        break;
-      case "select-auction-item":
-        this.auctionItemId = data.id || "";
-        this.auctionPrice = "";
-        this.renderTab();
-        break;
-      case "play-roulette":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "toggle-roulette-autoplay":
-        window.clearTimeout(this.rouletteLoopTimer);
-        this.rouletteLoopTimer = null;
-        this.rouletteNextRoundAt = 0;
-        this.renderTab();
-        break;
-      case "play-pachinko":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "play-upgrader":
-        this.playUpgraderGame();
-        break;
-      case "play-coinflip":
-        this.playCoinflipGame();
-        break;
-      case "set-coinflip-side":
-        this.state.minigames.coinflip.side = data.side === "t" ? "t" : "ct";
-        this.renderTab();
-        break;
-      case "play-crash":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "cashout-crash":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "toggle-crash-autoplay":
-        this.cancelCrashLoop();
-        this.renderTab();
-        break;
-      case "stop-crash-autoplay":
-        this.cancelCrashLoop();
-        this.renderTab();
-        break;
-      case "set-crash-bet":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "select-jackpot-lobby":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "change-jackpot-lobby":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "toggle-jackpot-item":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "clear-jackpot-selection":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "play-jackpot":
-        this.gamesView = "upgrader";
-        this.renderTab();
-        break;
-      case "close-jackpot-win":
-        this.jackpotWinPopup = null;
-        this.renderJackpotWinPopup();
-        break;
-      case "redeem-promo":
+        break;case "redeem-promo":
         this.redeemPromo();
         break;
       case "deposit-goal":
@@ -1660,15 +1481,6 @@ export class CaseOpenerUI {
         break;
       case "delete-owned-case":
         this.deleteOwnedCase(data.id);
-        break;
-      case "create-auction":
-        this.createAuction();
-        break;
-      case "settle-auction":
-        this.settleAuction(data.id);
-        break;
-      case "buy-shared-auction":
-        this.buySharedAuction(data.id);
         break;
       case "toggle-chat":
         this.chatOpen = !this.chatOpen;
@@ -1803,8 +1615,7 @@ export class CaseOpenerUI {
     this.renderApiStatus();
     this.renderProfileSetup();
     this.renderLoginGate();
-    this.renderJackpotWinPopup();
-    this.refreshIcons();
+this.refreshIcons();
   }
 
   renderApiStatus() {
@@ -1859,36 +1670,6 @@ export class CaseOpenerUI {
           </div>
         </div>
       </section>
-    `;
-    this.refreshIcons();
-  }
-
-  renderJackpotWinPopup() {
-    const node = this.root.querySelector("#jackpotWinOverlay");
-    if (!node) {
-      return;
-    }
-    const popup = this.jackpotWinPopup;
-    node.hidden = !popup;
-    if (!popup) {
-      node.innerHTML = "";
-      return;
-    }
-    const items = popup.items || [];
-    node.innerHTML = `
-      <div class="jackpot-win-backdrop" data-action="close-jackpot-win"></div>
-      <article class="jackpot-win-card">
-        <header>
-          <div>
-            <span>${iconMarkup("trophy", "button-icon")} Jackpot</span>
-            <h2>Skin vinte</h2>
-          </div>
-          <button class="ghost-button small" data-action="close-jackpot-win">${iconMarkup("x", "button-icon")} Chiudi</button>
-        </header>
-        <div class="jackpot-win-grid">
-          ${items.map((item) => itemCard(item, { compact: true })).join("")}
-        </div>
-      </article>
     `;
     this.refreshIcons();
   }
@@ -2713,8 +2494,7 @@ export class CaseOpenerUI {
       shop: () => this.renderShop(),
       stats: () => this.renderStats(),
       prestige: () => this.renderPrestige(),
-      games: () => this.renderGames(),
-      community: () => this.renderCommunityGoals(),
+community: () => this.renderCommunityGoals(),
       achievements: () => this.renderAchievements(),
       contracts: () => this.renderContracts(),
       collections: () => this.renderCollections(),
@@ -3148,32 +2928,6 @@ export class CaseOpenerUI {
     `;
   }
 
-  getJackpotSelectionState() {
-    const inventoryIds = new Set(this.state.inventory.map((item) => item.id));
-    [...this.jackpotSelection].forEach((id) => {
-      if (!inventoryIds.has(id)) {
-        this.jackpotSelection.delete(id);
-      }
-    });
-    const selectedItems = this.state.inventory.filter((item) => this.jackpotSelection.has(item.id) && !item.locked);
-    const selectedTotal = selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
-    const availableItems = this.getFilteredGameInventory([...this.state.inventory]
-      .filter((item) => !item.locked)
-      .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.value - a.value)
-      .slice(0, 80), { allowCases: false, limit: 24 });
-    return {
-      availableItems,
-      selectedItems,
-      selectedTotal: Number(selectedTotal.toFixed(2))
-    };
-  }
-
-  getCrashHistoryEntries(limit = 10) {
-    return (this.state.minigames?.history || [])
-      .filter((entry) => entry.game === "Crash")
-      .slice(0, limit);
-  }
-
   getSocialLockerCandidates() {
     return [...(this.state.inventory || [])]
       .filter((item) => !item.locked)
@@ -3181,162 +2935,8 @@ export class CaseOpenerUI {
       .slice(0, 500);
   }
 
-  getFilteredGameInventory(items = this.getSocialLockerCandidates(), { allowCases = false, limit = 80 } = {}) {
-    const query = String(this.gameInventorySearch || "").trim().toLowerCase();
-    return [...items]
-      .filter((item) => {
-        const isCase = item.type === "rewardCase";
-        if (!allowCases && isCase) {
-          return false;
-        }
-        const activeType = allowCases ? this.gameInventoryType : "skins";
-        const matchesType = activeType === "all" ||
-          (activeType === "cases" && isCase) ||
-          (activeType === "skins" && !isCase);
-        const matchesRarity = this.gameInventoryRarity === "all" || item.rarity === this.gameInventoryRarity;
-        const haystack = `${item.name || ""} ${item.rarity || ""} ${item.wear || ""} ${item.caseName || ""} ${isCase ? "cassa reward case" : "skin"}`.toLowerCase();
-        return matchesType && matchesRarity && (!query || haystack.includes(query));
-      })
-      .slice(0, limit);
-  }
-
-  renderGameInventoryFilters({ allowCases = false } = {}) {
-    return `
-      <div class="game-inventory-filters">
-        <input id="gameInventorySearch" type="search" value="${escapeHtml(this.gameInventorySearch)}" placeholder="Filtra inventario..." />
-        <select id="gameInventoryRarity">
-          <option value="all">Tutte le rarita'</option>
-          ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.gameInventoryRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
-        </select>
-        <select id="gameInventoryType">
-          <option value="skins" ${this.gameInventoryType === "skins" ? "selected" : ""}>Skin</option>
-          ${allowCases ? `<option value="cases" ${this.gameInventoryType === "cases" ? "selected" : ""}>Casse</option><option value="all" ${this.gameInventoryType === "all" ? "selected" : ""}>Tutto</option>` : ""}
-        </select>
-      </div>
-    `;
-  }
-
   getSelectedTradeTarget() {
     return (this.socialState?.players || []).find((player) => player.id === this.socialTradeTargetId) || null;
-  }
-
-  getJackpotPresencePlayers() {
-    const players = Array.isArray(this.socialState?.players) ? this.socialState.players : [];
-    const seen = new Set();
-    const normalized = [];
-    players.forEach((player) => {
-      if (!player?.id || seen.has(player.id)) {
-        return;
-      }
-      seen.add(player.id);
-      normalized.push(player);
-    });
-    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id || this.getPresenceClientId();
-    if (this.socialConnection?.connected && currentId && !seen.has(currentId)) {
-      normalized.unshift({
-        id: currentId,
-        name: this.state.profile?.name || this.socialState?.currentPlayer?.name || "Tu",
-        accent: this.state.profile?.accent || this.socialState?.currentPlayer?.accent || "#7fe37c",
-        lobbyId: this.jackpotLobbyId || "",
-        jackpotReady: Boolean(this.jackpotReady),
-        netWorth: getNetWorth(this.state),
-        itemCount: this.getSocialLockerCandidates().length
-      });
-    }
-    return normalized;
-  }
-
-  getJackpotLobbyPlayers(selectedLobby = this.getSelectedJackpotLobby()) {
-    const lobbyId = selectedLobby?.id || "";
-    return this.getJackpotPresencePlayers().filter((player) => player.lobbyId === lobbyId);
-  }
-
-  getJackpotReadiness(selectedLobby = this.getSelectedJackpotLobby()) {
-    const lobbyPlayers = this.getJackpotLobbyPlayers(selectedLobby);
-    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id || this.getPresenceClientId();
-    const currentInLobby = lobbyPlayers.some((player) => player.id === currentId);
-    const players = currentInLobby
-      ? lobbyPlayers
-      : [
-        {
-          id: currentId,
-          name: this.state.profile?.name || "Tu",
-          lobbyId: selectedLobby?.id || "",
-          jackpotReady: Boolean(this.jackpotReady)
-        },
-        ...lobbyPlayers
-      ];
-    const opponents = players.filter((player) => player.id !== currentId);
-    return {
-      players,
-      opponents,
-      readyCount: players.filter((player) => player.jackpotReady).length,
-      allReady: players.length >= 2 && players.every((player) => player.jackpotReady)
-    };
-  }
-
-  getJackpotOpponents() {
-    const currentId = this.socialConnection?.clientId || this.socialState?.currentPlayer?.id;
-    const selectedLobby = this.getSelectedJackpotLobby();
-    const liveParticipants = Array.isArray(this.socialState?.jackpot?.participants)
-      ? this.socialState.jackpot.participants
-      : [];
-    const liveOpponents = liveParticipants
-      .filter((participant) => participant?.id && participant.id !== currentId)
-      .map((participant) => ({
-        id: participant.id,
-        name: participant.name,
-        accent: participant.accent,
-        total: participant.total || participant.value,
-        itemCount: participant.itemCount || participant.itemsCount || participant.entries?.length || participant.items?.length,
-        entries: participant.entries,
-        items: participant.items
-      }));
-    if (liveOpponents.length) {
-      return liveOpponents;
-    }
-    return this.getJackpotLobbyPlayers(selectedLobby)
-      .filter((player) => player.id !== currentId)
-      .map((player) => ({
-        id: player.id,
-        name: player.name,
-        accent: player.accent,
-        total: Number(player.total || player.value || Math.max(1, Number(player.netWorth || 0) * 0.025).toFixed(2)),
-        itemCount: Math.max(1, Number(player.itemCount || player.lockerItems?.length || 1)),
-        items: Array.isArray(player.lockerItems) ? player.lockerItems.slice(0, 5) : []
-      }));
-  }
-
-  getJackpotLobbies() {
-    const netWorth = getNetWorth(this.state);
-    return [
-      {
-        id: "low",
-        name: "Low Tier",
-        range: "fino a 25K",
-        detail: "Lobby per nuovi player e inventari leggeri.",
-        compatible: netWorth < 25000
-      },
-      {
-        id: "mid",
-        name: "Mid Tier",
-        range: "25K - 150K",
-        detail: "Matchmaking per progressione intermedia.",
-        compatible: netWorth >= 25000 && netWorth < 150000
-      },
-      {
-        id: "high",
-        name: "High Tier",
-        range: "150K+",
-        detail: "Pot alti per profili endgame.",
-        compatible: netWorth >= 150000
-      }
-    ];
-  }
-
-  getSelectedJackpotLobby() {
-    const lobbies = this.getJackpotLobbies();
-    return lobbies.find((lobby) => lobby.id === this.jackpotLobbyId) || null;
   }
 
   getSingleplayerGoals() {
@@ -3410,442 +3010,6 @@ export class CaseOpenerUI {
         `).join("")}
       </div>
     `;
-  }
-
-  renderGameModeTabs() {
-    const modes = [
-      ["roulette", "Roulette"],
-      ["pachinko", "Pachinko"],
-      ["upgrader", "Upgrader"],
-      ["coinflip", "Coinflip"],
-      ["crash", "Crash"],
-      ["jackpot", "Jackpot"]
-    ];
-    return `
-      <div class="workspace-tabs game-mode-tabs">
-        ${modes.map(([id, label]) => `
-          <button class="workspace-tab ${this.gamesView === id ? "is-active" : ""}" data-action="games-view" data-view="${id}">
-            ${escapeHtml(label)}
-          </button>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  renderSharedGameFeed(mode = "") {
-    const rows = this.sharedGameEvents
-      .filter((entry) => !mode || entry.mode === mode)
-      .slice(0, 8);
-    return `
-      <section class="data-panel shared-game-feed">
-        <h3>Live feed globale</h3>
-        <div class="mini-game-history">
-          ${rows.length ? rows.map((entry) => `
-            <div class="game-history-row ${entry.profit >= 0 ? "is-win" : "is-loss"}">
-              <span>${escapeHtml(entry.playerName)}</span>
-              <strong>${escapeHtml(entry.game)} - ${escapeHtml(entry.detail || entry.outcome)}</strong>
-              <em>${entry.profit >= 0 ? "+" : ""}${formatCredits(entry.profit, true)}</em>
-            </div>
-          `).join("") : `<div class="empty-state small">Nessun evento condiviso ancora. Se la tabella Supabase non e' creata, il feed resta vuoto.</div>`}
-        </div>
-      </section>
-    `;
-  }
-
-  getUpgraderTargetPreview(selected, multiplier) {
-    if (!selected) {
-      return null;
-    }
-    const targetRarity = RARITY_ORDER.find((candidate) =>
-      RARITIES[candidate].baseValue >= RARITIES[selected.rarity].baseValue * Math.min(4, multiplier)
-    ) || selected.rarity;
-    const pool = this.skinData.globalPool?.[targetRarity]?.length
-      ? this.skinData.globalPool[targetRarity]
-      : this.skinData.skins.filter((skin) => skin.rarity === targetRarity);
-    const seed = [...String(selected.id || selected.name)].reduce((sum, char) => sum + char.charCodeAt(0), 0) + Math.round(multiplier * 100);
-    const skin = pool[seed % Math.max(1, pool.length)] || pool[0] || selected;
-    return {
-      ...skin,
-      rarity: targetRarity,
-      rarityColor: RARITIES[targetRarity].color,
-      value: Number((selected.value * multiplier).toFixed(2))
-    };
-  }
-
-  renderUpgraderGame() {
-    const candidates = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 });
-    const candidateIds = new Set(candidates.map((item) => item.id));
-    [...this.upgraderSelection].forEach((id) => {
-      if (!candidateIds.has(id) && !this.state.inventory.some((item) => item.id === id)) {
-        this.upgraderSelection.delete(id);
-      }
-    });
-    const selectedItems = this.state.inventory.filter((item) => this.upgraderSelection.has(item.id) && !item.locked && item.type !== "rewardCase");
-    const selectedTotal = Number(selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0).toFixed(2));
-    const selected = selectedItems
-      .slice()
-      .sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier || b.value - a.value)[0] || null;
-    const effectiveSelectedItems = this.state.inventory.filter((item) => this.upgraderSelection.has(item.id) && !item.locked && item.type !== "rewardCase");
-    const effectiveTotal = Number(effectiveSelectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0).toFixed(2));
-    const primarySelected = effectiveSelectedItems
-      .slice()
-      .sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier || b.value - a.value)[0] || selected;
-    const multiplier = Math.max(1.25, Math.min(12, Number(this.state.minigames.upgrader?.targetMultiplier || 2)));
-    const chance = Math.max(6, Math.min(72, (92 / multiplier) * (1 + getProfileSkillBonus(this.state).luck * 1.6)));
-    const target = this.getUpgraderTargetPreview(primarySelected ? { ...primarySelected, value: effectiveTotal || primarySelected.value } : null, multiplier);
-    const animation = this.upgraderAnimation;
-    return `
-      <article class="game-card full-width upgrader-card">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("arrow-up-circle", "button-icon")} Upgrader</span>
-            <h3>Upgrader</h3>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Chance", `${chance.toFixed(1)}%`, `x${multiplier.toFixed(2)}`)}
-            ${statTile("Input", formatCredits(effectiveTotal || 0, true), `${effectiveSelectedItems.length} skin`)}
-            ${statTile("Target", effectiveTotal ? formatCredits(effectiveTotal * multiplier, true) : "-", "valore stimato")}
-          </div>
-        </div>
-        <div class="upgrader-layout">
-          <section class="upgrader-inventory-panel">
-            <div class="social-card-head compact-head">
-              <div>
-                <h3>Inventario</h3>
-              </div>
-            </div>
-            ${this.renderGameInventoryFilters()}
-            <div class="upgrade-item-grid">
-              ${candidates.length ? candidates.map((item) => `
-                <button class="upgrade-item-card ${this.upgraderSelection.has(item.id) ? "is-selected" : ""}" data-action="select-upgrader-item" data-id="${item.id}" style="--rarity:${item.rarityColor}">
-                  <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
-                  <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
-                  <span>${formatCredits(item.value, true)}</span>
-                </button>
-              `).join("") : `<div class="empty-state">Serve almeno una skin non bloccata.</div>`}
-            </div>
-          </section>
-          <section class="upgrader-target-panel">
-            <div class="upgrader-stage ${animation?.spinning ? "is-upgrading" : ""} ${animation && !animation.spinning ? (animation.won ? "is-win" : "is-loss") : ""}">
-              <div class="upgrade-side">
-                <span>Input</span>
-                ${effectiveSelectedItems.length ? `
-                  <div class="upgrader-selected-stack">
-                    ${(animation?.consumedItems || effectiveSelectedItems).slice(0, 4).map((item) => itemCard(item, { compact: true })).join("")}
-                    ${effectiveSelectedItems.length > 4 ? `<small>+${effectiveSelectedItems.length - 4} altre skin</small>` : ""}
-                  </div>
-                ` : `<div class="empty-state small">Nessuna skin</div>`}
-              </div>
-              <div class="upgrade-core">
-                <div class="upgrade-energy">${iconMarkup("sparkles")}</div>
-                <strong>${animation?.spinning ? "Upgrade in corso" : animation ? (animation.won ? "Upgrade riuscito" : "Skin bruciata") : `${chance.toFixed(1)}%`}</strong>
-                <small>x${multiplier.toFixed(2)}</small>
-              </div>
-              <div class="upgrade-side">
-                <span>Possibile premio</span>
-                ${target ? `
-                  <article class="item-card compact ${rarityClass(target.rarity)}" style="--rarity:${target.rarityColor}">
-                    <div class="item-art"><img src="${target.image}" alt="${escapeHtml(target.name)}" loading="lazy" /></div>
-                    <div class="item-info">
-                      <strong title="${escapeHtml(target.name)}">${escapeHtml(target.name)}</strong>
-                      <span>${escapeHtml(target.rarity)}</span>
-                    </div>
-                    <div class="item-value">${formatCredits(target.value, true)}</div>
-                  </article>
-                ` : `<div class="empty-state small">Scegli una skin</div>`}
-              </div>
-            </div>
-            <div class="game-controls social-inline-controls upgrader-controls">
-              <label class="field-inline">
-                <span>Moltiplicatore</span>
-                <input id="upgraderMultiplier" type="range" min="1.25" max="12" step="0.25" value="${multiplier}" />
-                <strong>x${multiplier.toFixed(2)}</strong>
-              </label>
-              <button class="ghost-button" data-action="clear-upgrader-selection" ${effectiveSelectedItems.length && !animation?.spinning ? "" : "disabled"}>${iconMarkup("eraser", "button-icon")} Pulisci</button>
-              <button class="primary-button" data-action="play-upgrader" ${effectiveSelectedItems.length && !animation?.spinning ? "" : "disabled"}>${iconMarkup("sparkles", "button-icon")} Upgrade</button>
-            </div>
-          </section>
-        </div>
-      </article>
-      ${this.renderSharedGameFeed("upgrader")}
-    `;
-  }
-
-  renderCoinflipGame() {
-    const coin = this.state.minigames.coinflip || {};
-    const animation = this.coinflipAnimation;
-    const coinDelay = animation?.spinning ? -Math.min(Date.now() - (animation.startedAt || Date.now()), animation.durationMs || 1500) : 0;
-    const coinFinalRotation = animation?.outcome === "t" ? 180 : 0;
-    return `
-      <article class="game-card full-width coinflip-card">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("coins", "button-icon")} Coinflip</span>
-            <h3>Coinflip</h3>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Puntata", formatCredits(coin.bet || 4), "crediti")}
-            ${statTile("Scelta", (coin.side || "ct").toUpperCase(), "lato")}
-          </div>
-        </div>
-        <div class="coinflip-stage ${animation?.spinning ? "is-flipping" : ""} ${animation && !animation.spinning ? (animation.playerWon ? "is-win" : "is-loss") : ""}" style="--anim-delay:${coinDelay}ms; --coinflip-final:${coinFinalRotation}deg;">
-          <div class="coinflip-coin">
-            <span>CT</span>
-            <span>T</span>
-          </div>
-          <div class="coinflip-readout">
-            <strong>${animation?.spinning ? "In aria..." : animation ? `${String(animation.outcome || "").toUpperCase()} vince` : "Pronto"}</strong>
-            <small>${animation && !animation.spinning ? `${animation.profit >= 0 ? "+" : ""}${formatCredits(animation.profit)}` : "Round condiviso nel feed globale"}</small>
-          </div>
-        </div>
-        <div class="game-controls social-inline-controls">
-          <input id="coinflipBet" type="text" inputmode="decimal" value="${escapeHtml(coin.bet || 4)}" />
-          <div class="coin-side-buttons" role="group" aria-label="Lato coinflip">
-            <button class="coin-side-button ${coin.side === "t" ? "is-active" : ""}" data-action="set-coinflip-side" data-side="t" type="button">T</button>
-            <button class="coin-side-button ${coin.side !== "t" ? "is-active" : ""}" data-action="set-coinflip-side" data-side="ct" type="button">CT</button>
-          </div>
-          <button class="primary-button" data-action="play-coinflip" ${animation?.spinning ? "disabled" : ""}>${iconMarkup("rotate-3d", "button-icon")} Lancia</button>
-        </div>
-      </article>
-      ${this.renderSharedGameFeed("coinflip")}
-    `;
-  }
-
-  renderAuctionHouse() {
-    const items = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 });
-    const selected = items.find((item) => item.id === this.auctionItemId) || items[0];
-    const fair = selected ? getSellReturn(this.state, selected) : 0;
-    const localListings = this.state.auctions?.listings || [];
-    const activeLocalListings = localListings.filter((listing) => listing.status === "active").length;
-    const sharedListings = this.sharedAuctions.filter((listing) => listing.status === "active").slice(0, 24);
-    const canPublish = Boolean(selected) && activeLocalListings < 5;
-    return `
-      <article class="game-card full-width auction-card">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("store", "button-icon")} Marketplace</span>
-            <h3>Marketplace globale</h3>
-            <p>Scegli una skin, imposta liberamente il prezzo e pubblicala nel mercato globale. Puoi tenere massimo 5 item attivi alla volta.</p>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Prezzo", selected ? formatCredits(fair, true) : "-", "riferimento skin")}
-            ${statTile("Fee", `${Math.round((0.09 - getProfileSkillBonus(this.state).auctionFeeReduction) * 100)}%`, "ridotta dai livelli")}
-            ${statTile("Attive", `${activeLocalListings}/5`, `${sharedListings.length} live`)}
-          </div>
-        </div>
-        <div class="auction-layout">
-          <section class="auction-inventory-panel">
-            <div class="social-card-head compact-head">
-              <div>
-                <h3>Metti sul Marketplace</h3>
-              </div>
-            </div>
-            ${this.renderGameInventoryFilters()}
-            <div class="upgrade-item-grid auction-item-grid">
-              ${items.length ? items.map((item) => `
-                <button class="upgrade-item-card ${item.id === selected?.id ? "is-selected" : ""}" data-action="select-auction-item" data-id="${item.id}" style="--rarity:${item.rarityColor}">
-                  <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
-                  <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
-                  <span>${formatCredits(item.value, true)}</span>
-                </button>
-              `).join("") : `<div class="empty-state">Nessuna skin disponibile.</div>`}
-            </div>
-            <div class="game-controls social-inline-controls auction-create-controls">
-              <input id="auctionPrice" type="text" inputmode="decimal" value="${escapeHtml(this.auctionPrice || (fair ? fair.toFixed(2) : ""))}" placeholder="Prezzo" />
-              <button class="primary-button" data-action="create-auction" ${canPublish ? "" : "disabled"}>${iconMarkup("plus", "button-icon")} Pubblica</button>
-            </div>
-          </section>
-          <section class="auction-live-panel">
-            <div class="social-card-head compact-head">
-              <div>
-                <span>Inserzioni attive</span>
-                <h3>Compra</h3>
-              </div>
-            </div>
-            <div class="auction-list-grid">
-              ${sharedListings.length ? sharedListings.map((listing) => `
-                <article class="auction-listing-card" style="--rarity:${listing.item?.rarityColor || "#ffd166"}">
-                  <img src="${listing.item?.image || ""}" alt="${escapeHtml(listing.item?.name || "Skin")}" loading="lazy" />
-                  <div>
-                    <strong title="${escapeHtml(listing.item?.name || "Skin")}">${escapeHtml(listing.item?.name || "Skin")}</strong>
-                    <small>${escapeHtml(listing.sellerName)} · ${escapeHtml(listing.item?.rarity || "")}</small>
-                  </div>
-                  <em>${formatCredits(listing.price, true)}</em>
-                  <button class="ghost-button tiny" data-action="buy-shared-auction" data-id="${listing.id}" ${this.state.credits >= listing.price ? "" : "disabled"}>Compra</button>
-                </article>
-              `).join("") : `<div class="empty-state small">Nessuna inserzione globale attiva.</div>`}
-            </div>
-          </section>
-        </div>
-        <div class="mini-game-history">
-          ${localListings.length ? localListings.slice(0, 6).map((listing) => `
-            <div class="game-history-row ${listing.status === "sold" ? "is-win" : ""}">
-              <span>${escapeHtml(listing.status)}</span>
-              <strong>${escapeHtml(listing.item.name)}</strong>
-              <em>${formatCredits(listing.price, true)}</em>
-              <button class="ghost-button tiny" data-action="settle-auction" data-id="${listing.id}" ${listing.status === "active" ? "" : "disabled"}>Simula vendita</button>
-            </div>
-          `).join("") : `<div class="empty-state small">Nessuna inserzione locale creata.</div>`}
-        </div>
-      </article>
-    `;
-  }
-
-  renderRouletteGame() {
-    const minigames = this.state.minigames || {};
-    const rouletteChoice = minigames.roulette?.choice || "red";
-    const rouletteBet = minigames.roulette?.bet || 4;
-    const roulette = this.rouletteAnimation;
-    const rouletteProfit = roulette ? roulette.payout - roulette.bet : 0;
-    const outcome = Math.max(0, Math.min(36, Number(roulette?.outcome || 0)));
-    const rouletteSequence = roulette?.sequence?.length ? roulette.sequence : [outcome];
-    const rouletteResultIndex = rouletteSequence.length - 1;
-    const rouletteDelay = roulette?.spinning ? -Math.min(Date.now() - (roulette.startedAt || Date.now()), (roulette.durationMs || 2600) - 120) : 0;
-    const rouletteNextMs = Math.max(0, (this.rouletteNextRoundAt || 0) - Date.now());
-    return `
-      <article class="game-card full-width roulette-card modern-roulette-card">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("circle-dot", "button-icon")} Roulette</span>
-            <h3>Roulette</h3>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Puntata", formatCredits(rouletteBet), "crediti")}
-            ${statTile("Scelta", rouletteChoice, "target")}
-            ${statTile("Prossimo", roulette?.spinning ? "live" : compactTime(rouletteNextMs), "auto")}
-            ${statTile("Rete", this.sharedGamesStatus.replace("Sync giochi ", ""), "globale")}
-          </div>
-        </div>
-        <div class="roulette-number-stage ${roulette?.spinning ? "is-spinning" : ""}" style="--roulette-result-index:${rouletteResultIndex}; --roulette-duration:${roulette?.durationMs || 2600}ms; --anim-delay:${rouletteDelay}ms;">
-          <div class="roulette-number-window">
-            <div class="roulette-number-reel">
-              ${rouletteSequence.map((number, index) => {
-              const type = number === 0 ? "green" : ROULETTE_RED_NUMBERS.has(number) ? "red" : "black";
-              return `<span class="${type} ${index === rouletteResultIndex ? "is-result" : ""}">${number}</span>`;
-            }).join("")}
-            </div>
-          </div>
-          <div class="roulette-number-status">
-            <strong>${roulette?.spinning ? "Rolling..." : roulette ? escapeHtml(roulette.detail) : "Pronto"}</strong>
-            <small>${roulette?.spinning ? "cambio numero veloce" : roulette ? `${rouletteProfit >= 0 ? "+" : ""}${formatCredits(rouletteProfit)}` : "rosso, nero o verde"}</small>
-          </div>
-        </div>
-        <div class="game-controls social-inline-controls">
-          <input id="rouletteBet" type="text" inputmode="decimal" value="${escapeHtml(rouletteBet)}" />
-          <select id="rouletteChoice">
-            ${[
-              ["red", "Rosso x2"],
-              ["black", "Nero x2"],
-              ["green", "Verde x35"]
-            ].map(([value, label]) => `<option value="${value}" ${rouletteChoice === value ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-          <button class="primary-button" data-action="play-roulette" ${roulette?.spinning ? "disabled" : ""}>Gira</button>
-          <button class="ghost-button" data-action="toggle-roulette-autoplay">Auto attivo</button>
-        </div>
-      </article>
-      ${this.renderSharedGameFeed("roulette")}
-    `;
-  }
-
-  renderPachinkoGame() {
-    const minigames = this.state.minigames || {};
-    const pachinkoBet = minigames.pachinko?.bet || 4;
-    const pachinko = this.pachinkoAnimation;
-    const pachinkoProfit = pachinko ? pachinko.payout - pachinko.bet : 0;
-    const pachinkoDelay = pachinko?.spinning ? -Math.min(Date.now() - (pachinko.startedAt || Date.now()), pachinko.durationMs || 2600) : 0;
-    const binIndex = Math.max(0, Math.min(8, Number(pachinko?.binIndex ?? 4)));
-    const landingLeft = 10 + binIndex * 10;
-    const pathSteps = String(pachinko?.path || "").split("");
-    let pathOffset = 0;
-    const motionPoints = [[50, 8]];
-    const pathNodes = pathSteps.map((step, index) => {
-      pathOffset += step === "R" ? 1 : -1;
-      const left = 50 + pathOffset * 4.6;
-      const top = 14 + index * 8.5;
-      motionPoints.push([left, top + 2]);
-      return `<i style="--step:${index}; --x:${left}%; --y:${top}%"></i>`;
-    }).join("");
-    motionPoints.push([landingLeft, 82]);
-    const chipMidLeft = motionPoints[Math.max(1, Math.floor(motionPoints.length * 0.58))]?.[0] ?? 50;
-    const chipLateLeft = Number(((chipMidLeft + landingLeft) / 2).toFixed(2));
-    const pachinkoPathD = motionPoints
-      .map(([x, y], index) => `${index ? "L" : "M"} ${Number(x).toFixed(2)} ${Number(y).toFixed(2)}`)
-      .join(" ");
-    const pegRows = Array.from({ length: 9 }, (_, row) => `
-      <div class="plinko-peg-row" style="--row:${row}">
-        ${Array.from({ length: row + 3 }, (_, peg) => `<i style="--peg:${peg}"></i>`).join("")}
-      </div>
-    `).join("");
-    const bins = pachinko?.bins || [
-      { label: "Jackpot", multiplier: 5 },
-      { label: "Clutch", multiplier: 2.2 },
-      { label: "Hot", multiplier: 1.2 },
-      { label: "Safe", multiplier: 0.7 },
-      { label: "Void", multiplier: 0 },
-      { label: "Safe", multiplier: 0.7 },
-      { label: "Hot", multiplier: 1.2 },
-      { label: "Clutch", multiplier: 2.2 },
-      { label: "Jackpot", multiplier: 5 }
-    ];
-    return `
-      <article class="game-card full-width pachinko-card">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("waypoints", "button-icon")} Pachinko</span>
-            <h3>Pachinko</h3>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Puntata", formatCredits(pachinkoBet), "crediti")}
-            ${statTile("Ultimo", pachinko ? pachinko.label : "-", pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit, true)}` : "nessun drop")}
-          </div>
-        </div>
-        <div class="pachinko-classic-board plinko-board ${pachinko?.spinning ? "is-dropping" : ""}" style="--chip-left:${landingLeft}%; --chip-mid-left:${chipMidLeft}%; --chip-late-left:${chipLateLeft}%; --anim-delay:${pachinkoDelay}ms;">
-          <div class="plinko-drop-slot"></div>
-          <div class="plinko-path">${pathNodes}</div>
-          <div class="pachinko-peg-field plinko-peg-field">${pegRows}</div>
-          ${pachinko ? `
-            <div class="plinko-motion">
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                <path d="${pachinkoPathD}"></path>
-              </svg>
-              <span class="plinko-motion-chip" style="--anim-delay:${pachinkoDelay}ms;"><i></i></span>
-            </div>
-          ` : ""}
-          <div class="pachinko-result plinko-result">
-            <span>${pachinko?.spinning ? "Caduta..." : pachinko ? `${escapeHtml(pachinko.label)} x${Number(pachinko.outcome || 0).toFixed(2)}` : "Pronto"}</span>
-            <strong>${pachinko?.spinning ? "..." : pachinko ? `${pachinkoProfit >= 0 ? "+" : ""}${formatCredits(pachinkoProfit)}` : "0"}</strong>
-          </div>
-          <div class="pachinko-bins plinko-bins">
-            ${bins.map((bin, index) => `
-              <span class="${index === binIndex && pachinko && !pachinko.spinning ? "is-hit" : ""}">
-                <strong>x${Number(bin.multiplier).toFixed(Number(bin.multiplier) % 1 ? 1 : 0)}</strong>
-                <small>${escapeHtml(bin.label)}</small>
-              </span>
-            `).join("")}
-          </div>
-        </div>
-        <div class="game-controls social-inline-controls pachinko-controls">
-          <input id="pachinkoBet" type="text" inputmode="decimal" value="${escapeHtml(pachinkoBet)}" />
-          <button class="primary-button" data-action="play-pachinko" ${pachinko?.spinning ? "disabled" : ""}>Lancia pallina</button>
-        </div>
-      </article>
-      ${this.renderSharedGameFeed("pachinko")}
-    `;
-  }
-
-  renderGames() {
-    const gameNav = this.renderGameModeTabs();
-    const sectionTabs = this.renderSectionTabs("games");
-    const views = {
-      roulette: () => this.renderRouletteGame(),
-      pachinko: () => this.renderPachinkoGame(),
-      upgrader: () => this.renderUpgraderGame(),
-      coinflip: () => this.renderCoinflipGame(),
-      crash: () => this.renderMultiplayerCrash(),
-      jackpot: () => this.renderMultiplayerJackpot()
-    };
-    const renderer = views[this.gamesView] || views.upgrader;
-    return `${sectionTabs}<div class="games-shell">${gameNav}${renderer()}</div>`;
   }
 
   renderMultiplayerSummaryHeader() {
@@ -4055,264 +3219,6 @@ export class CaseOpenerUI {
           </div>
         </article>
       </div>
-    `;
-  }
-
-  renderMultiplayerCrash() {
-    const minigames = this.state.minigames || {};
-    const crashBet = minigames.crash?.bet ?? 4;
-    const crashAutoCashout = minigames.crash?.autoCashout ?? 1.6;
-    const roundDelay = minigames.crash?.roundDelay ?? 6;
-    const crash = this.crashAnimation;
-    const displayPoint = Number(crash?.displayPoint || 1);
-    const crashProfit = crash?.resolvedResult ? crash.resolvedResult.profit : 0;
-    const crashProgress = crash
-      ? clamp(Math.log(Math.max(1.0001, displayPoint)) / Math.log(Math.max(1.08, crash.crashPoint || 1.08)), 0, 1)
-      : 0;
-    const recentHistory = this.getCrashHistoryEntries(18);
-    const showCashout = crash?.spinning && !crash?.cashedOutAt;
-    const countdownMs = Math.max(0, (this.crashNextRoundAt || 0) - Date.now());
-    const logRows = this.crashBetLog.slice(0, 9);
-    const playerRows = [
-      {
-        name: this.state.profile?.name || "Tu",
-        bet: Number(crash?.bet || crashBet || 0),
-        multiplier: crash?.cashedOutAt || (crash?.spinning ? displayPoint : crash?.resolvedResult?.cashoutPoint || null),
-        profit: crash?.spinning && !crash?.cashedOutAt ? null : crashProfit,
-        live: Boolean(crash?.spinning && !crash?.cashedOutAt),
-        accent: this.state.profile?.accent || "#f4c32f",
-        icon: "coin"
-      },
-      ...logRows.map((entry, index) => ({
-        name: ["Mosk", "FestusM", "joemick", "Durjoy244", "Keatonj", "Mantis", "Nova", "Rook"][index % 8],
-        bet: entry.bet,
-        multiplier: entry.cashoutPoint || entry.crashPoint || 1,
-        profit: entry.profit,
-        live: entry.status === "live",
-        accent: entry.status === "win" ? "#2ed47a" : "#f15d5d",
-        icon: entry.status === "win" ? "cash" : "coin"
-      }))
-    ].slice(0, 12);
-    const playerTotal = playerRows.reduce((sum, row) => sum + Number(row.bet || 0), 0);
-    const endpointX = 8 + crashProgress * 84;
-    const endpointY = 84 - crashProgress * 58;
-    const trailWidth = Math.max(0.08, crashProgress);
-    const currentPayout = crash?.spinning
-      ? Number((Number(crashBet || 0) * displayPoint).toFixed(2))
-      : crash?.resolvedResult?.payout || 0;
-    return `
-      <article class="crash-casino-shell full-width">
-        <aside class="crash-casino-sidebar">
-          <header class="crash-casino-title">
-            <b>${iconMarkup("rocket")}</b>
-            <strong>Crash</strong>
-          </header>
-          <div class="crash-casino-tabs">
-            <button class="" type="button" data-action="stop-crash-autoplay">MANUAL</button>
-            <button class="is-active" type="button" data-action="toggle-crash-autoplay">AUTO</button>
-          </div>
-          <label class="crash-casino-field">
-            <span>Bet Amount</span>
-            <div>
-              <i>$</i>
-              <input id="crashBet" type="text" inputmode="decimal" value="${escapeHtml(crashBet)}" ${crash?.spinning ? "disabled" : ""} />
-              <button type="button" data-action="set-crash-bet" data-mode="half" ${crash?.spinning ? "disabled" : ""}>1/2</button>
-              <button type="button" data-action="set-crash-bet" data-mode="double" ${crash?.spinning ? "disabled" : ""}>2x</button>
-              <button type="button" data-action="set-crash-bet" data-mode="max" ${crash?.spinning ? "disabled" : ""}>Max</button>
-            </div>
-          </label>
-          <label class="crash-casino-field">
-            <span>Auto Cashout</span>
-            <div>
-              <input id="crashAutoCashout" type="text" inputmode="decimal" value="${escapeHtml(crashAutoCashout)}" ${crash?.spinning ? "disabled" : ""} />
-              <button type="button" data-action="set-crash-bet" data-mode="clear-auto" ${crash?.spinning ? "disabled" : ""}>x</button>
-            </div>
-          </label>
-          <label class="crash-casino-field compact">
-            <span>Round Delay</span>
-            <div>
-              <input id="crashRoundDelay" type="text" inputmode="numeric" value="${escapeHtml(roundDelay)}" ${crash?.spinning ? "disabled" : ""} />
-              <em>${crash?.spinning ? "live" : compactTime(countdownMs)}</em>
-            </div>
-          </label>
-          ${showCashout
-            ? `<button class="crash-casino-play is-cashout" data-action="cashout-crash">Cashout x${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}</button>`
-            : `<button class="crash-casino-play" data-action="play-crash" ${crash?.spinning ? "disabled" : ""}>Play</button>`}
-          ${crash?.spinning && crash?.cashedOutAt
-            ? `<div class="crash-casino-locked">Incassato x${Number(crash.cashedOutAt).toFixed(2)}</div>`
-            : ""}
-          <section class="crash-player-board">
-            <div class="crash-player-head">
-              <strong>${playerRows.length} Players</strong>
-              <span>${formatCredits(playerTotal, true)}</span>
-            </div>
-            <div class="crash-player-list">
-              ${playerRows.map((row, index) => `
-                <div class="crash-player-row ${row.live ? "is-live" : Number(row.profit || 0) > 0 ? "is-win" : Number(row.profit || 0) < 0 ? "is-loss" : ""}">
-                  <span>${escapeHtml(index > 5 && index % 3 === 0 ? "(Hidden)" : row.name)}</span>
-                  <strong>${formatCredits(row.bet || 0, true)}</strong>
-                  <small>${row.multiplier ? `${Number(row.multiplier).toFixed(Number(row.multiplier) >= 10 ? 1 : 2)}x` : ""}</small>
-                  <em>${row.profit === null || row.profit === undefined ? "" : `${row.profit >= 0 ? "+" : ""}${formatCredits(row.profit, true)}`}</em>
-                  <b style="--player-accent:${row.accent}">${row.icon === "cash" ? iconMarkup("wallet") : iconMarkup("bitcoin")}</b>
-                </div>
-              `).join("")}
-            </div>
-          </section>
-        </aside>
-        <section class="crash-casino-stage ${crash?.spinning ? "is-live" : ""} ${crash?.crashed ? "is-crashed" : ""}">
-          <div class="crash-stage-top">
-            <span>${crash?.resolvedResult ? escapeHtml(crash.resolvedResult.detail) : "Max Profit"}</span>
-            <strong>${crash?.resolvedResult ? `${crashProfit >= 0 ? "+" : ""}${formatCredits(crashProfit, true)}` : formatCredits(Math.max(0, this.state.credits * 35), true)}</strong>
-          </div>
-          <div class="crash-graph-grid">
-            <span style="--y:16%">3.00x</span>
-            <span style="--y:34%">2.50x</span>
-            <span style="--y:52%">2.00x</span>
-            <span style="--y:70%">1.50x</span>
-            <span style="--y:88%">1.00x</span>
-          </div>
-          <svg class="crash-casino-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <path class="crash-chart-shadow" pathLength="1" d="M0 92 C16 88 28 80 40 72 C55 61 66 52 78 36 C88 23 95 14 100 9" />
-            <path class="crash-chart-line" pathLength="1" style="--trail:${trailWidth}" d="M0 92 C16 88 28 80 40 72 C55 61 66 52 78 36 C88 23 95 14 100 9" />
-          </svg>
-          <div class="crash-casino-rocket" style="left:${endpointX}%; top:${endpointY}%;">
-            ${iconMarkup("rocket")}
-          </div>
-          <div class="crash-payout-readout">
-            <strong>${displayPoint.toFixed(displayPoint >= 10 ? 1 : 2)}x</strong>
-            <span>${crash?.spinning ? "Current Payout" : crash?.resolvedResult ? "Last Payout" : "Ready"}</span>
-            <em>${formatCredits(currentPayout, true)}</em>
-          </div>
-          <div class="crash-tick-labels">
-            <span>4s</span>
-            <span>6s</span>
-            <span>8s</span>
-            <span>10s</span>
-            <span>12s</span>
-          </div>
-          <div class="crash-history-strip crash-casino-history">
-            ${recentHistory.length
-              ? recentHistory.map((entry) => `
-                <span class="crash-history-pill ${entry.playerWon ? "is-win" : "is-loss"}">
-                  ${Number(entry.crashPoint || entry.outcome || 1).toFixed(Number(entry.crashPoint || entry.outcome || 1) >= 10 ? 1 : 2)}x
-                </span>
-              `).join("")
-              : `<span class="crash-history-pill">Nessun round ancora</span>`}
-          </div>
-        </section>
-      </article>
-    `;
-  }
-
-  renderMultiplayerJackpot() {
-    const lobbyOptions = this.getJackpotLobbies();
-    const selectedLobby = this.getSelectedJackpotLobby();
-    if (!selectedLobby) {
-      return `
-        <article class="game-card jackpot-card social-card full-width">
-          <div class="social-card-head">
-            <div>
-              <span>${iconMarkup("coins", "button-icon")} Jackpot</span>
-              <h3>Scegli lobby</h3>
-            </div>
-            <div class="social-chip-stack">
-              ${statTile("Net worth", formatCredits(getNetWorth(this.state), true), "fascia account")}
-            </div>
-          </div>
-          <div class="jackpot-lobby-grid">
-            ${lobbyOptions.map((lobby) => `
-              <button class="jackpot-lobby-card ${lobby.compatible ? "is-compatible" : ""}" data-action="select-jackpot-lobby" data-id="${lobby.id}" ${lobby.compatible ? "" : "disabled"}>
-                <span>${escapeHtml(lobby.range)}</span>
-                <strong>${escapeHtml(lobby.name)}</strong>
-                <small>${escapeHtml(lobby.detail)}</small>
-                <em>${lobby.compatible ? "Disponibile" : "Non compatibile"}</em>
-              </button>
-            `).join("")}
-          </div>
-        </article>
-      `;
-    }
-    const jackpotState = this.getJackpotSelectionState();
-    const jackpotPreview = this.jackpotPreview;
-    const jackpotAnimation = this.jackpotAnimation;
-    const liveParticipants = jackpotAnimation?.participants || jackpotPreview?.participants || [];
-    const highlighted = jackpotAnimation?.highlightIndex ?? -1;
-    const potItemCount = liveParticipants.reduce((sum, participant) => sum + (participant.itemCount || participant.entries?.length || 0), 0);
-    const readiness = this.getJackpotReadiness(selectedLobby);
-    const onlinePlayers = readiness.players;
-    const jackpotOpponents = this.getJackpotOpponents();
-    const localReady = Boolean(this.jackpotReady);
-    const lobbyReady = jackpotState.selectedItems.length && readiness.allReady && jackpotOpponents.length >= 1;
-    const jackpotDelayMs = Math.max(0, (this.jackpotNextRoundAt || 0) - Date.now());
-    return `
-      <article class="game-card jackpot-card social-card full-width">
-        <div class="social-card-head">
-          <div>
-            <span>${iconMarkup("coins", "button-icon")} Jackpot</span>
-            <h3>${escapeHtml(selectedLobby.name)} Jackpot</h3>
-          </div>
-          <div class="social-chip-stack">
-            ${statTile("Lobby", selectedLobby.name, selectedLobby.range)}
-            ${statTile("Selezione", jackpotState.selectedItems.length, formatCredits(jackpotState.selectedTotal))}
-            ${statTile("Pronti", `${readiness.readyCount}/${Math.max(2, onlinePlayers.length)}`, lobbyReady ? "start abilitato" : "in attesa")}
-            ${statTile("Start", jackpotAnimation?.spinning ? "live" : compactTime(jackpotDelayMs), "delay visibile")}
-          </div>
-        </div>
-        <div class="game-controls social-inline-controls">
-          <button class="ghost-button" data-action="change-jackpot-lobby" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("layers-3", "button-icon")} Cambia lobby</button>
-          <button class="ghost-button" data-action="clear-jackpot-selection" ${jackpotAnimation?.spinning ? "disabled" : ""}>${iconMarkup("undo-2", "button-icon")} Ritira puntata</button>
-          <button class="ready-button ${localReady ? "is-ready" : "is-not-ready"}" data-action="play-jackpot" ${jackpotState.selectedItems.length && !jackpotAnimation?.spinning ? "" : "disabled"}>${iconMarkup(localReady ? "check" : "x", "button-icon")} Pronto</button>
-          <span class="hint">${lobbyReady ? `Tutti pronti: start tra ${compactTime(jackpotDelayMs)}.` : "Servono almeno 2 giocatori nella lobby e tutti su Pronto."}</span>
-        </div>
-        ${this.renderGameInventoryFilters()}
-        <div class="jackpot-item-grid">
-          ${jackpotState.availableItems.length
-            ? jackpotState.availableItems.map((item) => `
-              <button
-                class="jackpot-pick ${this.jackpotSelection.has(item.id) ? "is-selected" : ""} ${rarityClass(item.rarity)}"
-                data-action="toggle-jackpot-item"
-                data-id="${item.id}"
-                style="--rarity:${item.rarityColor}"
-                ${jackpotAnimation?.spinning ? "disabled" : ""}
-              >
-                <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
-                <span>${escapeHtml(item.name)}</span>
-                <strong>${formatCredits(getSellReturn(this.state, item), true)}</strong>
-              </button>
-            `).join("")
-            : `<div class="empty-state">Ti servono skin in inventario per entrare nel jackpot.</div>`}
-        </div>
-        <div class="social-result ${jackpotAnimation?.spinning ? "is-spinning" : ""}">
-          <div class="social-result-head">
-            <strong>${jackpotAnimation?.spinning ? "Rolling..." : jackpotPreview ? escapeHtml(jackpotPreview.winnerName) : "In attesa"}</strong>
-            <small>${jackpotAnimation?.spinning ? "Countdown chiuso: risultato gia' deciso, roulette in corso." : jackpotPreview ? escapeHtml(jackpotPreview.detail) : "Seleziona skin e attendi altri player."}</small>
-          </div>
-          <div class="jackpot-pot-list jackpot-pot-roller">
-            ${liveParticipants.length ? liveParticipants.map((participant, index) => `
-              <div class="jackpot-pot-row ${index === highlighted ? "is-highlighted" : ""}" style="--player-accent:${participant.accent}">
-                <span><b class="jackpot-player-avatar">${escapeHtml(String(participant.name || "?").slice(0, 1).toUpperCase())}</b>${escapeHtml(participant.name)}</span>
-                <div><i style="width:${Math.max(6, (participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}%"></i></div>
-                <strong>${Math.round((participant.total / Math.max(1, (jackpotAnimation?.potValue || jackpotPreview?.potValue || 1))) * 100)}% · ${jackpotAnimation?.spinning ? `${participant.itemCount || participant.entries?.length || 0} item` : `${formatCredits(participant.total, true)}`}</strong>
-              </div>
-            `).join("") : `<div class="empty-state small">Nessun pot recente.</div>`}
-          </div>
-          <div class="jackpot-ready-list">
-            ${onlinePlayers.length ? onlinePlayers.map((player) => `
-              <span class="${player.jackpotReady ? "is-ready" : ""}">
-                <b>${escapeHtml(String(player.name || "?").slice(0, 1).toUpperCase())}</b>
-                ${escapeHtml(player.name || "Player")}
-                <em>${player.jackpotReady ? "Pronto" : "Non pronto"}</em>
-              </span>
-            `).join("") : `<div class="empty-state small">Nessun player nella lobby.</div>`}
-          </div>
-          ${jackpotPreview ? `
-            <div class="jackpot-win-strip">
-              <strong>${jackpotPreview.playerWon ? `Hai vinto ${jackpotPreview.wonItems.length} skin` : `Hai perso ${jackpotPreview.depositedItems?.length || 0} skin`}</strong>
-              <small>${jackpotPreview.playerWon ? `Valore stimato ${formatCredits(jackpotPreview.payout, true)}` : "Il pot e' andato a un altro giocatore."}</small>
-            </div>
-          ` : ""}
-        </div>
-      </article>
     `;
   }
 
@@ -5797,8 +4703,6 @@ export class CaseOpenerUI {
     this.selectedCase = this.getInitialCase();
     this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
     this.lastOpenedDropIds = [];
-    this.jackpotPreview = null;
-    this.jackpotSelection.clear();
     this.socialClient?.syncProfile?.(this.getSocialProfilePayload()).catch(() => {});
     this.renderAll();
   }
@@ -5825,206 +4729,6 @@ export class CaseOpenerUI {
     syncAchievements(this.state);
     this.renderAll();
     this.queueSocialProfileSync();
-  }
-
-  ensureAutomaticGameLoopState() {
-    this.state.minigames ||= {};
-    this.state.minigames.roulette = {
-      bet: 4,
-      choice: "red",
-      ...(this.state.minigames.roulette || {}),
-      autoPlay: true
-    };
-    this.state.minigames.crash = {
-      bet: 4,
-      autoCashout: 1.6,
-      roundDelay: 6,
-      ...(this.state.minigames.crash || {}),
-      autoPlay: true
-    };
-    this.state.minigames.jackpot = {
-      ...(this.state.minigames.jackpot || {}),
-      autoPlay: true
-    };
-  }
-
-  startAutomaticGameLoops() {
-    window.clearTimeout(this.rouletteLoopTimer);
-    this.rouletteLoopTimer = null;
-    this.rouletteNextRoundAt = 0;
-    this.cancelCrashLoop();
-    window.clearTimeout(this.jackpotLoopTimer);
-    this.jackpotLoopTimer = null;
-    this.jackpotNextRoundAt = 0;
-  }
-
-  buildRouletteNumberSequence(outcome) {
-    const target = Math.max(0, Math.min(36, Number(outcome || 0)));
-    return [
-      ...Array.from({ length: 44 }, (_, index) => (index * 17 + Math.floor(Math.random() * 37)) % 37),
-      ...Array.from({ length: 9 }, (_, index) => (target + 23 - index * 3 + 37 * 3) % 37),
-      target
-    ];
-  }
-
-  scheduleRouletteLoop(delay = 2400) {
-    window.clearTimeout(this.rouletteLoopTimer);
-    this.ensureAutomaticGameLoopState();
-    this.rouletteNextRoundAt = Date.now() + Math.max(500, Number(delay) || 2400);
-    this.rouletteLoopTimer = window.setTimeout(() => {
-      this.rouletteLoopTimer = null;
-      this.rouletteNextRoundAt = 0;
-      if (!this.rouletteAnimation?.spinning) {
-        this.playRouletteGame(true);
-      }
-    }, delay);
-  }
-
-  playRouletteGame(autoLoop = false) {
-    const bet = this.root.querySelector("#rouletteBet")?.value ?? this.state.minigames?.roulette?.bet;
-    const choice = this.root.querySelector("#rouletteChoice")?.value ?? this.state.minigames?.roulette?.choice;
-    const result = playRoulette(this.state, { bet, choice });
-    if (!result.ok) {
-      if (autoLoop) {
-        this.scheduleRouletteLoop(5000);
-      } else {
-        this.toast(result.reason);
-      }
-      return;
-    }
-    this.rouletteAnimation = {
-      ...result,
-      angle: (Number(result.outcome) / 37) * 360 + 4,
-      sequence: this.buildRouletteNumberSequence(result.outcome),
-      startedAt: Date.now(),
-      durationMs: 2600,
-      spinning: true
-    };
-    this.playUiPulse("tick", 0.42);
-    this.renderAll();
-    window.setTimeout(() => {
-      if (this.rouletteAnimation?.playedAt === result.playedAt) {
-        this.rouletteAnimation.spinning = false;
-        if (this.activeTab === "games") {
-          this.renderTab();
-        }
-      }
-      this.playUiPulse(result.profit >= 0 ? "jackpot" : "warning", 0.68);
-      this.session.earned += Math.max(0, Number(result.payout || 0));
-      this.session.spent += Number(result.bet || 0);
-      this.recordSessionEvent("game", result.game, result.detail, result.profit);
-      this.publishSharedGameResult("roulette", result, { choice });
-      this.queueSocialProfileSync();
-      this.scheduleRouletteLoop(AUTO_ROULETTE_NEXT_DELAY_MS);
-      if (this.activeTab === "games") {
-        this.renderTab();
-      }
-    }, 2600);
-  }
-
-  playPachinkoGame() {
-    const bet = this.root.querySelector("#pachinkoBet")?.value ?? this.state.minigames?.pachinko?.bet;
-    const result = playPachinko(this.state, { bet });
-    if (!result.ok) {
-      this.toast(result.reason);
-      return;
-    }
-    this.pachinkoAnimation = {
-      ...result,
-      startedAt: Date.now(),
-      durationMs: 2600,
-      spinning: true
-    };
-    this.playUiPulse("tick", 0.3);
-    this.renderAll();
-    window.setTimeout(() => {
-      if (this.pachinkoAnimation?.playedAt === result.playedAt) {
-        this.pachinkoAnimation.spinning = false;
-        if (this.activeTab === "games") {
-          this.renderTab();
-        }
-      }
-      this.playUiPulse(result.profit >= 0 ? "jackpot" : "warning", 0.56);
-      this.session.earned += Math.max(0, Number(result.payout || 0));
-      this.session.spent += Number(result.bet || 0);
-      this.recordSessionEvent("game", result.game, `${result.label} ${result.detail}`, result.profit);
-      this.publishSharedGameResult("pachinko", result, { label: result.label });
-      this.queueSocialProfileSync();
-    }, 2600);
-  }
-
-  playUpgraderGame() {
-    const fallback = this.getFilteredGameInventory(this.getSocialLockerCandidates(), { allowCases: false, limit: 80 })
-      .find((item) => item.type !== "rewardCase" && !item.locked);
-    const selectedIds = [...this.upgraderSelection];
-    const itemId = selectedIds[0] || this.state.minigames.upgrader.itemId || fallback?.id;
-    const targetMultiplier = this.root.querySelector("#upgraderMultiplier")?.value || this.state.minigames.upgrader.targetMultiplier;
-    const result = playUpgrader(this.state, this.skinData, { itemId, itemIds: selectedIds.length ? selectedIds : [itemId], targetMultiplier });
-    if (!result.ok) {
-      this.toast(result.reason);
-      return;
-    }
-    (result.consumedItems || [result.consumedItem]).filter(Boolean).forEach((item) => {
-      this.selectedInventory.delete(item.id);
-      this.upgraderSelection.delete(item.id);
-    });
-    this.state.minigames.upgrader.itemIds = [];
-    this.upgraderAnimation = {
-      ...result,
-      won: Boolean(result.playerWon),
-      spinning: true
-    };
-    this.playUiPulse("tick", 0.46);
-    this.session.spent += Number(result.bet || 0);
-    this.session.earned += Number(result.payout || 0);
-    this.recordSessionEvent("game", result.game, result.detail, result.profit);
-    syncAchievements(this.state);
-    this.renderAll();
-    window.setTimeout(() => {
-      this.upgraderAnimation = {
-        ...this.upgraderAnimation,
-        spinning: false
-      };
-      this.playUiPulse(result.playerWon ? "jackpot" : "warning", 0.78);
-      this.publishSharedGameResult("upgrader", result, {
-        consumed: result.consumedItem?.name,
-        upgraded: result.upgradedItem?.name || ""
-      });
-      this.renderAll();
-      this.queueSocialProfileSync();
-    }, 1700);
-  }
-
-  playCoinflipGame() {
-    const bet = this.root.querySelector("#coinflipBet")?.value ?? this.state.minigames.coinflip.bet;
-    const side = this.state.minigames.coinflip.side;
-    const result = playCoinflip(this.state, { bet, side });
-    if (!result.ok) {
-      this.toast(result.reason);
-      return;
-    }
-    this.coinflipAnimation = {
-      ...result,
-      startedAt: Date.now(),
-      durationMs: 1500,
-      spinning: true
-    };
-    this.playUiPulse("tick", 0.44);
-    this.session.spent += Number(result.bet || 0);
-    this.session.earned += Number(result.payout || 0);
-    this.recordSessionEvent("game", result.game, result.detail, result.profit);
-    syncAchievements(this.state);
-    this.renderAll();
-    window.setTimeout(() => {
-      this.coinflipAnimation = {
-        ...this.coinflipAnimation,
-        spinning: false
-      };
-      this.playUiPulse(result.playerWon ? "jackpot" : "warning", 0.54);
-      this.publishSharedGameResult("coinflip", result, { side });
-      this.renderAll();
-      this.queueSocialProfileSync();
-    }, 1500);
   }
 
   async redeemPromo() {
@@ -6141,8 +4845,6 @@ export class CaseOpenerUI {
       }).catch(() => {
         this.sharedGamesStatus = "Marketplace globale non disponibile";
       });
-      this.auctionItemId = "";
-      this.auctionPrice = "";
       this.renderAll();
       this.queueSocialProfileSync();
     }
@@ -6260,50 +4962,6 @@ export class CaseOpenerUI {
     this.renderTopStats();
     this.renderTechMenu();
     this.renderProfileSetup();
-  }
-
-  toggleJackpotItem(id) {
-    const item = this.state.inventory.find((candidate) => candidate.id === id && !candidate.locked);
-    if (!item) {
-      return;
-    }
-    if (this.jackpotSelection.has(id)) {
-      this.jackpotSelection.delete(id);
-    } else {
-      this.jackpotSelection.add(id);
-    }
-    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-      this.renderTab();
-    }
-  }
-
-  toggleJackpotReady() {
-    const selectedLobby = this.getSelectedJackpotLobby();
-    const jackpotState = this.getJackpotSelectionState();
-    if (!selectedLobby?.compatible || !jackpotState.selectedItems.length || this.jackpotAnimation?.spinning) {
-      this.jackpotReady = false;
-      this.syncSharedPresenceNow();
-      this.renderTab();
-      return;
-    }
-    this.jackpotReady = !this.jackpotReady;
-    this.syncSharedPresenceNow();
-    this.scheduleJackpotLoop(this.jackpotReady ? AUTO_JACKPOT_START_DELAY_MS : AUTO_JACKPOT_WAIT_DELAY_MS);
-    this.renderTab();
-  }
-
-  toggleUpgraderItem(id) {
-    const item = this.state.inventory.find((candidate) => candidate.id === id && !candidate.locked && candidate.type !== "rewardCase");
-    if (!item) {
-      return;
-    }
-    if (this.upgraderSelection.has(id)) {
-      this.upgraderSelection.delete(id);
-    } else {
-      this.upgraderSelection.add(id);
-    }
-    this.state.minigames.upgrader.itemIds = [...this.upgraderSelection];
-    this.state.minigames.upgrader.itemId = [...this.upgraderSelection][0] || "";
   }
 
   async sendSocialChat() {
@@ -6545,326 +5203,6 @@ export class CaseOpenerUI {
     }).catch(() => {});
   }
 
-  normalizeCrashConfig() {
-    const raw = this.state.minigames?.crash || {};
-    const bet = Math.max(1, Math.min(1000000, Number(String(raw.bet ?? 4).replace(",", ".")) || 0));
-    const autoCashout = Math.max(1.05, Math.min(50, Number(String(raw.autoCashout ?? 1.6).replace(",", ".")) || 1.6));
-    const roundDelay = Math.max(3, Math.min(30, Number(String(raw.roundDelay ?? 6).replace(",", ".")) || 6));
-    this.state.minigames.crash.bet = Number(bet.toFixed(2));
-    this.state.minigames.crash.autoCashout = Number(autoCashout.toFixed(2));
-    this.state.minigames.crash.roundDelay = Number(roundDelay.toFixed(0));
-    return { bet, autoCashout, roundDelay };
-  }
-
-  setCrashBetShortcut(mode) {
-    if (this.crashAnimation?.spinning) {
-      return;
-    }
-    this.state.minigames.crash ||= {};
-    const current = Number(String(this.root.querySelector("#crashBet")?.value ?? this.state.minigames.crash.bet ?? 4).replace(",", ".")) || 1;
-    if (mode === "half") {
-      this.state.minigames.crash.bet = Math.max(1, Number((current / 2).toFixed(2)));
-    } else if (mode === "double") {
-      this.state.minigames.crash.bet = Math.min(this.state.credits, Number((current * 2).toFixed(2)));
-    } else if (mode === "max") {
-      this.state.minigames.crash.bet = Math.max(1, Number(this.state.credits || 1));
-    } else if (mode === "clear-auto") {
-      this.state.minigames.crash.autoCashout = 25;
-    }
-    this.renderTab();
-  }
-
-  scheduleCrashLoop(delayMs = null) {
-    this.ensureAutomaticGameLoopState();
-    if (this.crashAnimation?.spinning) {
-      return;
-    }
-    const { roundDelay } = this.normalizeCrashConfig();
-    window.clearTimeout(this.crashLoopTimer);
-    const nextDelay = Number.isFinite(delayMs) ? Math.max(300, Number(delayMs)) : roundDelay * 1000;
-    this.crashNextRoundAt = Date.now() + nextDelay;
-    this.crashLoopTimer = window.setTimeout(() => {
-      this.crashLoopTimer = null;
-      this.crashNextRoundAt = 0;
-      if (!this.crashAnimation?.spinning) {
-        this.playCrashGame(true);
-      }
-    }, nextDelay);
-  }
-
-  cancelCrashLoop() {
-    window.clearTimeout(this.crashLoopTimer);
-    this.crashLoopTimer = null;
-    this.crashNextRoundAt = 0;
-  }
-
-  addCrashLogEntry(round) {
-    const entry = {
-      id: round.roundId,
-      at: Date.now(),
-      bet: Number(round.bet || 0),
-      autoCashout: Number(round.autoCashout || 0),
-      status: "live",
-      profit: 0,
-      cashoutPoint: 0,
-      crashPoint: 0
-    };
-    this.crashBetLog = [entry, ...this.crashBetLog].slice(0, 24);
-  }
-
-  updateCrashLogEntry(result, round) {
-    const roundId = round?.roundId;
-    this.crashBetLog = this.crashBetLog.map((entry) => {
-      if (entry.id !== roundId) {
-        return entry;
-      }
-      return {
-        ...entry,
-        status: result.playerWon ? "win" : "loss",
-        profit: Number(result.profit || 0),
-        cashoutPoint: Number(round?.cashedOutAt || 0),
-        crashPoint: Number(round?.crashPoint || 0)
-      };
-    });
-  }
-
-  playCrashGame(autoLoop = false) {
-    if (this.crashAnimation?.spinning) {
-      return;
-    }
-    this.cancelCrashLoop();
-    const { bet, autoCashout } = this.normalizeCrashConfig();
-    const round = startCrashRound(this.state, { bet, autoCashout });
-    if (!round.ok) {
-      if (autoLoop) {
-        this.scheduleCrashLoop(5000);
-      } else {
-        this.toast(round.reason);
-      }
-      return;
-    }
-    window.clearInterval(this.crashTimer);
-    this.crashAnimation = {
-      ...round,
-      roundId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      autoLoop,
-      startedAt: Date.now(),
-      flightMs: Math.round(clamp(1600 + Math.log(Math.max(1.05, round.crashPoint)) * 2450, 1800, 10500)),
-      displayPoint: 1,
-      spinning: true,
-      crashed: false,
-      cashedOutAt: 0,
-      resolvedResult: null
-    };
-    this.addCrashLogEntry(this.crashAnimation);
-    this.playUiPulse("tick", 0.32);
-    this.renderAll();
-    this.crashTimer = window.setInterval(() => {
-      if (!this.crashAnimation) {
-        window.clearInterval(this.crashTimer);
-        return;
-      }
-      const elapsed = Date.now() - this.crashAnimation.startedAt;
-      const progress = Math.min(1, elapsed / Math.max(600, this.crashAnimation.flightMs || 3200));
-      const exponent = Math.log(Math.max(1.03, this.crashAnimation.crashPoint || 1.03));
-      const point = Math.exp(exponent * progress);
-      this.crashAnimation.displayPoint = Number(Math.min(this.crashAnimation.crashPoint, point).toFixed(point >= 10 ? 1 : 2));
-      if (!this.crashAnimation.cashedOutAt && this.crashAnimation.displayPoint >= this.crashAnimation.autoCashout) {
-        this.cashOutActiveCrash(true);
-      }
-      if (Math.floor(elapsed / 220) !== Math.floor((elapsed - 60) / 220)) {
-        this.playUiPulse(progress > 0.86 ? "warning" : "tick", 0.18 + progress * 0.16);
-      }
-      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-        this.renderTab();
-      }
-      if (progress >= 1) {
-        this.finishActiveCrashRound();
-      }
-    }, 60);
-  }
-
-  cashOutActiveCrash(auto = false) {
-    if (!this.crashAnimation?.spinning || this.crashAnimation?.cashedOutAt) {
-      return;
-    }
-    const cashoutPoint = Number(Math.max(1.01, Math.min(this.crashAnimation.displayPoint, this.crashAnimation.crashPoint)).toFixed(2));
-    this.crashAnimation.cashedOutAt = cashoutPoint;
-    this.crashAnimation.cashoutMode = auto ? "auto" : "manual";
-    this.playUiPulse("jackpot", auto ? 0.3 : 0.42);
-    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-      this.renderTab();
-    }
-  }
-
-  finishActiveCrashRound() {
-    if (!this.crashAnimation) {
-      return;
-    }
-    window.clearInterval(this.crashTimer);
-    const activeRound = this.crashAnimation;
-    activeRound.spinning = false;
-    activeRound.crashed = true;
-    activeRound.displayPoint = activeRound.crashPoint;
-    const result = settleCrashRound(this.state, activeRound, {
-      cashoutPoint: activeRound.cashedOutAt || 0
-    });
-    activeRound.resolvedResult = result;
-    this.updateCrashLogEntry(result, activeRound);
-    this.playUiPulse(result.profit >= 0 ? "jackpot" : "warning", 0.76);
-    this.session.earned += Math.max(0, Number(result.payout || 0));
-    this.session.spent += Number(result.bet || 0);
-    this.recordSessionEvent("game", result.game, result.detail, result.profit);
-    this.socialClient?.publishActivity?.("crash", {
-      title: result.game,
-      detail: result.detail,
-      value: result.profit
-    }).catch(() => {});
-    this.publishSharedGameResult("crash", result, {
-      crashPoint: activeRound.crashPoint,
-      cashoutPoint: activeRound.cashedOutAt || 0
-    });
-    this.reportSocialGameResult("crash", result);
-    this.queueSocialProfileSync();
-    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-      this.renderTab();
-    }
-    this.scheduleCrashLoop();
-    if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-      this.renderTab();
-    }
-    window.setTimeout(() => {
-      if (this.crashAnimation === activeRound) {
-        this.crashAnimation = {
-          ...activeRound,
-          spinning: false
-        };
-        if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-          this.renderTab();
-        }
-      }
-    }, 120);
-  }
-
-  scheduleJackpotLoop(delay = 2500) {
-    window.clearTimeout(this.jackpotLoopTimer);
-    this.ensureAutomaticGameLoopState();
-    this.jackpotNextRoundAt = Date.now() + Math.max(500, Number(delay) || 2500);
-    this.jackpotLoopTimer = window.setTimeout(() => {
-      this.jackpotLoopTimer = null;
-      this.jackpotNextRoundAt = 0;
-      this.tryStartJackpotLoop();
-    }, Math.max(500, Number(delay) || 2500));
-  }
-
-  tryStartJackpotLoop() {
-    if (this.jackpotAnimation?.spinning) {
-      return;
-    }
-    const selectedLobby = this.getSelectedJackpotLobby();
-    const jackpotState = this.getJackpotSelectionState();
-    const readiness = this.getJackpotReadiness(selectedLobby);
-    const opponents = this.getJackpotOpponents();
-    if (selectedLobby?.compatible && jackpotState.selectedItems.length && readiness.allReady && opponents.length) {
-      this.playJackpotGame(true);
-      return;
-    }
-    this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
-  }
-
-  playJackpotGame(autoLoop = false) {
-    const selectedLobby = this.getSelectedJackpotLobby();
-    if (!selectedLobby?.compatible) {
-      if (!autoLoop) {
-        this.toast("Scegli una lobby compatibile prima di entrare nel jackpot.");
-      }
-      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
-      this.renderTab();
-      return;
-    }
-    const readiness = this.getJackpotReadiness(selectedLobby);
-    const opponents = this.getJackpotOpponents();
-    if (!readiness.allReady || !opponents.length) {
-      if (!autoLoop) {
-        this.toast("Il jackpot aspetta che tutti i giocatori siano su Pronto.");
-      }
-      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
-      this.renderTab();
-      return;
-    }
-    const result = playJackpot(this.state, this.skinData, {
-      itemIds: [...this.jackpotSelection],
-      opponents
-    });
-    if (!result.ok) {
-      if (!autoLoop) {
-        this.toast(result.reason);
-      }
-      this.scheduleJackpotLoop(AUTO_JACKPOT_WAIT_DELAY_MS);
-      return;
-    }
-    this.jackpotReady = false;
-    this.syncSharedPresenceNow();
-    (result.depositedItems || []).forEach((item) => this.selectedInventory.delete(item.id));
-    this.jackpotSelection.clear();
-    window.clearInterval(this.jackpotTimer);
-    this.jackpotPreview = null;
-    this.jackpotAnimation = {
-      ...result,
-      spinning: true,
-      highlightIndex: 0
-    };
-    this.playUiPulse("tick", 0.24);
-    this.socialClient?.enterJackpot?.({
-      value: result.bet,
-      itemCount: result.depositedItems?.length || 0,
-      items: (result.depositedItems || []).map((item) => ({
-        ...item,
-        value: Number(Number(item.value || 0).toFixed(2))
-      })),
-      detail: result.detail
-    }).catch(() => {});
-    this.renderAll();
-    let tick = 0;
-    const totalTicks = 28;
-    this.jackpotTimer = window.setInterval(() => {
-      tick += 1;
-      if (!this.jackpotAnimation) {
-        window.clearInterval(this.jackpotTimer);
-        return;
-      }
-      const count = Math.max(1, this.jackpotAnimation.participants.length);
-      this.jackpotAnimation.highlightIndex = tick % count;
-      if (tick % 2 === 0) {
-        this.playUiPulse("tick", 0.14 + tick / totalTicks * 0.12);
-      }
-      if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
-        this.renderTab();
-      }
-      if (tick >= totalTicks) {
-        window.clearInterval(this.jackpotTimer);
-        this.jackpotAnimation.spinning = false;
-        this.jackpotPreview = result;
-        this.jackpotAnimation = null;
-        this.playUiPulse(result.profit >= 0 ? "jackpot" : "warning", 0.85);
-        this.session.spent += Number(result.bet || 0);
-        this.session.earned += Number(result.payout || 0);
-        this.recordSessionEvent("game", result.game, result.detail, result.profit);
-        this.publishSharedGameResult("jackpot", result, {
-          winnerName: result.winnerName,
-          participants: result.participants?.length || 0
-        });
-        this.reportSocialGameResult("jackpot", result);
-        this.queueSocialProfileSync();
-        if (result.playerWon && result.wonItems?.length) {
-          this.jackpotWinPopup = { items: result.wonItems };
-        }
-        this.scheduleJackpotLoop(AUTO_JACKPOT_NEXT_DELAY_MS);
-        this.renderAll();
-      }
-    }, 140);
-  }
-
   cheatAddCredits() {
     const amount = cheatAddCredits(this.state, this.root.querySelector("#cheatCredits")?.value);
     this.toast(`Cheat: +${formatCredits(amount)}.`);
@@ -7087,8 +5425,6 @@ export class CaseOpenerUI {
       this.selectedCase = this.getInitialCase();
       this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
       this.lastOpenedDropIds = [];
-      this.jackpotPreview = null;
-      this.jackpotSelection.clear();
       this.profileSetupOpen = !this.state.profile?.configured;
       this.resetSessionState();
       this.socialClient?.syncProfile?.(this.getSocialProfilePayload()).catch(() => {});
@@ -7107,8 +5443,6 @@ export class CaseOpenerUI {
     this.selectedCase = this.getInitialCase();
     this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
     this.lastOpenedDropIds = [];
-    this.jackpotPreview = null;
-    this.jackpotSelection.clear();
     this.profileSetupOpen = !this.state.profile?.configured;
     this.resetSessionState();
     this.socialClient?.syncProfile?.(this.getSocialProfilePayload()).catch(() => {});
@@ -7118,8 +5452,7 @@ export class CaseOpenerUI {
 
   tick() {
     clearExpiredEvent(this.state);
-    this.startAutomaticGameLoops();
-    const now = Date.now();
+const now = Date.now();
     this.renderTopStats();
     if (!this.isEditingSessionControls() && now - this.lastPassiveRenderAt > 10000) {
       this.lastPassiveRenderAt = now;
@@ -7487,18 +5820,14 @@ export class CaseOpenerUI {
         if (cloud?.state) {
           this.state = normalizeState(cloud.state);
           this.selectedInventory.clear();
-          this.jackpotSelection.clear();
-          this.upgraderSelection = new Set(this.state.minigames?.upgrader?.itemIds || []);
           this.selectedCase = this.getInitialCase();
           this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
           this.profileSetupOpen = false;
           this.cloudStatus = `Caricato cloud rev ${cloud.revision}.`;
           saveState(this.state);
           this.renderAll();
-          this.startAutomaticGameLoops();
-        }
-        this.startAutomaticGameLoops();
-      }
+}
+}
       this.renderTechMenu();
       this.renderLoginGate();
       return this.cloudSession;
@@ -7776,7 +6105,6 @@ export class CaseOpenerUI {
       const loaded = normalizeState(cloud.state);
       this.state = loaded;
       this.selectedInventory.clear();
-      this.jackpotSelection.clear();
       this.selectedCase = this.getInitialCase();
       this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? 0;
       this.lastOpenedDropIds = [];
@@ -7785,8 +6113,7 @@ export class CaseOpenerUI {
       saveState(this.state);
       this.toast("Salvataggio cloud caricato.");
       this.renderAll();
-      this.startAutomaticGameLoops();
-    } catch (error) {
+} catch (error) {
       this.cloudStatus = error.message || "Caricamento cloud fallito.";
       this.toast(this.cloudStatus);
     } finally {
