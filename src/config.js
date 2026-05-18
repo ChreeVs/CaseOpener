@@ -10,7 +10,7 @@ export * from "./config/achievementsConfig.js";
 
 // These configs weren't split in this pass but are kept here for now
 export const ECONOMY_CONFIG = {
-  sellFee: 0.07,
+  sellFee: 0.08,
   tradeUpFloor: 0.58,
   tradeUpCeiling: 1.02,
   marketplaceRefreshMs: 1000 * 60 * 2,
@@ -20,16 +20,16 @@ export const ECONOMY_CONFIG = {
   collectionPermanentBonus: 0.006,
   autoSellMinTier: 1,
   eventRollBaseChance: 0.004,
-  minigameDailySoftCap: 120,
-  crashHouseEdge: 0.065,
-  jackpotFee: 0.1,
+  minigameDailySoftCap: 150,
+  crashHouseEdge: 0.08,
+  jackpotFee: 0.12,
   socialPotBotMultiplierMin: 0.8,
   socialPotBotMultiplierMax: 1.45,
-  caseMasteryBaseRequirement: 8,
+  caseMasteryBaseRequirement: 6,
   caseMasteryRequirementScale: 6,
-  caseMasteryRequirementGrowth: 1.42,
-  caseMasteryLuckPerLevel: 0.004,
-  caseMasteryLuckCap: 0.18
+  caseMasteryRequirementGrowth: 1.55,
+  caseMasteryLuckPerLevel: 0.0035,
+  caseMasteryLuckCap: 0.15
 };
 
 export const LIMITED_EVENTS = [
