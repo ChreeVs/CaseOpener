@@ -67,6 +67,8 @@ async function start({ forceRefresh = false } = {}) {
         ui.toast(`Prezzi Steam aggiornati per ${updated} casse.`);
         ui.renderAll();
         ui.save();
+      }).catch((error) => {
+        console.warn("[Main] Failed to refresh case prices:", error);
       });
 
       if (metadata.warning) {

@@ -402,7 +402,8 @@ export function getDropValueMultiplier(state) {
 
 function getPrestigeUpgradeEfficiency(state) {
   const prestigeLevel = Math.max(0, Number(state.prestige?.level) || 0);
-  return 1 / (1 + prestigeLevel * 0.055 + Math.pow(Math.max(0, prestigeLevel - 7), 1.35) * 0.018);
+  const efficiency = 1 / (1 + prestigeLevel * 0.055 + Math.pow(Math.max(0, prestigeLevel - 7), 1.35) * 0.018);
+  return Math.min(1, Math.max(0.01, efficiency));
 }
 
 function getDiminishedUpgradeLevel(state, upgradeId, curve = 12) {
@@ -443,7 +444,7 @@ function deriveCaseMasteryFromXp(totalXp) {
   const record = {
     level: 0,
     xp: Math.max(0, Number(totalXp) || 0),
-    opens: Math.max(0, Math.floor(Number(totalXp) || 0))
+    opens: 0
   };
 
   while (record.xp >= getCaseMasteryRequirement(record.level)) {
@@ -542,7 +543,7 @@ export function getCritChance(state) {
 }
 
 export function getMultiOpenCount(state) {
-  const level = Math.min(Math.floor(getDiminishedUpgradeLevel(state, "multiOpen", 10)), MULTI_OPEN_LEVELS.length - 1);
+  const level = Math.max(0, Math.min(Math.floor(getDiminishedUpgradeLevel(state, "multiOpen", 10)), MULTI_OPEN_LEVELS.length - 1));
   return MULTI_OPEN_LEVELS[level] || 1;
 }
 
