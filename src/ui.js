@@ -1137,6 +1137,33 @@ if (target.matches("#gameInventorySearch")) {
       if (target.matches("#adminPassword")) {
         this.adminPassword = target.value;
       }
+      if (target.matches("#rouletteBet")) {
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.roulette) this.state.minigames.roulette = {};
+        this.state.minigames.roulette.bet = target.value;
+      }
+      if (target.matches("#crashBet")) {
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.crash) this.state.minigames.crash = {};
+        this.state.minigames.crash.bet = target.value;
+      }
+      if (target.matches("#crashAutoCashout")) {
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.crash) this.state.minigames.crash = {};
+        this.state.minigames.crash.autoCashout = target.value;
+      }
+      if (target.matches("#coinflipBet")) {
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.coinflip) this.state.minigames.coinflip = {};
+        this.state.minigames.coinflip.bet = target.value;
+      }
+      if (target.matches("#upgraderMultiplier")) {
+        if (!this.state.minigames) this.state.minigames = {};
+        if (!this.state.minigames.upgrader) this.state.minigames.upgrader = {};
+        this.state.minigames.upgrader.targetMultiplier = target.value;
+        const strong = target.parentElement?.querySelector("strong");
+        if (strong) strong.textContent = "x" + Number(target.value).toFixed(2);
+      }
     });
 
     this.root.addEventListener("change", (event) => {

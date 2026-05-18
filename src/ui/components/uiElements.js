@@ -193,7 +193,31 @@ export const LOGIN_GATE_ACTIONS = new Set([
   "accept-cookies",
   "reject-cookies",
   "toggle-admin-gate",
-  "admin-login"
+  "admin-login",
+  "tab",
+  "page",
+  "games-view",
+  "close-open-result",
+  "toggle-open-result-details",
+  "select-case",
+  "buy-case",
+  "buy-cases",
+  "open-case",
+  "quick-open-case",
+  "close-reveal",
+  "case-page-jump",
+  "clear-case-filters",
+  "toggle-case-filters",
+  "set-roulette-choice",
+  "crash-cashout",
+  "play-coinflip",
+  "set-coinflip-side",
+  "play-upgrader",
+  "toggle-upgrader-item",
+  "clear-upgrader",
+  "play-jackpot",
+  "toggle-jackpot-item",
+  "clear-jackpot"
 ]);
 
 export const TAB_GROUPS = {
