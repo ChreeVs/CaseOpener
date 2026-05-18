@@ -136,7 +136,7 @@ import {
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
 
-const GAME_VERSION = "v1.0.5";
+const GAME_VERSION = "v1.0.6";
 const AUTO_ROULETTE_START_DELAY_MS = 1600;
 const AUTO_ROULETTE_NEXT_DELAY_MS = 4200;
 const AUTO_CRASH_START_DELAY_MS = 5200;
@@ -572,6 +572,8 @@ export class CaseOpenerUI {
     this.socialState = null;
     this.socialClaimInFlight = false;
     this.socialSyncTimer = null;
+    this.lastPassiveRenderAt = 0;
+    this.lastChatSignature = "";
     this.socialConnection = {
       connected: false,
       clientId: null,
@@ -624,7 +626,7 @@ export class CaseOpenerUI {
     this.initCloudChat();
     this.refreshCloudSession();
     this.refreshChat();
-    this.chatPollTimer = window.setInterval(() => this.refreshChat(), 3500);
+    this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
     this.startAutomaticGameLoops();
   }
@@ -7442,20 +7444,18 @@ export class CaseOpenerUI {
   tick() {
     clearExpiredEvent(this.state);
     this.startAutomaticGameLoops();
+    const now = Date.now();
     this.renderTopStats();
-    if (!this.isEditingSessionControls()) {
+    if (!this.isEditingSessionControls() && now - this.lastPassiveRenderAt > 10000) {
+      this.lastPassiveRenderAt = now;
       this.renderSession();
+      this.renderOpenerActions();
     }
-    this.renderOpenerActions();
-    this.renderHistory();
     if (this.activeTab === "community" && Date.now() - this.lastSharedGoalSyncAt > 30000) {
       this.refreshCommunityGoals({ silent: true });
     }
     if (this.activeTab === "games" && isSharedGamesAvailable() && Date.now() - this.lastSharedGamesSyncAt > 30000) {
       this.refreshSharedGames({ silent: true });
-    }
-    if (!this.isEditingAppControl() && ["stats", "prestige", "market", "collections", "achievements", "shop", "community", "games"].includes(this.activeTab)) {
-      this.renderTab();
     }
   }
 
@@ -7653,8 +7653,9 @@ export class CaseOpenerUI {
         if (!message?.id || this.chatMessages.some((entry) => entry.id === message.id)) {
           return;
         }
-        this.chatMessages = [...this.chatMessages, message].slice(-80);
-        this.renderGlobalChatDock();
+        if (this.updateChatMessages([...this.chatMessages, message].slice(-80))) {
+          this.renderGlobalChatDock();
+        }
       });
     } catch (error) {
       this.chatCloudEnabled = false;
@@ -7665,8 +7666,7 @@ export class CaseOpenerUI {
     try {
       if (this.chatCloudEnabled) {
         const messages = await fetchSupabaseChatMessages();
-        if (messages) {
-          this.chatMessages = messages;
+        if (messages && this.updateChatMessages(messages)) {
           this.renderGlobalChatDock();
         }
         return;
@@ -7676,11 +7676,26 @@ export class CaseOpenerUI {
         return;
       }
       const payload = await response.json();
-      this.chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
-      this.renderGlobalChatDock();
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      if (this.updateChatMessages(messages)) {
+        this.renderGlobalChatDock();
+      }
     } catch (error) {
       // Chat is optional; keep the game usable if the endpoint is offline.
     }
+  }
+
+  updateChatMessages(messages = []) {
+    const next = Array.isArray(messages) ? messages : [];
+    const signature = next
+      .map((entry) => `${entry.id || entry.at || ""}:${entry.name || ""}:${entry.text || ""}`)
+      .join("|");
+    if (signature === this.lastChatSignature) {
+      return false;
+    }
+    this.lastChatSignature = signature;
+    this.chatMessages = next;
+    return true;
   }
 
   async sendChat() {
