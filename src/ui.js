@@ -242,7 +242,6 @@ export class CaseOpenerUI {
     this.legalModal = null;
     this.session = this.createSessionState();
     this.toasts = [];
-    initGamesState(this);
   }
 
   mount() {
@@ -257,7 +256,6 @@ export class CaseOpenerUI {
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
-    startGameLoops(this);
   }
 
   dispose() {
