@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.4.10";
+const GAME_VERSION = "v1.5.2";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2185,7 +2185,7 @@ this.refreshIcons();
         const priceLabel = caseDef.price <= 0 ? "Gratis" : formatCredits(caseDef.price, true);
         return `
           <button data-action="select-case" data-id="${caseDef.id}" ${unlocked ? "" : "disabled"} 
-            style="all: unset; display: block; box-sizing: border-box; width: 100%; background: ${active ? 'var(--surface-2)' : 'var(--surface-1)'}; border: 1px solid ${active ? 'var(--loot-legendary)' : 'var(--border-color)'}; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; ${unlocked ? 'cursor: pointer;' : 'opacity: 0.6; filter: grayscale(1);'}" 
+            style="all: unset; display: block; box-sizing: border-box; width: 100%; background: ${active ? 'var(--surface-2)' : 'var(--surface-1)'}; border: ${active ? '2px solid var(--loot-legendary)' : '1px solid var(--border-color)'}; box-shadow: ${active ? '0 0 15px rgba(235, 172, 46, 0.4)' : 'none'}; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; ${unlocked ? 'cursor: pointer;' : 'opacity: 0.6; filter: grayscale(1);'}" 
             onmouseover="if(${unlocked} && !${active}) { this.style.borderColor='rgba(255, 255, 255, 0.4)'; this.style.transform='translateY(-2px)'; }"
             onmouseout="if(${unlocked} && !${active}) { this.style.borderColor='var(--border-color)'; this.style.transform='translateY(0)'; }">
             
@@ -2314,64 +2314,53 @@ this.refreshIcons();
           </button>
           
           <div style="display: flex; flex-direction: column; gap: 12px; min-width: 160px;">
-            <button class="ghost-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; border-radius: 12px; font-weight: bold; border: 1px solid var(--border-color);">
+            <button class="ghost-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; border-radius: 12px; font-weight: bold; border: 1px solid var(--border-color); height: 100%;">
               ${iconMarkup("mouse-pointer-click", "button-icon")} Singola (x1)
-            </button>
-            
-            <button
-              class="ghost-button opener-settings-button"
-              data-action="toggle-opener-settings"
-              type="button"
-              aria-expanded="${this.openerSettingsOpen ? "true" : "false"}"
-              title="Automazioni"
-              style="flex-grow: 1; border-radius: 12px; border: 1px solid var(--border-color);"
-            >
-              <span aria-hidden="true">${iconMarkup("settings-2", "button-icon")}</span> Automazioni
             </button>
           </div>
         </div>
 
-        ${this.openerSettingsOpen ? `
-          <div class="opener-settings-menu" style="width: min(420px, 90vw); right: auto; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
-            <div class="opener-settings-head" style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); text-align: left;">
-              <strong style="font-size: 1.2rem; color: var(--text-primary);">Impostazioni Automazioni</strong>
-              <small style="display: block; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">${this.selectedCase.manualOnly ? "Questa cassa resta manuale." : "Controlli rapidi per apertura e vendita automatica."}</small>
+        <div style="background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+          <div style="margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong style="font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("zap")} Automazioni</strong>
+              <small style="display: block; color: var(--text-secondary); margin-top: 4px;">${this.selectedCase.manualOnly ? "Questa cassa non supporta l'auto-opener." : "Risparmia click con queste opzioni automatiche."}</small>
+            </div>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+            <div style="background: var(--surface-2); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
+              <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%; height: 100%;">
+                <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
+                  <strong style="font-size: 1.05rem; color: var(--text-primary); white-space: nowrap;">Auto-opener</strong>
+                  <small style="color: var(--text-secondary); line-height: 1.3;">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade"}</small>
+                </span>
+                <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.3); flex-shrink: 0; margin-left: auto;" />
+              </label>
             </div>
             
-            <div style="display: flex; flex-direction: column; gap: 16px;">
-              <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%;">
-                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
-                    <strong style="font-size: 1.1rem; color: var(--text-primary); white-space: nowrap;">Auto-opener</strong>
-                    <small style="color: var(--text-secondary); line-height: 1.3;">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade per abilitarlo"}</small>
-                  </span>
-                  <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.4); flex-shrink: 0; margin-left: auto;" />
-                </label>
-              </div>
+            <div style="background: var(--surface-2); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px;">
+              <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%;">
+                <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
+                  <strong style="font-size: 1.05rem; color: var(--text-primary); white-space: nowrap;">Vendita Automatica</strong>
+                  <small style="color: var(--text-secondary); line-height: 1.3;">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
+                </span>
+                <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.3); flex-shrink: 0; margin-left: auto;" />
+              </label>
               
-              <div style="background: var(--surface-1); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 16px; width: 100%;">
-                  <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
-                    <strong style="font-size: 1.1rem; color: var(--text-primary); white-space: nowrap;">Vendita Automatica</strong>
-                    <small style="color: var(--text-secondary); line-height: 1.3;">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
-                  </span>
-                  <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.4); flex-shrink: 0; margin-left: auto;" />
-                </label>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                  <select id="quickAutoSellMaxTier" style="padding: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%;">
-                    ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a ${rarity}</option>`).join("")}
-                  </select>
-                  <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%;" title="Valore massimo da vendere" />
-                </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <select id="quickAutoSellMaxTier" style="padding: 8px; border-radius: 6px; background: var(--surface-1); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%; font-size: 0.9rem;">
+                  ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a ${rarity}</option>`).join("")}
+                </select>
+                <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 8px; border-radius: 6px; background: var(--surface-1); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%; font-size: 0.9rem;" title="Valore massimo da vendere" />
               </div>
             </div>
           </div>
-        ` : ""}
+        </div>
         
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div class="speed-pill" style="background: var(--surface-2); padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; border: 1px solid var(--border-color);">
-            ${this.selectedCase.manualOnly ? "Solo manuale" : `Velocità animazione: ${(getOpenDuration(this.state) / 1000).toFixed(1)}s`}
+            ${this.selectedCase.manualOnly ? "Solo manuale" : `Velocità animazione: ${(getOpenDuration(this.state) / 1000).toFixed(2)}s`}
           </div>
           
           ${lastBatch.count && !this.isAnimating ? `
@@ -2464,26 +2453,52 @@ this.refreshIcons();
       return;
     }
     const blockedIds = new Set(this.pendingRevealIds || []);
-    const history = (this.state.dropHistory || [])
+    
+    // Convert local drop history into sharedGameEvents format as fallback
+    const localFallback = (this.state.dropHistory || [])
       .filter((item) => !blockedIds.has(item.id))
-      .slice(0, 6);
+      .slice(0, 10)
+      .map(item => ({
+        playerName: this.state.profile?.name || "Tu",
+        avatarIcon: this.state.profile?.avatarIcon || "user",
+        payload: { item: item }
+      }));
+
+    // Use shared events if available, otherwise local
+    let historySource = this.sharedGameEvents?.length ? this.sharedGameEvents : localFallback;
+    
+    // Filter to only case-open events or fallback events that have an item payload
+    const history = historySource
+      .filter(event => event.payload?.item)
+      .slice(0, 8);
+      
     node.innerHTML = `
       <div class="panel-heading history-heading" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;">
-        <span style="font-weight: bold; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("clock", "button-icon")} Ultimi Drop</span>
-        <small style="color: var(--text-secondary); background: var(--surface-2); padding: 4px 10px; border-radius: 12px; font-weight: bold;">${history.length}/6</small>
+        <span style="font-weight: bold; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("globe", "button-icon")} Global Drops</span>
+        <small style="color: var(--text-secondary); background: var(--surface-2); padding: 4px 10px; border-radius: 12px; font-weight: bold;">Live</small>
       </div>
       <div class="mini-history" style="display: flex; flex-direction: column; gap: 10px;">
-        ${history.length ? history.map((item) => `
-          <div style="background: linear-gradient(90deg, var(--surface-1), transparent); border: 1px solid var(--border-color); border-left: 4px solid var(--rarity); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 14px; --rarity:${item.rarityColor}; transition: transform 0.2s; cursor: default;" onmouseover="this.style.transform='translateX(4px)'" onmouseout="this.style.transform='translateX(0)'">
+        ${history.length ? history.map((event) => {
+          const item = event.payload.item;
+          return `
+          <div style="background: linear-gradient(90deg, var(--surface-1), transparent); border: 1px solid var(--border-color); border-left: 4px solid var(--rarity); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 14px; --rarity:${item.rarityColor || RARITIES[item.rarity]?.color || '#fff'}; transition: transform 0.2s; cursor: default;" onmouseover="this.style.transform='translateX(4px)'" onmouseout="this.style.transform='translateX(0)'">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 50px;">
+              <div style="width: 28px; height: 28px; background: var(--surface-2); border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--border-color); color: var(--text-secondary);">
+                ${iconMarkup(event.avatarIcon || 'user', 'button-icon')}
+              </div>
+              <span style="font-size: 0.7rem; color: var(--text-secondary); max-width: 55px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(event.playerName || 'Guest')}</span>
+            </div>
+            
             <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" style="width: 54px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+            
             <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
               <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.name)}</span>
-              <strong style="font-size: 0.85rem; color: ${item.autoSold ? 'var(--text-secondary)' : 'var(--loot-restricted)'}; display: flex; align-items: center; gap: 4px;">
-                ${item.autoSold ? iconMarkup("zap", "button-icon") + " Venduto in Auto" : formatCredits(item.value, true)}
+              <strong style="font-size: 0.85rem; color: var(--loot-restricted); display: flex; align-items: center; gap: 4px;">
+                ${formatCredits(item.value, true)}
               </strong>
             </div>
           </div>
-        `).join("") : `<div style="padding: 24px; text-align: center; color: var(--text-secondary); background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; display: flex; flex-direction: column; align-items: center; gap: 8px;">${iconMarkup("box")} <br/> ${blockedIds.size ? "Animazione in corso..." : "Apri una cassa per iniziare."}</div>`}
+        `}).join("") : `<div style="padding: 24px; text-align: center; color: var(--text-secondary); background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; display: flex; flex-direction: column; align-items: center; gap: 8px;">${iconMarkup("box")} <br/> Attendi drop live...</div>`}
       </div>
     `;
     this.refreshIcons();
@@ -3830,95 +3845,7 @@ this.refreshIcons();
     `;
   }
 
-  renderSelectedCase() {
-    const node = this.root.querySelector("#selectedCase");
-    const caseDef = this.selectedCase;
-    const analytics = this.getCaseAnalytics(caseDef);
-    const table = analytics.table;
-    const caseStats = getCaseStats(this.state, caseDef.id);
-    const openedTotal = caseStats.opens || this.state.stats.caseCounts[caseDef.id] || 0;
-    const cleanPriceNote = caseDef.priceSource === "steam"
-      ? `Steam ${caseDef.steamRawPrice || `${caseDef.realPriceEuro?.toFixed(2)} euro`}`
-      : "fallback bilanciato";
-    const detailSummary = `${formatCredits(table.expectedValue)} EV - ${formatCredits(caseDef.price)} costo - ${openedTotal} aperture`;
-    const detailToggleIcon = this.caseDetailsOpen ? "-" : "+";
-    const highlights = this.getCaseHighlightMap(this.skinData.cases);
-    const badges = this.getCaseSignalBadges(caseDef, highlights);
 
-    node.innerHTML = `
-      <div class="case-economy case-economy-main">
-        <button class="case-details-toggle" data-action="toggle-case-details">
-          <span>Dettagli cassa</span>
-          <strong>${detailSummary}</strong>
-          <i>${detailToggleIcon}</i>
-        </button>
-        ${this.caseDetailsOpen ? `
-          <div class="case-details-panel">
-            <div class="case-signal-strip">
-              ${badges.length
-                ? badges.map((badge) => `<span class="case-signal-badge ${badge.key}" data-tip="${escapeHtml(badge.tip)}">${escapeHtml(badge.label)}</span>`).join("")
-                : `<span class="case-signal-badge neutral" data-tip="Scheda neutra: nessun segnale speciale in questo momento.">Profilo stabile</span>`}
-            </div>
-            <div class="ev-strip">
-              ${statTile("EV stimato", formatCredits(table.expectedValue), `ROI ${(table.roi * 100).toFixed(1)}%`)}
-              ${statTile("Costo", formatCredits(caseDef.price), cleanPriceNote)}
-              ${statTile("Best tier", table.bestRarity || "-", `${table.bestPreview.length} preview`)}
-              ${statTile("Aperture", openedTotal, "totali su questa cassa")}
-            </div>
-            <section class="case-detail-card">
-              <div class="case-detail-head">
-                <strong>Statistiche cassa</strong>
-                <small>${openedTotal ? "lifetime" : "nessuna apertura ancora"}</small>
-              </div>
-              <div class="case-stat-grid">
-                ${statTile("Speso", formatCredits(caseStats.spent), `${openedTotal} aperture`)}
-                ${statTile("Drop medi", formatCredits(openedTotal ? caseStats.totalDropValue / openedTotal : 0, true), "valore lordo medio")}
-                ${statTile("Venduto", formatCredits(caseStats.soldValue), `${formatCredits(caseStats.autoSoldValue, true)} auto`)}
-                ${statTile("Best drop", caseStats.bestDropName ? formatCredits(caseStats.bestDropValue, true) : "-", caseStats.bestDropRarity || "nessun record")}
-              </div>
-              ${caseStats.bestDropName ? `
-                <div class="case-best-drop-inline" style="--rarity:${RARITIES[caseStats.bestDropRarity]?.color || "#f6c452"}">
-                  <strong>${escapeHtml(caseStats.bestDropName)}</strong>
-                  <small>${escapeHtml(caseStats.bestDropRarity)} - ${formatCredits(caseStats.bestDropValue, true)}</small>
-                </div>
-              ` : ""}
-              <div class="case-rarity-mini">
-                ${RARITY_ORDER.map((rarity) => {
-                  const count = caseStats.rarityCounts[rarity] || 0;
-                  const total = Math.max(1, openedTotal);
-                  return `
-                    <div class="case-rarity-mini-row" style="--rarity:${RARITIES[rarity].color}">
-                      <span>${escapeHtml(rarity)}</span>
-                      <div><i style="width:${Math.max(count ? 4 : 0, (count / total) * 100)}%"></i></div>
-                      <strong>${count}</strong>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-            </section>
-            <div class="drop-table">
-              ${table.rows.map((row) => `
-                <div class="drop-row" style="--rarity:${row.color}">
-                  <span>${escapeHtml(row.rarity)}</span>
-                  <div><i style="width:${percent(row.probability)}"></i></div>
-                  <strong>${formatPercent(row.probability)}</strong>
-                  <small>${formatCredits(row.estimatedValue, true)} EV</small>
-                </div>
-              `).join("")}
-            </div>
-            <div class="best-preview">
-              ${table.bestPreview.map((skin) => `
-                <div class="best-skin" style="--rarity:${RARITIES[skin.rarity].color}">
-                  <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" />
-                  <span>${escapeHtml(skin.name)}</span>
-                </div>
-              `).join("")}
-            </div>
-          </div>
-        ` : ""}
-      </div>
-    `;
-  }
 
   renderStats() {
     const profit = this.state.stats.totalEarned + getInventoryValue(this.state) - this.state.stats.totalSpent;
@@ -6168,12 +6095,14 @@ const now = Date.now();
   }
 
   async saveToCloud({ quiet = false } = {}) {
-    if (this.cloudBusy && !quiet) {
+    if (this.cloudBusy) {
       return;
     }
     this.cloudBusy = true;
-    this.cloudStatus = "Salvataggio cloud...";
-    this.renderTechMenu();
+    if (!quiet) {
+      this.cloudStatus = "Salvataggio cloud...";
+      this.renderTechMenu();
+    }
     try {
       this.save();
       const result = await saveCloudState(this.state);
@@ -6184,11 +6113,15 @@ const now = Date.now();
       }
     } catch (error) {
       this.cloudStatus = error.message || "Salvataggio cloud fallito.";
-      this.toast(this.cloudStatus);
+      if (!quiet) {
+        this.toast(this.cloudStatus);
+      }
     } finally {
       this.cloudBusy = false;
-      this.renderTechMenu();
-      this.renderLoginGate();
+      if (!quiet) {
+        this.renderTechMenu();
+        this.renderLoginGate();
+      }
     }
   }
 

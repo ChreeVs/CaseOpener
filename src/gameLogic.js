@@ -429,7 +429,12 @@ export function getUpgradeCost(state, upgradeId) {
 
 export function getOpenDuration(state) {
   const level = getDiminishedUpgradeLevel(state, "openSpeed", 14);
-  return Math.max(760, Math.round(3800 * Math.pow(0.91, level)));
+  const rawDuration = Math.round(3800 * Math.pow(0.91, level));
+  // Guarantee each purchased level always reduces duration by at least 10ms
+  // so the player always sees a visible improvement after buying.
+  const rawLevel = Math.max(0, Number(state.upgrades?.openSpeed) || 0);
+  const minReduction = rawLevel * 10;
+  return Math.max(760, Math.min(rawDuration, 3800 - minReduction));
 }
 
 export function getCaseMasteryRequirement(level) {

@@ -235,7 +235,7 @@ export function upgradeEffectText(state, upgrade) {
   const level = state.upgrades[upgrade.id] || 0;
   switch (upgrade.id) {
     case "openSpeed":
-      return `${(getOpenDuration(state) / 1000).toFixed(1)}s animazione`;
+      return `${(getOpenDuration(state) / 1000).toFixed(2)}s animazione`;
     case "luck":
       return `x${getLuckMultiplier(state).toFixed(2)} fortuna`;
     case "rareBoost":
