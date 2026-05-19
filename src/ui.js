@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.5.2";
+const GAME_VERSION = "v1.5.3";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -1672,9 +1672,7 @@ this.refreshIcons();
 
   renderTopStats() {
     const topStats = this.root.querySelector("#topStats");
-    const playerAvatar = this.root.querySelector("#playerAvatar");
-    const playerCopyStrong = this.root.querySelector(".player-copy strong");
-    const playerCopySmall = this.root.querySelector(".player-copy small");
+    const playerBtn = this.root.querySelector("#playerButton");
     const inventoryValue = getInventoryValue(this.state);
     const netWorth = getNetWorth(this.state);
     const level = this.state.profile.level;
@@ -1685,22 +1683,36 @@ this.refreshIcons();
     const levelXpNeed = Math.max(1, levelCeil - levelFloor);
     const levelProgress = Math.min(1, levelXp / levelXpNeed);
     const accent = this.state.profile?.accent || "#7fe37c";
-    if (playerAvatar) {
-      playerAvatar.style.setProperty("--player-accent", accent);
-      playerAvatar.classList.toggle("has-image", Boolean(this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage));
-      playerAvatar.innerHTML = `
-        ${profileAvatarMarkup(this.state.profile, this.getProfileIconId(), "player-avatar-icon")}
-        <b>P${this.state.prestige.level}</b>
+
+    if (playerBtn) {
+      const avatarSrc = this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage || "";
+      const avatarHtml = avatarSrc
+        ? `<img class="player-avatar-img" src="${escapeHtml(avatarSrc)}" alt="Avatar" />`
+        : `<span class="player-avatar-fallback" style="background: linear-gradient(135deg, ${accent}, #45c486)">${escapeHtml((this.state.profile?.name || "OP").slice(0, 2).toUpperCase())}</span>`;
+      
+      playerBtn.style.setProperty("--player-accent", accent);
+      playerBtn.innerHTML = `
+        <div class="player-avatar-container">
+          ${avatarHtml}
+          <span class="player-prestige-badge" title="Prestigio ${this.state.prestige.level}">P${this.state.prestige.level}</span>
+        </div>
+        <div class="player-meta-info">
+          <div class="player-name-row">
+            <strong class="player-name-text">${escapeHtml(this.state.profile?.name || "Operatore")}</strong>
+            <span class="player-title-badge">${escapeHtml(this.state.profile?.title || "Case Runner")}</span>
+          </div>
+          <div class="player-level-info">
+            <span class="player-level-badge">Lv. ${level}</span>
+            <span class="player-xp-text">${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</span>
+          </div>
+          <div class="player-level-progress-bar">
+            <i style="width: ${percent(levelProgress)}"></i>
+          </div>
+        </div>
+        <span class="player-more-chevron">${iconMarkup("chevron-down")}</span>
       `;
     }
-    if (playerCopyStrong) {
-      playerCopyStrong.textContent = this.state.profile?.name || "Operatore";
-    }
-    if (playerCopySmall) {
-      playerCopySmall.textContent = this.isAdmin()
-        ? `Lv ${level} · ${levelXp.toLocaleString("it-IT")}/${levelXpNeed.toLocaleString("it-IT")} XP · Admin`
-        : `Lv ${level} · ${levelXp.toLocaleString("it-IT")}/${levelXpNeed.toLocaleString("it-IT")} XP`;
-    }
+
     topStats.innerHTML = `
       <article class="top-stat-card top-stat-balance">
         <span>${iconMarkup("coins", "top-stat-mini")} CREDITI</span>
@@ -1716,14 +1728,6 @@ this.refreshIcons();
         <span>${iconMarkup("gem", "top-stat-mini")} NET WORTH</span>
         <strong>${formatCredits(netWorth)}</strong>
         <small>Prestige ${this.state.prestige.level} - drop x${getDropValueMultiplier(this.state).toFixed(2)}</small>
-      </article>
-      <article class="top-stat-card top-stat-level">
-        <div class="top-level-head">
-          <span>${iconMarkup("shield", "top-stat-mini")} Profilo Lv ${level}</span>
-          <small>${this.state.profile?.title || "Case Runner"}</small>
-        </div>
-        <div class="top-level-bar"><i style="width:${percent(levelProgress)}"></i></div>
-        <small>${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</small>
       </article>
     `;
     this.refreshIcons();

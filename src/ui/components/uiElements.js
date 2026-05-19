@@ -1,4 +1,3 @@
-
 import { RARITIES, RARITY_ORDER } from "../../config/rarityConfig.js";
 import { formatCredits, getSellReturn, getOpenDuration, getLuckMultiplier, isAutoOpenerEnabled, getAutoInterval, getMultiOpenCount, getPassiveRate, getMarketAnalystDiscount, getDropInsuranceRate, getCollectionMultiplier, getTradeUpInputCount } from "../../gameLogic.js";
 export function escapeHtml(value) {
@@ -143,16 +142,14 @@ export const PROFILE_ICON_OPTIONS = [
   { id: "rocket", label: "Rocket" },
   { id: "gem", label: "Gem" }
 ];
-
+
 export const NAV_TABS = [
   ["cases", "Cases"],
   ["inventory", "Locker"],
-  ["shop", "Economia"],
+  ["shop", "Upgrade"],
   ["market", "Marketplace"],
-  ["stats", "Progress"],
-  ["achievements", "Achievements"],
+  ["stats", "Progresso"],
   ["prestige", "Prestige"],
-
   ["community", "Community"],
   ["admin", "Admin"]
 ];
@@ -216,9 +213,7 @@ export const TAB_GROUPS = {
   shop: ["shop"],
   market: ["market"],
   stats: ["stats"],
-  achievements: ["achievements"],
   prestige: ["prestige"],
-
   community: ["community"],
   admin: ["admin"],
   cheats: ["cheats"]
@@ -341,4 +336,3 @@ export function reelDisplayItem(item) {
     hiddenSpecial: true
   };
 }
-
