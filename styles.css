@@ -13383,3 +13383,89 @@ body {
 .quick-auto-fields input {
   text-align: center;
 }
+
+/* Final Global Drops hover fix: no clipping, avatar reliably replaces weapon */
+.global-drop-window {
+  height: 72px !important;
+  max-height: 72px !important;
+  padding-top: 5px;
+  margin-top: -5px;
+}
+
+.global-drop-track {
+  height: 72px !important;
+  align-items: center !important;
+}
+
+.global-drop-item:hover {
+  transform: scale(1.02) !important;
+}
+
+.global-drop-item .global-drop-art {
+  position: relative !important;
+  width: 50px !important;
+  height: 30px !important;
+  display: grid !important;
+  place-items: center !important;
+  justify-self: center !important;
+  overflow: visible !important;
+}
+
+.global-drop-item .global-drop-weapon-img {
+  grid-area: 1 / 1 !important;
+  width: 50px !important;
+  height: 30px !important;
+  object-fit: contain !important;
+  opacity: 1 !important;
+}
+
+.global-drop-item .global-drop-hover-avatar {
+  grid-area: 1 / 1 !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: hidden !important;
+  border-radius: 999px !important;
+  opacity: 0 !important;
+  transform: scale(0.82) !important;
+  line-height: 1 !important;
+  color: #06100b !important;
+  text-align: center !important;
+}
+
+.global-drop-item:hover .global-drop-weapon-img {
+  opacity: 0 !important;
+  transform: scale(0.76) !important;
+}
+
+.global-drop-item:hover .global-drop-hover-avatar {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+}
+
+.global-drop-item .global-drop-hover-avatar .global-drop-avatar-img {
+  display: block !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  object-fit: cover !important;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.global-drop-item .global-drop-hover-avatar .global-drop-avatar-fallback {
+  width: 30px !important;
+  height: 30px !important;
+  display: grid !important;
+  place-items: center !important;
+  color: #06100b !important;
+  font-size: 10px !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
+  opacity: 1 !important;
+}
