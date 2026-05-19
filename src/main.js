@@ -65,9 +65,9 @@ const keyboardState = {
 function showBootError(error) {
   root.innerHTML = `
     <div class="boot-screen error">
-      <div class="boot-mark">!</div>
-      <div>
-        <h1>Errore caricamento</h1>
+      <img class="boot-logo" src="KarambitQuesto-Colori.png" alt="KarambitQuest" />
+      <div class="boot-copy">
+        <h1>Errore KarambitQuest</h1>
         <p>${error.message || error}</p>
         <button onclick="location.reload()">Riprova</button>
       </div>
@@ -76,6 +76,23 @@ function showBootError(error) {
 }
 
 function showDuplicateTabError() {
+  root.innerHTML = `
+    <div class="boot-screen error">
+      <img class="boot-logo" src="KarambitQuesto-Colori.png" alt="KarambitQuest" />
+      <div class="boot-copy">
+        <h1>KarambitQuest gia' aperto</h1>
+        <p>Il gioco e' gia' attivo in un'altra scheda o finestra.<br>Chiudi le altre istanze oppure usa il pulsante qui sotto per forzare l'apertura qui.</p>
+        <button onclick="location.reload()">Riprova</button>
+        <button onclick="document.querySelector('#app').__forceTakeover?.()">Apri qui</button>
+      </div>
+    </div>
+  `;
+  root.__forceTakeover = () => {
+    isDuplicateTab = false;
+    tabChannel.postMessage("takeover");
+    location.reload();
+  };
+  /* Legacy duplicate-tab markup kept unreachable by previous edits:
   root.innerHTML = `
     <div class="boot-screen error">
       <div class="boot-mark" style="font-size:2.5rem">⚠</div>
@@ -94,7 +111,8 @@ function showDuplicateTabError() {
     location.reload();
   };
 }
-
+*/
+}
 async function start({ forceRefresh = false } = {}) {
   // Give time for BroadcastChannel ping-pong round-trip
   await new Promise(resolve => setTimeout(resolve, 150));
