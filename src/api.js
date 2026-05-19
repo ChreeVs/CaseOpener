@@ -257,13 +257,13 @@ export async function loadSkins({ forceRefresh = false } = {}) {
 }
 
 export function normalizeSkin(raw) {
-  const isSpecialItem = raw.name?.startsWith("\u2605") || ["Knives", "Gloves"].includes(raw.category?.name);
+  const isSpecialItem = raw.name?.startsWith("\u2605") || (raw.category?.name && ["Knives", "Gloves"].includes(raw.category.name));
   const rarity = isSpecialItem ? "Rare Special Item" : API_RARITY_TO_GAME[raw.rarity?.name] || null;
   if (!rarity || !raw.image) {
     return null;
   }
 
-  const collections = Array.isArray(raw.collections) ? raw.collections.map((collection) => collection.name).filter(Boolean) : [];
+  const collections = Array.isArray(raw.collections) ? raw.collections.map((collection) => collection?.name).filter(Boolean) : [];
   const crates = Array.isArray(raw.crates) ? raw.crates.filter((crate) => crate?.name) : [];
 
   return {
@@ -340,7 +340,7 @@ function createSyntheticCase(blueprint, globalPool, crateMap) {
   const pool = createPool();
   const addMany = (rarity, limit) => {
     const skins = [...(globalPool[rarity] || [])]
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => (a?.name || "").localeCompare(b?.name || ""))
       .slice(0, limit);
     skins.forEach((skin) => addSkinToPool(pool, skin));
   };
@@ -634,7 +634,7 @@ function ensureAdvancedLowTierPool(caseDef, globalPool) {
   }
   const pool = clonePool(caseDef.pool);
   pool["Mil-Spec"] = [...(globalPool["Mil-Spec"] || [])]
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => (a?.name || "").localeCompare(b?.name || ""))
     .slice(0, 90);
   const compacted = compactPool(pool);
   return {

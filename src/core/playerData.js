@@ -7,6 +7,7 @@ function clone(value) {
 }
 
 function getPathValue(target, path) {
+  if (!target || !path) return undefined;
   return path.split(".").reduce((value, key) => value?.[key], target);
 }
 
