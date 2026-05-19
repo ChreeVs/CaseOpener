@@ -12228,3 +12228,24 @@ body {
   color: var(--text-muted);
 }
 
+/* Header optimization: hide brand/logo to make more space for top-stats & operator profile card */
+.brand {
+  display: none !important;
+}
+
+.topbar {
+  grid-template-columns: 1fr !important;
+}
+
+/* Widescreen Cockpit / Dashboard layout overrides where topbar-main is display: contents */
+@media (min-width: 1181px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) 240px !important;
+  }
+}
+
+@media (max-width: 1440px) and (min-width: 1181px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) 220px !important;
+  }
+}
