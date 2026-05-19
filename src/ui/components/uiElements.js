@@ -156,6 +156,7 @@ export const NAV_TABS = [
 
 export const ADMIN_STORAGE_KEY = "case-opener-admin-session-v1";
 export const ADMIN_USER_ID = "salernitana";
+export const ADMIN_ACCESS_CODE_HASH = "87fc24cd3eca2c923a3af9916967218edefa6bdc767d72eabef79e86122ae559";
 export const ADMIN_PASSWORD_HASH = "9a2f5ce537e75c7c3daab92f3cff16791dff672efadbc4f6deb92c6a920daeeb";
 export const ADMIN_ONLY_ACTIONS = new Set([
   "toggle-session-panel",

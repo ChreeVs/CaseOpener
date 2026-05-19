@@ -446,10 +446,11 @@ export function getCaseMasteryRequirement(level) {
 }
 
 function deriveCaseMasteryFromXp(totalXp) {
+  const totalOpens = Math.max(0, Number(totalXp) || 0);
   const record = {
     level: 0,
-    xp: Math.max(0, Number(totalXp) || 0),
-    opens: 0
+    xp: totalOpens,
+    opens: Math.floor(totalOpens)
   };
 
   while (record.xp >= getCaseMasteryRequirement(record.level)) {
@@ -591,8 +592,9 @@ export function getProfileLevel(xp) {
 
 export function getPrestigeRequirement(state) {
   const nextLevel = Math.min(MAX_PRESTIGE_LEVEL, (state.prestige.level || 0) + 1);
-  const endgameScale = nextLevel > 8 ? Math.pow(1.28, nextLevel - 8) : 1;
-  return Math.floor(720 * Math.pow(nextLevel, 2.42) * endgameScale);
+  const midgameScale = nextLevel > 4 ? Math.pow(1.16, nextLevel - 4) : 1;
+  const endgameScale = nextLevel > 8 ? Math.pow(1.34, nextLevel - 8) : 1;
+  return Math.floor(1600 * Math.pow(nextLevel, 2.58) * midgameScale * endgameScale);
 }
 
 function getPrestigeResetCredits(level) {

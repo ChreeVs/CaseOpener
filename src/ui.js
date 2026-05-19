@@ -125,9 +125,9 @@ import {
   normalizeState
 } from "./gameLogic.js";
 import { exportState, importState, resetState, saveState } from "./store.js";
-import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
+import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.5.5";
+const GAME_VERSION = "v1.5.6";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -230,6 +230,9 @@ export class CaseOpenerUI {
     this.cloudSession = null;
     this.cloudBusy = false;
     this.cloudStatus = this.cloudAvailable ? "Cloud pronto" : "Cloud non configurato";
+    this.accountSessionId = crypto.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.accountSessionStartedAt = Date.now();
+    this.accountSessionBlocked = false;
     this.authUsername = "";
     this.authPassword = "";
     this.adminAuthenticated = this.readAdminSession();
@@ -453,6 +456,7 @@ export class CaseOpenerUI {
     }
     this.seenSharedGameEventIds.add(entry.id);
     this.sharedGameEvents = [entry, ...this.sharedGameEvents].slice(0, 40);
+    this.renderHistory();
   }
 
   applySharedAuction(listing) {
@@ -573,6 +577,37 @@ export class CaseOpenerUI {
     });
   }
 
+  publishRareCaseDrops(caseDef, result) {
+    if (!isSharedGamesAvailable() || !result?.drops?.length) {
+      return;
+    }
+    const topDrop = result.drops
+      .map((drop) => drop.item)
+      .filter((item) => (RARITIES[item.rarity]?.tier || 0) >= ECONOMY_CONFIG.rareRevealTier)
+      .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))[0];
+    if (!topDrop) {
+      return;
+    }
+    this.publishSharedGameResult("case_drop", {
+      game: "Global Drop",
+      detail: `${topDrop.name} da ${caseDef.name}`,
+      label: topDrop.rarity,
+      payout: topDrop.value || 0,
+      profit: topDrop.value || 0,
+      outcome: topDrop.rarity
+    }, {
+      item: topDrop,
+      caseId: caseDef.id,
+      caseName: caseDef.name,
+      openedAt: Date.now(),
+      playerId: this.getPresenceClientId(),
+      avatarImage: this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage || "",
+      avatarIcon: this.getProfileIconId(),
+      accent: this.state.profile?.accent || "#7fe37c",
+      sessionId: this.accountSessionId
+    });
+  }
+
   attachSocialClient(client) {
     this.socialClient = client;
   }
@@ -601,6 +636,8 @@ export class CaseOpenerUI {
     return {
       ...profile,
       id: this.socialConnection?.clientId || this.getPresenceClientId(),
+      sessionId: this.accountSessionId,
+      sessionStartedAt: this.accountSessionStartedAt,
       lobbyId: this.jackpotLobbyId || "",
       itemCount: profile.lockerItems?.length || 0,
       jackpotReady: Boolean(this.jackpotReady),
@@ -617,12 +654,35 @@ export class CaseOpenerUI {
       .filter((player) => player?.id)
       .sort((a, b) => Number(b.netWorth || 0) - Number(a.netWorth || 0));
     const currentId = this.socialConnection?.clientId || this.getPresenceClientId();
+    const ownSessions = normalized.filter((player) => player.id === currentId);
+    if (this.cloudSession?.user && ownSessions.length > 1) {
+      const newest = [...ownSessions].sort((a, b) =>
+        Number(b.sessionStartedAt || 0) - Number(a.sessionStartedAt || 0) ||
+        Date.parse(b.onlineAt || 0) - Date.parse(a.onlineAt || 0)
+      )[0];
+      const shouldBlock = newest?.sessionId && newest.sessionId !== this.accountSessionId;
+      if (shouldBlock !== this.accountSessionBlocked) {
+        this.accountSessionBlocked = shouldBlock;
+        this.cloudStatus = shouldBlock
+          ? "Questo account e' gia' attivo in un'altra finestra."
+          : "Sessione account attiva.";
+        if (shouldBlock) {
+          this.toast("Account gia' in uso: chiudi l'altra sessione per continuare.");
+          this.renderLoginGate();
+        }
+      }
+    } else if (this.accountSessionBlocked) {
+      this.accountSessionBlocked = false;
+      this.cloudStatus = "Sessione account attiva.";
+      this.renderLoginGate();
+    }
     const currentPlayer = normalized.find((player) => player.id === currentId) || this.socialState?.currentPlayer || null;
-    this.socialState = {
-      ...(this.socialState || {}),
-      players: normalized,
-      currentPlayer
-    };
+      this.socialState = {
+        ...(this.socialState || {}),
+        players: normalized,
+        currentPlayer
+      };
+    this.renderHistory();
     if (this.activeTab === "games" || this.isMultiplayerTabActive()) {
       this.renderTab();
     }
@@ -966,7 +1026,7 @@ export class CaseOpenerUI {
     this.root.innerHTML = `
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark">CS2</div>
+          <img class="brand-logo" src="KarambitQuesto-Colori.png" alt="KarambitQuest" />
           <div>
             <p id="apiStatus"></p>
           </div>
@@ -991,6 +1051,7 @@ export class CaseOpenerUI {
         <aside class="nav-rail">
           <nav class="tabs" id="tabs"></nav>
         </aside>
+        <section class="history-box global-drop-reel" id="dropHistory"></section>
 
         <aside class="panel case-panel">
           <div class="panel-heading">
@@ -1017,7 +1078,6 @@ export class CaseOpenerUI {
           </div>
           <div class="session-box" id="sessionBox"></div>
           <div class="daily-box" id="dailyBox"></div>
-          <div class="history-box" id="dropHistory"></div>
         </aside>
 
         <section class="workspace" id="workspace">
@@ -1033,6 +1093,7 @@ export class CaseOpenerUI {
       <div class="login-gate" id="loginGate" hidden></div>
       <div class="legal-layer" id="legalLayer"></div>
       <div class="global-chat-dock" id="globalChatDock"></div>
+      <div class="global-drop-tooltip" id="globalDropTooltip" hidden></div>
       <div class="app-version">${GAME_VERSION}</div>
     `;
   }
@@ -1052,6 +1113,27 @@ export class CaseOpenerUI {
         return;
       }
       this.handleAction(target.dataset.action, target.dataset, target);
+    });
+
+    this.root.addEventListener("pointerover", (event) => {
+      const item = event.target.closest(".global-drop-item");
+      if (item) {
+        this.showGlobalDropTooltip(item, event);
+      }
+    });
+
+    this.root.addEventListener("pointermove", (event) => {
+      const item = event.target.closest(".global-drop-item");
+      if (item) {
+        this.moveGlobalDropTooltip(event);
+      }
+    });
+
+    this.root.addEventListener("pointerout", (event) => {
+      const item = event.target.closest(".global-drop-item");
+      if (item && !item.contains(event.relatedTarget)) {
+        this.hideGlobalDropTooltip();
+      }
     });
 
     this.root.addEventListener("input", (event) => {
@@ -1127,9 +1209,6 @@ if (target.matches("#gameInventorySearch")) {
       }
       if (target.matches("#authPassword")) {
         this.authPassword = target.value;
-      }
-      if (target.matches("#adminUserId")) {
-        this.adminUserId = target.value;
       }
       if (target.matches("#adminPassword")) {
         this.adminPassword = target.value;
@@ -1245,7 +1324,7 @@ if (target.matches("#coinflipSide")) {
         event.preventDefault();
         this.signInUsername();
       }
-      if (target.matches("#adminUserId, #adminPassword") && event.key === "Enter") {
+      if (target.matches("#adminPassword") && event.key === "Enter") {
         event.preventDefault();
         this.loginAdmin();
       }
@@ -1626,7 +1705,39 @@ this.refreshIcons();
   }
 
   isCloudLoggedIn() {
-    return Boolean(this.cloudSession?.user);
+    return Boolean(this.cloudSession?.user && !this.accountSessionBlocked);
+  }
+
+  showGlobalDropTooltip(item, event) {
+    const tooltip = this.root.querySelector("#globalDropTooltip");
+    const text = item?.dataset?.tip || "";
+    if (!tooltip || !text) {
+      return;
+    }
+    tooltip.textContent = text;
+    tooltip.hidden = false;
+    this.moveGlobalDropTooltip(event);
+  }
+
+  moveGlobalDropTooltip(event) {
+    const tooltip = this.root.querySelector("#globalDropTooltip");
+    if (!tooltip || tooltip.hidden) {
+      return;
+    }
+    const margin = 16;
+    const preferredTop = event.clientY + 18;
+    const maxTop = Math.max(margin, window.innerHeight - tooltip.offsetHeight - margin);
+    const left = clamp(event.clientX, margin + 150, window.innerWidth - margin - 150);
+    const top = preferredTop > maxTop ? event.clientY - tooltip.offsetHeight - 18 : preferredTop;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(margin, top)}px`;
+  }
+
+  hideGlobalDropTooltip() {
+    const tooltip = this.root.querySelector("#globalDropTooltip");
+    if (tooltip) {
+      tooltip.hidden = true;
+    }
   }
 
   renderLoginGate() {
@@ -1702,6 +1813,7 @@ this.refreshIcons();
         </div>
         <div class="player-meta-info">
           <div class="player-name-row">
+            <span class="player-card-label">${iconMarkup("id-card", "top-stat-mini")} SCHEDA UTENTE</span>
             <strong class="player-name-text">${escapeHtml(this.state.profile?.name || "Operatore")}</strong>
             <span class="player-title-badge">${escapeHtml(this.state.profile?.title || "Case Runner")}</span>
           </div>
@@ -1862,12 +1974,8 @@ this.refreshIcons();
           ` : this.adminGateOpen ? `
             <div class="tech-auth-form">
               <label>
-                <span>ID staff</span>
-                <input id="adminUserId" value="${escapeHtml(this.adminUserId)}" autocomplete="username" placeholder="id" />
-              </label>
-              <label>
-                <span>Password</span>
-                <input id="adminPassword" type="password" value="${escapeHtml(this.adminPassword)}" autocomplete="current-password" placeholder="password" />
+                <span>Codice numerico</span>
+                <input id="adminPassword" type="password" inputmode="numeric" pattern="[0-9]*" value="${escapeHtml(this.adminPassword)}" autocomplete="off" placeholder="codice" />
               </label>
               <button class="primary-button small" data-action="admin-login">${iconMarkup("key-round", "button-icon")} Entra admin</button>
               ${this.adminStatus ? `<small>${escapeHtml(this.adminStatus)}</small>` : ""}
@@ -2184,43 +2292,44 @@ this.refreshIcons();
       meta.textContent = `${visibleCases.length} casse`;
     }
     list.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 12px; padding: 8px;">
+      <div class="case-showcase-list">
         ${visibleCases
       .map((caseDef) => {
         const unlocked = isCaseUnlocked(this.state, caseDef);
         const active = this.selectedCase?.id === caseDef.id;
         const mastery = getCaseMastery(this.state, caseDef.id);
         const priceLabel = caseDef.price <= 0 ? "Gratis" : formatCredits(caseDef.price, true);
+        const canAfford = this.state.credits >= caseDef.price;
         return `
-          <button data-action="select-case" data-id="${caseDef.id}" ${unlocked ? "" : "disabled"} 
-            style="all: unset; display: block; box-sizing: border-box; width: 100%; background: ${active ? 'var(--surface-2)' : 'var(--surface-1)'}; border: ${active ? '2px solid var(--loot-legendary)' : '1px solid var(--border-color)'}; box-shadow: ${active ? '0 0 15px rgba(235, 172, 46, 0.4)' : 'none'}; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; ${unlocked ? 'cursor: pointer;' : 'opacity: 0.6; filter: grayscale(1);'}" 
-            onmouseover="if(${unlocked} && !${active}) { this.style.borderColor='rgba(255, 255, 255, 0.4)'; this.style.transform='translateY(-2px)'; }"
-            onmouseout="if(${unlocked} && !${active}) { this.style.borderColor='var(--border-color)'; this.style.transform='translateY(0)'; }">
-            
-            <div style="display: flex; align-items: center; gap: 16px; padding: 12px;">
-              <div style="width: 72px; height: 72px; display: grid; place-items: center; background: radial-gradient(circle, ${caseDef.accent}40 0%, transparent 70%); border-radius: 8px;">
-                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" style="width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
-              </div>
-              
-              <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; text-align: left;">
-                <strong style="font-size: 1.1rem; color: ${active ? 'var(--loot-legendary)' : 'var(--text-primary)'};">${escapeHtml(caseDef.name)}</strong>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-size: 0.9rem; color: var(--text-secondary); background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 4px; font-weight: bold;">
-                    ${escapeHtml(priceLabel)}
-                  </span>
-                  <span style="font-size: 0.8rem; color: var(--text-secondary);">
-                    Lv ${mastery.level}
-                  </span>
-                </div>
-                <div style="width: 100%; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden; margin-top: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
-                  <div style="height: 100%; width: ${percent(mastery.progress)}; background: linear-gradient(90deg, ${caseDef.accent}, var(--loot-legendary));"></div>
-                </div>
-              </div>
-            </div>
+          <button
+            class="case-showcase-card ${active ? "is-active" : ""} ${unlocked ? "" : "is-locked"} ${canAfford ? "can-afford" : "is-expensive"}"
+            data-action="select-case"
+            data-id="${caseDef.id}"
+            style="--case-accent:${caseDef.accent || "#ffd166"}"
+            ${unlocked ? "" : "disabled"}
+            type="button"
+          >
+            <span class="case-showcase-art">
+              <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
+            </span>
+            <span class="case-showcase-copy">
+              <strong>${escapeHtml(caseDef.name)}</strong>
+              <span class="case-showcase-meta">
+                <em>${escapeHtml(priceLabel)}</em>
+                <small>${unlocked ? (canAfford ? "Pronta" : "Saldo basso") : `Prestige ${caseDef.unlockPrestige || 0}`}</small>
+              </span>
+              <span class="case-showcase-progress" aria-hidden="true">
+                <i style="width: ${percent(mastery.progress)}"></i>
+              </span>
+            </span>
+            <span class="case-showcase-level">
+              <small>Lv</small>
+              <strong>${mastery.level}</strong>
+            </span>
           </button>
         `;
       })
-      .join("") || `<div class="empty-state small" style="padding: 24px; text-align: center; color: var(--text-secondary);">Nessuna cassa trovata.</div>`}
+      .join("") || `<div class="empty-state small">Nessuna cassa trovata.</div>`}
       </div>
     `;
     this.refreshIcons();
@@ -2310,6 +2419,48 @@ this.refreshIcons();
     const autoLevel = this.state.upgrades.autoOpener || 0;
     const autoEnabled = Boolean(autoLevel) && this.state.automation?.autoOpenerEnabled !== false && !this.selectedCase.manualOnly;
     const autoSellEnabled = Boolean(this.state.autoSell.enabled);
+    node.innerHTML = `
+      <div class="opener-actions-layout">
+        <div class="open-command-row">
+          <button class="primary-button open-main-button" data-action="open-case" ${this.isAnimating ? "disabled" : ""}>
+            <span>${iconMarkup("unlock", "button-icon")} ${this.selectedCase.price <= 0 ? "Apri gratis" : `Apri x${multi}`}</span>
+            <strong>${formatCredits(totalCost)}</strong>
+          </button>
+          <button class="ghost-button open-single-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""}>
+            ${iconMarkup("mouse-pointer-click", "button-icon")} Singola
+          </button>
+          <div class="quick-automation-panel" aria-label="Automazioni rapide">
+            <label class="quick-toggle ${autoEnabled ? "is-on" : ""}" title="${this.selectedCase.manualOnly ? "Questa cassa non supporta l'auto-opener." : autoLevel ? `Auto-opener ${autoEnabled ? "attivo" : "in pausa"}` : "Compra l'upgrade Auto-opener"}">
+              <span>${iconMarkup("zap", "button-icon")} <strong>Auto apertura</strong><small>${autoLevel ? (autoEnabled ? "attiva" : "in pausa") : "upgrade richiesto"}</small></span>
+              <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} />
+            </label>
+            <label class="quick-toggle ${autoSellEnabled ? "is-on" : ""}" title="Vendita automatica">
+              <span>${iconMarkup("banknote", "button-icon")} <strong>Auto vendita</strong><small>${autoSellEnabled ? "attiva" : "spenta"}</small></span>
+              <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} />
+            </label>
+            <div class="quick-auto-fields">
+              <select id="quickAutoSellMaxTier" title="Rarita' massima auto-sell">
+                ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>${rarity}</option>`).join("")}
+              </select>
+              <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" title="Valore massimo auto-sell" />
+            </div>
+          </div>
+        </div>
+        <div class="opener-action-meta">
+          <div class="speed-pill">
+            ${this.selectedCase.manualOnly ? "Solo manuale" : `Animazione ${(getOpenDuration(this.state) / 1000).toFixed(2)}s - Auto ${autoLevel ? compactTime(getAutoInterval(this.state)) : "off"}`}
+          </div>
+          ${lastBatch.count && !this.isAnimating ? `
+            <button class="ghost-button result-sell-button" data-action="sell-last-open" ${this.isAnimating ? "disabled" : ""}>
+              ${iconMarkup("banknote", "button-icon")} Vendi Risultato:
+              <span>${lastBatch.count} - ${formatCredits(lastBatch.total, true)}</span>
+            </button>
+          ` : ""}
+        </div>
+      </div>
+    `;
+    this.refreshIcons();
+    return;
     node.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 16px; margin: 24px 0;">
         <div style="display: flex; gap: 16px; justify-content: center; align-items: stretch;">
@@ -2460,25 +2611,87 @@ this.refreshIcons();
     if (!node) {
       return;
     }
-    const blockedIds = new Set(this.pendingRevealIds || []);
-    
-    // Convert local drop history into sharedGameEvents format as fallback
-    const localFallback = (this.state.dropHistory || [])
-      .filter((item) => !blockedIds.has(item.id))
-      .slice(0, 10)
-      .map(item => ({
-        playerName: this.state.profile?.name || "Tu",
-        avatarIcon: this.state.profile?.avatarIcon || "user",
-        payload: { item: item }
-      }));
+    const now = Date.now();
+    const onlineIds = new Set((this.socialState?.players || []).map((player) => player.id).filter(Boolean));
+    const onlineNames = new Set((this.socialState?.players || []).map((player) => player.name).filter(Boolean));
 
-    // Use shared events if available, otherwise local
-    let historySource = this.sharedGameEvents?.length ? this.sharedGameEvents : localFallback;
+    const historySource = this.sharedGameEvents || [];
     
     // Filter to only case-open events or fallback events that have an item payload
     const history = historySource
-      .filter(event => event.payload?.item)
-      .slice(0, 8);
+      .filter((event) => {
+        const item = event.payload?.item;
+        if (!item || event.mode !== "case_drop") {
+          return false;
+        }
+        if ((RARITIES[item.rarity]?.tier || 0) < ECONOMY_CONFIG.rareRevealTier) {
+          return false;
+        }
+        const eventAt = Date.parse(event.createdAt || "") || Number(event.payload?.openedAt || 0) || now;
+        if (now - eventAt > 1000 * 60 * 20) {
+          return false;
+        }
+        const playerId = event.payload?.playerId || "";
+        return !onlineIds.size || onlineIds.has(playerId) || onlineNames.has(event.playerName);
+      })
+      .slice(0, 12);
+    const reelItems = history.length ? [...history, ...history] : [];
+    const avatarSignature = (this.socialState?.players || [])
+      .map((player) => `${player.id || player.name || ""}:${player.avatarImage || ""}:${player.accent || ""}`)
+      .join("|");
+    const historySignature = `${history
+      .map((event) => `${event.id || event.createdAt || event.payload?.openedAt || ""}:${event.payload?.item?.id || event.payload?.item?.name || ""}`)
+      .join("|")}::${avatarSignature}`;
+    const renderReelItem = (event) => {
+      const item = event.payload.item;
+      const rarityColor = item.rarityColor || RARITIES[item.rarity]?.color || "#fff";
+      const playerName = event.playerName || "Guest";
+      const playerId = event.payload?.playerId || "";
+      const playerProfile = (this.socialState?.players || []).find((player) =>
+        (playerId && player.id === playerId) || player.name === playerName
+      );
+      const avatarSrc = event.payload?.avatarImage || playerProfile?.avatarImage || "";
+      const avatarAccent = event.payload?.accent || playerProfile?.accent || "#7fe37c";
+      const playerInitials = escapeHtml(playerName.slice(0, 2).toUpperCase() || "OP");
+      const avatarMarkup = avatarSrc
+        ? `<img class="global-drop-avatar-img" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(playerName)}" loading="lazy" />`
+        : `<span class="global-drop-avatar-fallback" style="--avatar-accent:${escapeHtml(avatarAccent)}">${playerInitials}</span>`;
+      const foundAt = event.createdAt
+        ? new Date(event.createdAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })
+        : new Date(item.obtainedAt || Date.now()).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+      const tip = `Skin: ${item.name} | Player: ${playerName} | Rarita': ${item.rarity || "Drop"} | Valore: ${formatCredits(item.value || 0, true)} | Ora: ${foundAt}`;
+      return `
+        <button class="global-drop-item" type="button" style="--rarity:${rarityColor}" data-tip="${escapeHtml(tip)}">
+          <span class="global-drop-art">
+            <img class="global-drop-weapon-img" src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
+            <span class="global-drop-hover-avatar" aria-hidden="true">${avatarMarkup}</span>
+          </span>
+          <span class="global-drop-player-name">${escapeHtml(playerName)}</span>
+          <strong class="global-drop-value">${formatCredits(item.value || 0, true)}</strong>
+        </button>
+      `;
+    };
+    if (!node.querySelector(".global-drop-track")) {
+      node.innerHTML = `
+        <div class="global-drop-head">
+          <span>${iconMarkup("globe-2", "button-icon")} Drops</span>
+          <small>Live</small>
+        </div>
+        <div class="global-drop-window">
+          <div class="global-drop-track"></div>
+        </div>
+      `;
+    }
+    const track = node.querySelector(".global-drop-track");
+    if (!track || node.dataset.dropSignature === historySignature) {
+      return;
+    }
+    node.dataset.dropSignature = historySignature;
+    track.innerHTML = reelItems.length
+      ? reelItems.map(renderReelItem).join("")
+      : `<div class="global-drop-empty">${iconMarkup("box", "button-icon")}</div>`;
+    this.refreshIcons();
+    return;
       
     node.innerHTML = `
       <div class="panel-heading history-heading" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;">
@@ -2564,6 +2777,7 @@ this.refreshIcons();
     }
     const isCases = this.activeTab === "cases";
     grid?.classList.toggle("is-workspace-mode", !isCases);
+    grid?.classList.toggle("is-cases-mode", isCases);
     workspace?.classList.toggle("is-collapsed", isCases);
     if (isCases) {
       content.innerHTML = "";
@@ -4135,6 +4349,7 @@ this.refreshIcons();
       .filter((drop) => !drop.autoSold)
       .map((drop) => drop.item.id);
     this.recordSessionOpen(this.selectedCase, result, showcase);
+    this.publishRareCaseDrops(this.selectedCase, result);
 
     this.playDropSound(showcase);
     if (auto && RARITIES[showcase.rarity].tier >= ECONOMY_CONFIG.rareRevealTier) {
@@ -5954,7 +6169,7 @@ const now = Date.now();
     try {
       const raw = sessionStorage.getItem(ADMIN_STORAGE_KEY);
       const session = raw ? JSON.parse(raw) : null;
-      return session?.user === ADMIN_USER_ID;
+      return session?.user === ADMIN_USER_ID && session?.verified === true;
     } catch (error) {
       return false;
     }
@@ -5975,18 +6190,18 @@ const now = Date.now();
   }
 
   getAdminCredentials() {
-    const userId = (this.root.querySelector("#adminUserId")?.value || this.adminUserId || "").trim().toLowerCase();
-    const password = this.root.querySelector("#adminPassword")?.value || this.adminPassword || "";
-    this.adminUserId = userId;
-    this.adminPassword = password;
-    return { userId, password };
+    const code = String(this.root.querySelector("#adminPassword")?.value || this.adminPassword || "")
+      .replace(/\D/g, "")
+      .slice(0, 16);
+    this.adminPassword = code;
+    return { userId: ADMIN_USER_ID, password: code };
   }
 
   async validateAdminCredentials(userId, password) {
     if (userId !== ADMIN_USER_ID || !password || !globalThis.crypto?.subtle) {
       return false;
     }
-    return (await hashText(password)) === ADMIN_PASSWORD_HASH;
+    return (await hashText(password)) === ADMIN_ACCESS_CODE_HASH;
   }
 
   async loginAdmin() {
@@ -6003,7 +6218,7 @@ const now = Date.now();
     this.adminPassword = "";
     this.adminStatus = "Profilo admin attivo.";
     try {
-      sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+      sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, verified: true, at: Date.now() }));
     } catch (error) {
       // Admin mode still works for the current in-memory session.
     }
@@ -6121,7 +6336,7 @@ const now = Date.now();
         this.adminAuthenticated = true;
         this.adminStatus = "Profilo admin attivo.";
         try {
-          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, verified: true, at: Date.now() }));
         } catch (error) {
           // Admin mode still works for the current in-memory session.
         }
@@ -6155,7 +6370,7 @@ const now = Date.now();
         this.adminAuthenticated = true;
         this.adminStatus = "Profilo admin attivo.";
         try {
-          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, at: Date.now() }));
+          sessionStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify({ user: ADMIN_USER_ID, verified: true, at: Date.now() }));
         } catch (error) {
           // Admin mode still works for the current in-memory session.
         }

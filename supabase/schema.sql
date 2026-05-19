@@ -1,4 +1,5 @@
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
@@ -284,7 +285,7 @@ stable
 set search_path = public
 as $$
   select lower(coalesce(admin_id, '')) = 'salernitana'
-    and lower(coalesce(admin_password, '')) = 'your_secure_password';
+    and encode(extensions.digest(convert_to(coalesce(admin_password, ''), 'UTF8'), 'sha256'), 'hex') = '87fc24cd3eca2c923a3af9916967218edefa6bdc767d72eabef79e86122ae559';
 $$;
 
 create or replace function public.admin_reset_community_goals(

@@ -217,6 +217,8 @@ function mapPresenceState(state = {}) {
       itemCount: Number(entry.itemCount || 0),
       lockerItems: Array.isArray(entry.lockerItems) ? entry.lockerItems.slice(0, 40) : [],
       lobbyId: cleanText(entry.lobbyId, "", 32),
+      sessionId: cleanText(entry.sessionId, "", 80),
+      sessionStartedAt: Number(entry.sessionStartedAt || 0),
       jackpotReady: Boolean(entry.jackpotReady),
       onlineAt: entry.onlineAt || new Date().toISOString()
     })))
