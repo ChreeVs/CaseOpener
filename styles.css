@@ -13334,3 +13334,52 @@ body {
     max-width: none;
   }
 }
+
+/* Keep quick automation controls inside their panel */
+.quick-automation-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.quick-automation-panel *,
+.quick-automation-panel *::before,
+.quick-automation-panel *::after {
+  box-sizing: border-box;
+}
+
+.quick-toggle {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.quick-toggle span,
+.quick-toggle strong,
+.quick-toggle small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.quick-auto-fields {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(54px, 68px) !important;
+  gap: 6px !important;
+}
+
+.quick-auto-fields select,
+.quick-auto-fields input {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding-inline: 8px !important;
+}
+
+.quick-auto-fields input {
+  text-align: center;
+}
