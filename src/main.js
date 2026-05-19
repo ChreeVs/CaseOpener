@@ -14,47 +14,6 @@ let lastTickAt = Date.now();
 const playerData = createPlayerDataStore({ bus: eventBus });
 const disposeMultiplayerHooks = registerMultiplayerHooks({ bus: eventBus, networkClient });
 
-// ── Single-tab enforcement via BroadcastChannel ──
-const tabChannel = new BroadcastChannel("case_opener_tabs");
-let isDuplicateTab = false;
-
-tabChannel.onmessage = (event) => {
-  if (event.data === "ping") {
-    // Another tab is checking – tell it we exist
-    tabChannel.postMessage("pong");
-  } else if (event.data === "pong" && !isDuplicateTab) {
-    // We got a reply → another tab is already running
-    isDuplicateTab = true;
-    showDuplicateTabError();
-  } else if (event.data === "takeover") {
-    // A newer tab is forcing us to stop
-    isDuplicateTab = true;
-    ui?.save();
-    ui?.dispose?.();
-    ui = null;
-    showDuplicateTabError();
-  }
-};
-tabChannel.postMessage("ping");
-
-// ── Cloud auto-save timer ──
-const CLOUD_SAVE_INTERVAL_MS = 30000; // 30 seconds
-let lastCloudSaveAt = 0;
-
-function autoCloudSave() {
-  if (!ui || !ui.isCloudLoggedIn?.() || ui.cloudBusy) {
-    return;
-  }
-  const now = Date.now();
-  if (now - lastCloudSaveAt < CLOUD_SAVE_INTERVAL_MS) {
-    return;
-  }
-  lastCloudSaveAt = now;
-  ui.saveToCloud({ quiet: true }).catch(() => {
-    // silent – cloud save is best-effort
-  });
-}
-
 // Keyboard navigation state
 const keyboardState = {
   lastKeyPress: 0,
@@ -75,33 +34,7 @@ function showBootError(error) {
   `;
 }
 
-function showDuplicateTabError() {
-  root.innerHTML = `
-    <div class="boot-screen error">
-      <div class="boot-mark" style="font-size:2.5rem">⚠</div>
-      <div>
-        <h1>Gioco già aperto</h1>
-        <p>Il gioco è già attivo in un'altra scheda o finestra.<br>Chiudi le altre istanze oppure usa il pulsante qui sotto per forzare l'apertura qui.</p>
-        <button onclick="location.reload()">Riprova</button>
-        <button onclick="document.querySelector('#app').__forceTakeover?.()">Apri qui</button>
-      </div>
-    </div>
-  `;
-  // Attach takeover function
-  root.__forceTakeover = () => {
-    isDuplicateTab = false;
-    tabChannel.postMessage("takeover");
-    location.reload();
-  };
-}
-
 async function start({ forceRefresh = false } = {}) {
-  // Give time for BroadcastChannel ping-pong round-trip
-  await new Promise(resolve => setTimeout(resolve, 150));
-  if (isDuplicateTab) {
-    return;
-  }
-
   try {
     root.classList.add("is-loading");
     
@@ -134,8 +67,6 @@ async function start({ forceRefresh = false } = {}) {
         ui.toast(`Prezzi Steam aggiornati per ${updated} casse.`);
         ui.renderAll();
         ui.save();
-      }).catch((error) => {
-        console.warn("[Main] Failed to refresh case prices:", error);
       });
 
       if (metadata.warning) {
@@ -170,11 +101,10 @@ window.addEventListener("beforeunload", () => {
   ui?.save();
   ui?.dispose?.();
   disposeMultiplayerHooks?.();
-  tabChannel.close();
 });
 
 setInterval(() => {
-  if (!ui || isDuplicateTab) {
+  if (!ui) {
     return;
   }
   if (!ui.isCloudLoggedIn?.()) {
@@ -191,11 +121,7 @@ setInterval(() => {
 }, ACTIVE_TICK_MS);
 
 setInterval(() => {
-  if (isDuplicateTab) {
-    return;
-  }
   ui?.save();
-  autoCloudSave();
 }, AUTO_SAVE_MS);
 
 function switchTab(tab) {

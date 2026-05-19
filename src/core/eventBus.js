@@ -28,10 +28,8 @@ export class EventBus {
       payload,
       at: Date.now()
     };
-    const handlers = this.listeners.get(eventName) || new Set();
-    handlers.forEach((handler) => handler(envelope));
-    const wildCardHandlers = this.listeners.get("*") || new Set();
-    wildCardHandlers.forEach((handler) => handler(envelope));
+    (this.listeners.get(eventName) || []).forEach((handler) => handler(envelope));
+    (this.listeners.get("*") || []).forEach((handler) => handler(envelope));
     return envelope;
   }
 }

@@ -402,8 +402,7 @@ export function getDropValueMultiplier(state) {
 
 function getPrestigeUpgradeEfficiency(state) {
   const prestigeLevel = Math.max(0, Number(state.prestige?.level) || 0);
-  const efficiency = 1 / (1 + prestigeLevel * 0.055 + Math.pow(Math.max(0, prestigeLevel - 7), 1.35) * 0.018);
-  return Math.min(1, Math.max(0.01, efficiency));
+  return 1 / (1 + prestigeLevel * 0.055 + Math.pow(Math.max(0, prestigeLevel - 7), 1.35) * 0.018);
 }
 
 function getDiminishedUpgradeLevel(state, upgradeId, curve = 12) {
@@ -429,12 +428,7 @@ export function getUpgradeCost(state, upgradeId) {
 
 export function getOpenDuration(state) {
   const level = getDiminishedUpgradeLevel(state, "openSpeed", 14);
-  const rawDuration = Math.round(3800 * Math.pow(0.91, level));
-  // Guarantee each purchased level always reduces duration by at least 10ms
-  // so the player always sees a visible improvement after buying.
-  const rawLevel = Math.max(0, Number(state.upgrades?.openSpeed) || 0);
-  const minReduction = rawLevel * 10;
-  return Math.max(760, Math.min(rawDuration, 3800 - minReduction));
+  return Math.max(760, Math.round(3800 * Math.pow(0.91, level)));
 }
 
 export function getCaseMasteryRequirement(level) {
@@ -449,7 +443,7 @@ function deriveCaseMasteryFromXp(totalXp) {
   const record = {
     level: 0,
     xp: Math.max(0, Number(totalXp) || 0),
-    opens: 0
+    opens: Math.max(0, Math.floor(Number(totalXp) || 0))
   };
 
   while (record.xp >= getCaseMasteryRequirement(record.level)) {
@@ -548,7 +542,7 @@ export function getCritChance(state) {
 }
 
 export function getMultiOpenCount(state) {
-  const level = Math.max(0, Math.min(Number(state.upgrades?.multiOpen) || 0, MULTI_OPEN_LEVELS.length - 1));
+  const level = Math.min(Math.floor(getDiminishedUpgradeLevel(state, "multiOpen", 10)), MULTI_OPEN_LEVELS.length - 1);
   return MULTI_OPEN_LEVELS[level] || 1;
 }
 
@@ -592,7 +586,7 @@ export function getProfileLevel(xp) {
 export function getPrestigeRequirement(state) {
   const nextLevel = Math.min(MAX_PRESTIGE_LEVEL, (state.prestige.level || 0) + 1);
   const endgameScale = nextLevel > 8 ? Math.pow(1.28, nextLevel - 8) : 1;
-  return Math.floor(72000 * Math.pow(nextLevel, 2.42) * endgameScale);
+  return Math.floor(720 * Math.pow(nextLevel, 2.42) * endgameScale);
 }
 
 function getPrestigeResetCredits(level) {
@@ -847,7 +841,7 @@ function getProfileWithProbabilities(caseDef, state) {
 function estimateRarityValue(state, rarity, caseDef) {
   const wearAverage = WEAR_TIERS.reduce((sum, wear) => sum + wear.multiplier, 0) / WEAR_TIERS.length;
   const critExpected = 1 + getCritChance(state) * 0.72;
-  return RARITIES[rarity].baseValue * wearAverage * getDropValueMultiplier(state) * critExpected * Number(caseDef?.valueScale || 1);
+  return RARITIES[rarity].baseValue * wearAverage * getDropValueMultiplier(state) * critExpected * Number(caseDef.valueScale || 1);
 }
 
 export function getCaseDropTable(state, caseDef) {
@@ -891,9 +885,9 @@ export function rollRarity(caseDef, state) {
 }
 
 export function pickSkin(caseDef, rarity, skinData) {
-  const pool = caseDef?.pool?.[rarity]?.length ? caseDef.pool[rarity] : skinData?.globalPool?.[rarity] || skinData?.skins?.filter(s => s.rarity === rarity) || [];
+  const pool = caseDef.pool[rarity]?.length ? caseDef.pool[rarity] : skinData.globalPool[rarity] || [];
   if (!pool.length) {
-    const fallback = RARITY_ORDER.map((candidate) => caseDef?.pool?.[candidate] || skinData?.globalPool?.[candidate] || skinData?.skins?.filter(s => s.rarity === candidate) || []).find((items) => items.length);
+    const fallback = RARITY_ORDER.map((candidate) => caseDef.pool[candidate] || skinData.globalPool[candidate] || []).find((items) => items.length);
     return fallback[Math.floor(Math.random() * fallback.length)];
   }
   return pool[Math.floor(Math.random() * pool.length)];
@@ -936,7 +930,7 @@ function calculateValue(skin, rarity, floatValue, state, flags, caseDef) {
       specialNameBonus *
       lowFloatBonus *
       crit *
-      Number(caseDef?.valueScale || 1) *
+      Number(caseDef.valueScale || 1) *
       getDropValueMultiplier(state)
   );
 }
@@ -971,8 +965,8 @@ export function createInventoryItem(skin, rarity, caseDef, state) {
     locked: false,
     favorite: false,
     marketCost: 0,
-    caseId: caseDef?.id || "market",
-    caseName: caseDef?.name || "Global Market",
+    caseId: caseDef.id,
+    caseName: caseDef.name,
     collection: skin.collections[0] || "No Collection",
     obtainedAt: Date.now()
   };
@@ -1979,15 +1973,13 @@ export function getMarketTrend(state) {
 export function refreshMarket(state, skinData, selectedCase) {
   const now = Date.now();
   const trend = getMarketTrend(state);
-  if (now - state.market.lastRefreshAt < ECONOMY_CONFIG.marketplaceRefreshMs) {
-    if (!state.market.offers) state.market.offers = [];
+  if (state.market.offers.length && now - state.market.lastRefreshAt < ECONOMY_CONFIG.marketplaceRefreshMs) {
     return state.market.offers;
   }
 
   const rarities = ["Mil-Spec", "Restricted", "Classified", "Covert"];
   const limited = getLimitedEventEffect(state);
-  const offerCount = ECONOMY_CONFIG.marketplaceOfferCount;
-  state.market.offers = Array.from({ length: offerCount }, (_, index) => {
+  state.market.offers = Array.from({ length: ECONOMY_CONFIG.marketplaceOfferCount }, (_, index) => {
     const rarity = rarities[Math.min(rarities.length - 1, Math.floor(Math.random() * rarities.length))];
     const skin = pickSkin(selectedCase, rarity, skinData);
     const fakeCase = selectedCase;
