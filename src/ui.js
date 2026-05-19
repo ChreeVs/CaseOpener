@@ -111,6 +111,7 @@ import {
   maybeStartLimitedEvent,
   openCases,
   openRewardCase,
+  pickSkin,
   prestige,
   refreshMarket,
   runTradeUpContract,
@@ -127,7 +128,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.5.5";
+const GAME_VERSION = "v1.5.6";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -256,6 +257,8 @@ export class CaseOpenerUI {
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
+    window.setTimeout(() => this.simulateGlobalDrop(), 1500);
+    this.simulationTimer = window.setInterval(() => this.simulateGlobalDrop(), 7000);
   }
 
   dispose() {
@@ -278,6 +281,10 @@ export class CaseOpenerUI {
     if (this.liveSyncTimer) {
       window.clearInterval(this.liveSyncTimer);
       this.liveSyncTimer = null;
+    }
+    if (this.simulationTimer) {
+      window.clearInterval(this.simulationTimer);
+      this.simulationTimer = null;
     }
     if (this.crashTimer) {
       window.clearInterval(this.crashTimer);
@@ -497,6 +504,7 @@ export class CaseOpenerUI {
       this.sharedAuctions = auctions;
       this.lastSharedGamesSyncAt = Date.now();
       this.sharedGamesStatus = "Sync giochi live";
+      this.renderHistory();
       if (this.activeTab === "games") {
         this.renderTab();
       }
@@ -517,6 +525,7 @@ export class CaseOpenerUI {
       this.unsubscribeSharedGameEvents = await subscribeSharedGameEvents((entry) => {
         this.applySharedGameEvent(entry);
         this.sharedGamesStatus = "Sync giochi live";
+        this.renderHistory();
         if (this.activeTab === "games") {
           this.renderTab();
         }
@@ -966,12 +975,16 @@ export class CaseOpenerUI {
     this.root.innerHTML = `
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark">CS2</div>
-          <div>
-            <p id="apiStatus"></p>
+          <div class="brand-badge">${iconMarkup("aperture", "brand-icon")}</div>
+          <div class="brand-title">
+            <strong>CASE OPENER</strong>
+            <span class="connection-status ${this.cloudSession?.user ? "online" : "offline"}" id="headerConnectionStatus">
+              <i class="status-dot"></i> ${this.cloudSession?.user ? "CLOUD ACTIVE" : "LOCAL PLAY"}
+            </span>
           </div>
+          <p id="apiStatus" style="display: none;"></p>
         </div>
-        <div class="topbar-main">
+        <div class="topbar-main-content">
           <div class="top-stats" id="topStats"></div>
           <div class="player-dock">
             <button class="player-button" data-action="toggle-tech-menu" type="button" aria-expanded="false" id="playerButton">
@@ -1677,6 +1690,15 @@ this.refreshIcons();
   renderTopStats() {
     const topStats = this.root.querySelector("#topStats");
     const playerBtn = this.root.querySelector("#playerButton");
+    
+    // Update connection status display in the brand block
+    const connStatus = this.root.querySelector("#headerConnectionStatus");
+    if (connStatus) {
+      const isOnline = Boolean(this.cloudSession?.user);
+      connStatus.className = `connection-status ${isOnline ? "online" : "offline"}`;
+      connStatus.innerHTML = `<i class="status-dot"></i> ${isOnline ? "CLOUD ACTIVE" : "LOCAL PLAY"}`;
+    }
+
     const inventoryValue = getInventoryValue(this.state);
     const netWorth = getNetWorth(this.state);
     const level = this.state.profile.level;
@@ -2057,8 +2079,43 @@ this.refreshIcons();
 
   getFilteredCases() {
     return this.getSortedCases(this.skinData.cases.filter((caseDef) => {
+      // 1. Group check (if prestige group matches)
       const matchesGroup = (caseDef.unlockPrestige || 0) === this.casePrestigeGroup;
-      return matchesGroup;
+      if (!matchesGroup) {
+        return false;
+      }
+      
+      // 2. Search query check
+      if (this.caseSearch) {
+        const query = this.caseSearch.toLowerCase().trim();
+        const matchesName = caseDef.name.toLowerCase().includes(query);
+        if (!matchesName) return false;
+      }
+      
+      // 3. Status check
+      if (this.caseStatus && this.caseStatus !== "all") {
+        const unlocked = isCaseUnlocked(this.state, caseDef);
+        if (this.caseStatus === "unlocked" && !unlocked) return false;
+        if (this.caseStatus === "locked" && unlocked) return false;
+        if (this.caseStatus === "affordable") {
+          const affordable = unlocked && this.state.credits >= caseDef.price;
+          if (!affordable) return false;
+        }
+        if (this.caseStatus === "favorites") {
+          const isFav = this.isCaseFavorite(caseDef.id);
+          if (!isFav) return false;
+        }
+      }
+      
+      // 4. Max price check
+      if (this.caseMaxPrice !== "" && this.caseMaxPrice !== undefined && this.caseMaxPrice !== null) {
+        const maxVal = Number(this.caseMaxPrice);
+        if (Number.isFinite(maxVal) && caseDef.price > maxVal) {
+          return false;
+        }
+      }
+      
+      return true;
     }));
   }
 
@@ -2121,6 +2178,7 @@ this.refreshIcons();
               <option value="unlocked" ${this.caseStatus === "unlocked" ? "selected" : ""}>Sbloccate</option>
               <option value="affordable" ${this.caseStatus === "affordable" ? "selected" : ""}>Acquistabili</option>
               <option value="locked" ${this.caseStatus === "locked" ? "selected" : ""}>Bloccate</option>
+              <option value="favorites" ${this.caseStatus === "favorites" ? "selected" : ""}>Preferite</option>
             </select>
             <input id="caseMaxPrice" type="number" min="0" step="10" value="${escapeHtml(this.caseMaxPrice)}" placeholder="Max prezzo" />
           </div>
@@ -2184,43 +2242,45 @@ this.refreshIcons();
       meta.textContent = `${visibleCases.length} casse`;
     }
     list.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 12px; padding: 8px;">
+      <div class="case-list-container">
         ${visibleCases
       .map((caseDef) => {
         const unlocked = isCaseUnlocked(this.state, caseDef);
         const active = this.selectedCase?.id === caseDef.id;
         const mastery = getCaseMastery(this.state, caseDef.id);
         const priceLabel = caseDef.price <= 0 ? "Gratis" : formatCredits(caseDef.price, true);
+        const isFav = this.isCaseFavorite(caseDef.id);
         return `
-          <button data-action="select-case" data-id="${caseDef.id}" ${unlocked ? "" : "disabled"} 
-            style="all: unset; display: block; box-sizing: border-box; width: 100%; background: ${active ? 'var(--surface-2)' : 'var(--surface-1)'}; border: ${active ? '2px solid var(--loot-legendary)' : '1px solid var(--border-color)'}; box-shadow: ${active ? '0 0 15px rgba(235, 172, 46, 0.4)' : 'none'}; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; ${unlocked ? 'cursor: pointer;' : 'opacity: 0.6; filter: grayscale(1);'}" 
-            onmouseover="if(${unlocked} && !${active}) { this.style.borderColor='rgba(255, 255, 255, 0.4)'; this.style.transform='translateY(-2px)'; }"
-            onmouseout="if(${unlocked} && !${active}) { this.style.borderColor='var(--border-color)'; this.style.transform='translateY(0)'; }">
-            
-            <div style="display: flex; align-items: center; gap: 16px; padding: 12px;">
-              <div style="width: 72px; height: 72px; display: grid; place-items: center; background: radial-gradient(circle, ${caseDef.accent}40 0%, transparent 70%); border-radius: 8px;">
-                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" style="width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));" />
+          <div class="case-card-wrapper ${active ? 'active' : ''}">
+            <button data-action="select-case" data-id="${caseDef.id}" 
+              class="case-card ${active ? 'active' : ''} ${unlocked ? '' : 'locked'}" 
+              ${unlocked ? "" : "disabled"} 
+              style="--case-accent-color: ${caseDef.accent}; --case-accent-glow: ${caseDef.accent}33;">
+              
+              <div class="case-icon-container">
+                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" class="case-img" />
               </div>
               
-              <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; text-align: left;">
-                <strong style="font-size: 1.1rem; color: ${active ? 'var(--loot-legendary)' : 'var(--text-primary)'};">${escapeHtml(caseDef.name)}</strong>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-size: 0.9rem; color: var(--text-secondary); background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 4px; font-weight: bold;">
-                    ${escapeHtml(priceLabel)}
-                  </span>
-                  <span style="font-size: 0.8rem; color: var(--text-secondary);">
-                    Lv ${mastery.level}
-                  </span>
+              <div class="case-details">
+                <strong>${escapeHtml(caseDef.name)}</strong>
+                <div class="case-meta-row">
+                  <span class="case-price">${escapeHtml(priceLabel)}</span>
+                  <span class="case-mastery">Lv ${mastery.level}</span>
                 </div>
-                <div style="width: 100%; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden; margin-top: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
-                  <div style="height: 100%; width: ${percent(mastery.progress)}; background: linear-gradient(90deg, ${caseDef.accent}, var(--loot-legendary));"></div>
+                <div class="case-mastery-bar-container">
+                  <div class="case-mastery-bar" style="width: ${percent(mastery.progress)}"></div>
                 </div>
               </div>
-            </div>
-          </button>
+            </button>
+            ${unlocked ? `
+              <button class="case-card-favorite-btn ${isFav ? 'is-fav' : ''}" data-action="toggle-case-favorite" data-id="${caseDef.id}" title="${isFav ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}">
+                ${iconMarkup("star", "fav-icon")}
+              </button>
+            ` : ""}
+          </div>
         `;
       })
-      .join("") || `<div class="empty-state small" style="padding: 24px; text-align: center; color: var(--text-secondary);">Nessuna cassa trovata.</div>`}
+      .join("") || `<div class="empty-state small">Nessuna cassa trovata.</div>`}
       </div>
     `;
     this.refreshIcons();
@@ -2311,78 +2371,67 @@ this.refreshIcons();
     const autoEnabled = Boolean(autoLevel) && this.state.automation?.autoOpenerEnabled !== false && !this.selectedCase.manualOnly;
     const autoSellEnabled = Boolean(this.state.autoSell.enabled);
     node.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 16px; margin: 24px 0;">
-        <div style="display: flex; gap: 16px; justify-content: center; align-items: stretch;">
-          <button class="primary-button" data-action="open-case" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; max-width: 400px; padding: 20px; font-size: 1.4rem; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); transition: transform 0.1s, box-shadow 0.1s;">
-            <span style="display: flex; align-items: center; gap: 8px;">
-              ${iconMarkup("unlock", "button-icon")} 
-              ${this.selectedCase.price <= 0 ? "Apri Gratis" : `Apri x${multi}`}
-            </span>
-            <span style="font-size: 1.1rem; opacity: 0.9; font-weight: 500;">${formatCredits(totalCost)}</span>
+      <div class="opener-actions-container">
+        <!-- Main Button (Apri xN) -->
+        <button class="primary-button opener-btn-main" data-action="open-case" ${this.isAnimating ? "disabled" : ""}>
+          <span class="btn-label">
+            ${iconMarkup("unlock", "button-icon")} 
+            ${this.selectedCase.price <= 0 ? "Apri Gratis" : `Apri x${multi}`}
+          </span>
+          <span class="btn-cost">${formatCredits(totalCost)}</span>
+        </button>
+        
+        <div class="opener-secondary-controls">
+          <!-- Singola (x1) Button -->
+          <button class="ghost-button opener-btn-single" data-action="open-one" ${this.isAnimating ? "disabled" : ""}>
+            ${iconMarkup("mouse-pointer-click", "button-icon")} Singola x1
           </button>
-          
-          <div style="display: flex; flex-direction: column; gap: 12px; min-width: 160px;">
-            <button class="ghost-button" data-action="open-one" ${this.isAnimating ? "disabled" : ""} style="flex-grow: 1; border-radius: 12px; font-weight: bold; border: 1px solid var(--border-color); height: 100%;">
-              ${iconMarkup("mouse-pointer-click", "button-icon")} Singola (x1)
-            </button>
-          </div>
-        </div>
 
-        <div style="background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-          <div style="margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <strong style="font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">${iconMarkup("zap")} Automazioni</strong>
-              <small style="display: block; color: var(--text-secondary); margin-top: 4px;">${this.selectedCase.manualOnly ? "Questa cassa non supporta l'auto-opener." : "Risparmia click con queste opzioni automatiche."}</small>
-            </div>
-          </div>
-          
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
-            <div style="background: var(--surface-2); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-              <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%; height: 100%;">
-                <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
-                  <strong style="font-size: 1.05rem; color: var(--text-primary); white-space: nowrap;">Auto-opener</strong>
-                  <small style="color: var(--text-secondary); line-height: 1.3;">${autoLevel ? `${autoEnabled ? "Attivo" : "In pausa"} - ${compactTime(getAutoInterval(this.state))}` : "Compra l'upgrade"}</small>
-                </span>
-                <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} style="transform: scale(1.3); flex-shrink: 0; margin-left: auto;" />
+          <!-- Compact Automations Dock (next to Singola x1) -->
+          <div class="compact-auto-dock">
+            <!-- Row 1: Toggles -->
+            <div class="compact-auto-toggles">
+              <label class="compact-toggle-item ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"}" title="Attiva/Disattiva apertura automatica">
+                <input id="quickAutoOpenerEnabled" type="checkbox" ${this.state.automation?.autoOpenerEnabled !== false ? "checked" : ""} ${autoLevel && !this.selectedCase.manualOnly ? "" : "disabled"} />
+                <span>${iconMarkup("zap", "auto-icon-tiny")} Auto-Open ${autoLevel ? `<small>${compactTime(getAutoInterval(this.state))}</small>` : ""}</span>
+              </label>
+
+              <label class="compact-toggle-item" title="Attiva/Disattiva vendita automatica">
+                <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} />
+                <span>${iconMarkup("banknote", "auto-icon-tiny")} Auto-Sell</span>
               </label>
             </div>
-            
-            <div style="background: var(--surface-2); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px;">
-              <label style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; width: 100%;">
-                <span style="display: flex; flex-direction: column; gap: 4px; padding-right: 12px; flex-grow: 1; text-align: left;">
-                  <strong style="font-size: 1.05rem; color: var(--text-primary); white-space: nowrap;">Vendita Automatica</strong>
-                  <small style="color: var(--text-secondary); line-height: 1.3;">${autoSellEnabled ? `Attiva` : "Disattivata"}</small>
-                </span>
-                <input id="quickAutoSellEnabled" type="checkbox" ${autoSellEnabled ? "checked" : ""} style="transform: scale(1.3); flex-shrink: 0; margin-left: auto;" />
-              </label>
-              
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <select id="quickAutoSellMaxTier" style="padding: 8px; border-radius: 6px; background: var(--surface-1); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%; font-size: 0.9rem;">
-                  ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a ${rarity}</option>`).join("")}
-                </select>
-                <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" style="padding: 8px; border-radius: 6px; background: var(--surface-1); border: 1px solid var(--border-color); color: var(--text-primary); width: 100%; font-size: 0.9rem;" title="Valore massimo da vendere" />
+
+            <!-- Row 2: Auto-Sell Parameters -->
+            <div class="compact-auto-settings" style="opacity: ${autoSellEnabled ? '1' : '0.4'}; pointer-events: ${autoSellEnabled ? 'auto' : 'none'};">
+              <select id="quickAutoSellMaxTier" class="compact-auto-select">
+                ${RARITY_ORDER.slice(0, 5).map((rarity, index) => `<option value="${index}" ${Number(this.state.autoSell.maxTier) === index ? "selected" : ""}>Fino a: ${rarity}</option>`).join("")}
+              </select>
+              <div class="compact-price-input-wrapper">
+                <span>Max:</span>
+                <input id="quickAutoSellMaxValue" type="number" min="0" step="5" value="${Number(this.state.autoSell.maxValue)}" class="compact-auto-input" />
               </div>
             </div>
           </div>
         </div>
         
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div class="speed-pill" style="background: var(--surface-2); padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; border: 1px solid var(--border-color);">
+        <div class="opener-actions-footer">
+          <div class="speed-pill">
             ${this.selectedCase.manualOnly ? "Solo manuale" : `Velocità animazione: ${(getOpenDuration(this.state) / 1000).toFixed(2)}s`}
           </div>
           
           ${lastBatch.count && !this.isAnimating ? `
-            <button class="ghost-button result-sell-button" data-action="sell-last-open" ${this.isAnimating ? "disabled" : ""} style="border: 1px solid var(--loot-restricted); color: var(--loot-restricted); padding: 8px 16px; border-radius: 8px;">
+            <button class="ghost-button result-sell-button" data-action="sell-last-open" ${this.isAnimating ? "disabled" : ""}>
               ${iconMarkup("banknote", "button-icon")} Vendi Risultato: 
-              <span style="font-weight: bold; margin-left: 6px;">${lastBatch.count} skin - ${formatCredits(lastBatch.total, true)}</span>
+              <span class="sell-result-meta">${lastBatch.count} skin - ${formatCredits(lastBatch.total, true)}</span>
             </button>
           ` : ""}
         </div>
       </div>
     `;
-    const resultSellMeta = node.querySelector(".result-sell-button span");
+    const resultSellMeta = node.querySelector(".sell-result-meta");
     if (resultSellMeta && lastBatch.count) {
-      resultSellMeta.textContent = `${lastBatch.count} - ${formatCredits(lastBatch.total, true)}`;
+      resultSellMeta.textContent = `${lastBatch.count} skin - ${formatCredits(lastBatch.total, true)}`;
     }
     this.refreshIcons();
   }
@@ -2510,6 +2559,84 @@ this.refreshIcons();
       </div>
     `;
     this.refreshIcons();
+  }
+
+  simulateGlobalDrop() {
+    const MOCK_PLAYERS = [
+      { name: "xX_DragonSlayer_Xx", avatar: "crosshair" },
+      { name: "GamerPro99", avatar: "sparkles" },
+      { name: "SkinHunter_CS", avatar: "crown" },
+      { name: "NeoMatrix", avatar: "rocket" },
+      { name: "Zeus_Strike", avatar: "gem" },
+      { name: "Phoenix_Rider", avatar: "shield" },
+      { name: "HyperBeast", avatar: "sparkles" },
+      { name: "Asiimov_Lover", avatar: "crosshair" },
+      { name: "ClutchKing", avatar: "crown" },
+      { name: "DropGod", avatar: "gem" },
+      { name: "KappaCS", avatar: "rocket" },
+      { name: "SilverScrub", avatar: "shield" },
+      { name: "GlobalElite9", avatar: "crown" },
+      { name: "SmokeMone", avatar: "sparkles" },
+      { name: "FragMaster", avatar: "crosshair" }
+    ];
+
+    const cases = this.skinData?.cases;
+    if (!cases || !cases.length) return;
+    const randomCase = cases[Math.floor(Math.random() * cases.length)];
+
+    const availableRarities = Object.keys(randomCase.pool).filter(r => randomCase.pool[r] && randomCase.pool[r].length);
+    if (!availableRarities.length) return;
+
+    let chosenRarity = availableRarities[0];
+    const roll = Math.random();
+    if (availableRarities.includes("Rare Special Item") && roll < 0.015) {
+      chosenRarity = "Rare Special Item";
+    } else if (availableRarities.includes("Covert") && roll < 0.05) {
+      chosenRarity = "Covert";
+    } else if (availableRarities.includes("Classified") && roll < 0.15) {
+      chosenRarity = "Classified";
+    } else if (availableRarities.includes("Restricted") && roll < 0.40) {
+      chosenRarity = "Restricted";
+    } else if (availableRarities.includes("Mil-Spec") && roll < 0.85) {
+      chosenRarity = "Mil-Spec";
+    } else {
+      chosenRarity = availableRarities[Math.floor(Math.random() * availableRarities.length)];
+    }
+
+    const skinTemplate = pickSkin(randomCase, chosenRarity, this.skinData);
+    if (!skinTemplate) return;
+
+    const wearOptions = ["FN", "MW", "FT", "WW", "BS"];
+    const wear = wearOptions[Math.floor(Math.random() * wearOptions.length)];
+    const float = Math.random() * 0.5;
+
+    const baseValue = RARITIES[chosenRarity]?.baseValue || 1.0;
+    const wearScale = wear === "FN" ? 1.5 : wear === "MW" ? 1.2 : wear === "FT" ? 1.0 : wear === "WW" ? 0.8 : 0.6;
+    const value = skinTemplate.value || (baseValue * wearScale * (0.8 + Math.random() * 0.4));
+
+    const simulatedItem = {
+      id: `sim-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: skinTemplate.name,
+      rarity: chosenRarity,
+      rarityColor: RARITIES[chosenRarity]?.color || "#fff",
+      value: Number(value.toFixed(2)),
+      image: skinTemplate.image || "",
+      wear: wear,
+      float: float
+    };
+
+    const player = MOCK_PLAYERS[Math.floor(Math.random() * MOCK_PLAYERS.length)];
+    const simulatedEvent = {
+      id: `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      playerName: player.name,
+      avatarIcon: player.avatar,
+      payload: {
+        item: simulatedItem
+      }
+    };
+
+    this.applySharedGameEvent(simulatedEvent);
+    this.renderHistory();
   }
 
   renderQuickActions() {
@@ -3760,29 +3887,6 @@ this.refreshIcons();
     `;
   }
 
-  renderCaseFilters(visibleCases) {
-    const node = this.root.querySelector("#caseFilters");
-    if (!node) {
-      return;
-    }
-    const groups = this.getCasePrestigeGroups();
-    const groupCases = this.getCasesForPrestigeGroup(this.casePrestigeGroup);
-    const groupIndex = Math.max(0, groups.indexOf(this.casePrestigeGroup));
-    node.innerHTML = `
-      <div class="case-prestige-switch">
-        <button class="ghost-button tiny case-carousel-arrow" data-action="case-page-prev" ${groupIndex <= 0 ? "disabled" : ""} aria-label="Prestige precedente">${iconMarkup("arrow-left")}</button>
-        <strong>Prestige ${this.casePrestigeGroup}</strong>
-        <button class="ghost-button tiny case-carousel-arrow" data-action="case-page-next" ${groupIndex >= groups.length - 1 ? "disabled" : ""} aria-label="Prestige successivo">${iconMarkup("arrow-right")}</button>
-      </div>
-      <div class="case-filters-head case-count-only">
-        <div class="case-filters-meta">
-          <span>${visibleCases.length}/${groupCases.length} casse</span>
-          <small>Gruppo Prestige ${this.casePrestigeGroup}</small>
-        </div>
-      </div>
-    `;
-  }
-
 
 
   renderStats() {
@@ -4135,6 +4239,18 @@ this.refreshIcons();
       .filter((drop) => !drop.autoSold)
       .map((drop) => drop.item.id);
     this.recordSessionOpen(this.selectedCase, result, showcase);
+
+    // Publish to global drops feed if drop is Mil-Spec (tier 2) or higher
+    if (showcase && RARITIES[showcase.rarity]?.tier >= 2) {
+      this.publishSharedGameResult("open", {
+        game: this.selectedCase.name,
+        detail: showcase.name,
+        payout: showcase.value,
+        outcome: showcase.rarity
+      }, {
+        item: showcase
+      });
+    }
 
     this.playDropSound(showcase);
     if (auto && RARITIES[showcase.rarity].tier >= ECONOMY_CONFIG.rareRevealTier) {

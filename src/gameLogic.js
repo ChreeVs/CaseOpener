@@ -592,7 +592,7 @@ export function getProfileLevel(xp) {
 export function getPrestigeRequirement(state) {
   const nextLevel = Math.min(MAX_PRESTIGE_LEVEL, (state.prestige.level || 0) + 1);
   const endgameScale = nextLevel > 8 ? Math.pow(1.28, nextLevel - 8) : 1;
-  return Math.floor(720 * Math.pow(nextLevel, 2.42) * endgameScale);
+  return Math.floor(72000 * Math.pow(nextLevel, 2.42) * endgameScale);
 }
 
 function getPrestigeResetCredits(level) {
