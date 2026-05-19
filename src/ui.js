@@ -4724,11 +4724,16 @@ export class CaseOpenerUI {
 
     return new Promise((resolve) => {
       requestAnimationFrame(() => {
-        const itemWidth = 138;
         const targetIndex = 36;
         const frameWidth = frame.getBoundingClientRect().width || 760;
         const jitter = Math.random() * 54 - 27;
-        const target = targetIndex * itemWidth - frameWidth / 2 + itemWidth / 2 + jitter;
+        // Compute actual item stride (item width + gap) to match CSS flex gap
+        const firstItem = track.querySelector('.reel-item');
+        const computedStyle = window.getComputedStyle(track);
+        const gap = parseFloat(computedStyle.gap || computedStyle.columnGap) || 0;
+        const itemWidth = firstItem ? firstItem.getBoundingClientRect().width : 138;
+        const stride = itemWidth + gap;
+        const target = targetIndex * stride - frameWidth / 2 + stride / 2 + jitter;
         track.style.transition = `transform ${duration}ms cubic-bezier(.12,.72,.08,1)`;
         track.style.transform = `translateX(${-target}px)`;
         let lastTickIndex = 0;
