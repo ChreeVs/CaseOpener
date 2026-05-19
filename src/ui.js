@@ -127,7 +127,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_PASSWORD_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.5.3";
+const GAME_VERSION = "v1.5.4";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -1453,6 +1453,10 @@ if (target.matches("#coinflipSide")) {
         this.renderTechMenu();
         this.renderTab();
         break;
+      case "change-stats-subtab":
+        this.statsSubTab = data.subtab || "dossier";
+        this.renderTab();
+        break;
       case "page":
         this.inventoryPage = Math.max(1, Number(data.page) || 1);
         this.renderTab();
@@ -2760,77 +2764,7 @@ this.refreshIcons();
     `;
   }
 
-  renderStats() {
-    const profit = this.state.stats.totalEarned + getInventoryValue(this.state) - this.state.stats.totalSpent;
-    const best = this.state.stats.bestDrop;
-    const topMastery = this.skinData.cases
-      .map((caseDef) => ({ caseDef, mastery: getCaseMastery(this.state, caseDef.id) }))
-      .filter(({ mastery }) => mastery.opens > 0)
-      .sort((a, b) => b.mastery.level - a.mastery.level || b.mastery.opens - a.mastery.opens)
-      .slice(0, 8);
-    const maxMastery = topMastery[0]?.mastery.level || 0;
-    const skill = getProfileSkillBonus(this.state);
-    return `
-      ${this.renderSectionTabs("stats")}
-      <div class="stats-grid">
-        ${statTile("Casse aperte", this.state.stats.casesOpened.toLocaleString("it-IT"), `${this.state.stats.manualOpens} manuali - ${this.state.stats.autoOpens} auto`)}
-        ${statTile("Speso", formatCredits(this.state.stats.totalSpent), "casse + market")}
-        ${statTile("Venduto", formatCredits(this.state.stats.totalEarned), "incassi skin")}
-        ${statTile("Profit / Loss", `${profit >= 0 ? "+" : ""}${formatCredits(profit)}`, "include inventario")}
-        ${statTile("Special", this.state.stats.jackpotHits, "knife/gloves/special")}
-        ${statTile("Offline", formatCredits(this.state.stats.offlineEarned), "idle income")}
-        ${statTile("Collezioni", this.state.stats.collections, `bonus x${getCollectionMultiplier(this.state).toFixed(2)}`)}
-        ${statTile("Economia", formatCredits(this.state.stats.insuranceEarned || 0), `${this.state.stats.autoSold} auto-sell - ${this.state.stats.marketFlips} flip`)}
-        ${statTile("Mastery casse", `Lv ${maxMastery}`, `${topMastery.length} casse allenate`)}
-      </div>
-      <div class="split-layout">
-        <section class="data-panel">
-          <h3>Skill profilo</h3>
-          <div class="rarity-bars">
-            <div class="rarity-row"><span>Fortuna</span><div><i style="width:${percent(skill.luck / 0.035)}"></i></div><strong>+${(skill.luck * 100).toFixed(1)}%</strong></div>
-            <div class="rarity-row"><span>Fee vendita</span><div><i style="width:${percent(skill.sellFeeReduction / 0.025)}"></i></div><strong>-${(skill.sellFeeReduction * 100).toFixed(1)}%</strong></div>
-            <div class="rarity-row"><span>Goal solo</span><div><i style="width:${percent(skill.goalDiscount / 0.1)}"></i></div><strong>-${(skill.goalDiscount * 100).toFixed(0)}%</strong></div>
-            <div class="rarity-row"><span>Archivio</span><div><i style="width:${percent(Math.min(1, skill.collectionAssist / 5))}"></i></div><strong>+${skill.collectionAssist}</strong></div>
-          </div>
-        </section>
-        <section class="data-panel">
-          <h3>Conteggio rarita'</h3>
-          <div class="rarity-bars">
-            ${RARITY_ORDER.map((rarity) => {
-              const count = this.state.stats.rarityCounts[rarity] || 0;
-              const total = Math.max(1, this.state.stats.casesOpened);
-              return `
-                <div class="rarity-row" style="--rarity:${RARITIES[rarity].color}">
-                  <span>${rarity}</span>
-                  <div><i style="width:${Math.max(2, (count / total) * 100)}%"></i></div>
-                  <strong>${count}</strong>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        </section>
-        <section class="data-panel">
-          <h3>Miglior drop</h3>
-          ${best ? itemCard(best, { compact: false }) : `<div class="empty-state">Ancora nessun drop.</div>`}
-        </section>
-        <section class="data-panel">
-          <h3>Mastery casse</h3>
-          <div class="case-mastery-list">
-            ${topMastery.length ? topMastery.map(({ caseDef, mastery }) => `
-              <div class="case-mastery-row">
-                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
-                <div>
-                  <strong>${escapeHtml(caseDef.name)}</strong>
-                  <span>Lv ${mastery.level} - +${Math.round(mastery.luckBonus * 1000) / 10}% fortuna - ${mastery.opens} aperture</span>
-                  <div class="progress-line"><i style="width:${percent(mastery.progress)}"></i></div>
-                </div>
-              </div>
-            `).join("") : `<div class="empty-state">Apri una cassa per iniziare la mastery.</div>`}
-          </div>
-        </section>
-      </div>
-    `;
-  }
+  // Obsolete renderStats method (superseded by main renderStats implementation)
 
   renderPrestige() {
     const netWorth = getNetWorth(this.state);
@@ -3852,125 +3786,267 @@ this.refreshIcons();
 
 
   renderStats() {
+    this.statsSubTab = this.statsSubTab || "dossier";
     const profit = this.state.stats.totalEarned + getInventoryValue(this.state) - this.state.stats.totalSpent;
     const best = this.state.stats.bestDrop;
     const session = this.getSessionSummary();
     const topMastery = this.skinData.cases
       .map((caseDef) => ({ caseDef, mastery: getCaseMastery(this.state, caseDef.id) }))
       .filter(({ mastery }) => mastery.opens > 0)
-      .sort((a, b) => b.mastery.level - a.mastery.level || b.mastery.opens - a.mastery.opens)
-      .slice(0, 8);
+      .sort((a, b) => b.mastery.level - a.mastery.level || b.mastery.opens - a.mastery.opens);
     const maxMastery = topMastery[0]?.mastery.level || 0;
     const skill = getProfileSkillBonus(this.state);
-    const totalDrops = Math.max(1, RARITY_ORDER.reduce((sum, rarity) => sum + (this.state.stats.rarityCounts[rarity] || 0), 0));
-    const rarityStops = [];
-    let rarityCursor = 0;
-    RARITY_ORDER.forEach((rarity) => {
-      const next = rarityCursor + ((this.state.stats.rarityCounts[rarity] || 0) / totalDrops) * 100;
-      rarityStops.push(`${RARITIES[rarity].color} ${rarityCursor.toFixed(2)}% ${next.toFixed(2)}%`);
-      rarityCursor = next;
-    });
+    
+    const level = this.state.profile.level;
+    const totalXp = Math.round(this.state.profile.xp);
+    const levelFloor = Math.max(0, Math.pow(Math.max(0, level - 1), 2) * 125);
+    const levelCeil = Math.max(levelFloor + 125, Math.pow(level, 2) * 125);
+    const levelXp = Math.max(0, totalXp - levelFloor);
+    const levelXpNeed = Math.max(1, levelCeil - levelFloor);
+    const levelProgress = Math.min(1, levelXp / levelXpNeed);
+    const accent = this.state.profile?.accent || "#7fe37c";
+
     const minigameSpent = Number(this.state.stats.minigameSpent || 0);
     const minigameEarned = Number(this.state.stats.minigameEarned || 0);
-    const economyTotal = Math.max(1, this.state.stats.totalSpent + this.state.stats.totalEarned + getInventoryValue(this.state) + minigameSpent);
-    const spentPct = (this.state.stats.totalSpent / economyTotal) * 100;
-    const earnedPct = (this.state.stats.totalEarned / economyTotal) * 100;
-    const inventoryPct = (getInventoryValue(this.state) / economyTotal) * 100;
-    const economyStops = [
-      `#f05d5e 0% ${spentPct.toFixed(2)}%`,
-      `#45c486 ${spentPct.toFixed(2)}% ${(spentPct + earnedPct).toFixed(2)}%`,
-      `#64d7e3 ${(spentPct + earnedPct).toFixed(2)}% ${(spentPct + earnedPct + inventoryPct).toFixed(2)}%`,
-      `#ffd166 ${(spentPct + earnedPct + inventoryPct).toFixed(2)}% 100%`
-    ];
-    return `
-      ${this.renderSectionTabs("stats")}
-      <div class="stats-grid">
-        ${statTile("Casse aperte", this.state.stats.casesOpened.toLocaleString("it-IT"), `${this.state.stats.manualOpens} manuali - ${this.state.stats.autoOpens} auto`)}
-        ${statTile("Speso", formatCredits(this.state.stats.totalSpent), "casse + market")}
-        ${statTile("Venduto", formatCredits(this.state.stats.totalEarned), "incassi skin")}
-        ${statTile("Profit / Loss", `${profit >= 0 ? "+" : ""}${formatCredits(profit)}`, "include inventario")}
-        ${statTile("Special", this.state.stats.jackpotHits, "knife / gloves / special")}
-        ${statTile("Collezioni", this.state.stats.collections, `bonus x${getCollectionMultiplier(this.state).toFixed(2)}`)}
-        ${statTile("Minigiochi", `${minigameEarned - minigameSpent >= 0 ? "+" : ""}${formatCredits(minigameEarned - minigameSpent)}`, `${formatCredits(minigameSpent, true)} puntati`)}
-        ${statTile("Sessione", session.opens, `${session.opensPerMinute.toFixed(1)}/min - ${compactTime(session.durationMs)}`)}
-      </div>
-      <div class="progress-chart-grid">
-        <section class="data-panel progress-chart-card">
-          <h3>Drop per rarita'</h3>
-          <div class="pie-chart" style="--pie:${rarityStops.join(", ")}"></div>
-          <div class="chart-legend">
-            ${RARITY_ORDER.map((rarity) => `<span style="--rarity:${RARITIES[rarity].color}">${escapeHtml(rarity)} <strong>${this.state.stats.rarityCounts[rarity] || 0}</strong></span>`).join("")}
+
+    const unlockedCount = ACHIEVEMENTS.filter(a => this.state.achievements[a.id]?.completedAt).length;
+    const totalAchievements = ACHIEVEMENTS.length;
+    const achievementsProgress = totalAchievements > 0 ? unlockedCount / totalAchievements : 0;
+
+    let subTabContentHtml = "";
+
+    if (this.statsSubTab === "dossier") {
+      const myBestItems = [...this.state.inventory]
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 3);
+
+      const totalDrops = Math.max(1, RARITY_ORDER.reduce((sum, rarity) => sum + (this.state.stats.rarityCounts[rarity] || 0), 0));
+
+      const avatarSrc = this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage || "";
+      const avatarHtml = avatarSrc
+        ? `<img class="player-avatar-img" src="${escapeHtml(avatarSrc)}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid ${accent};" />`
+        : `<span class="dossier-avatar-fallback" style="background: linear-gradient(135deg, ${accent}, #45c486)">${escapeHtml((this.state.profile?.name || "OP").slice(0, 2).toUpperCase())}</span>`;
+
+      subTabContentHtml = `
+        <div class="dossier-hero">
+          <div class="dossier-avatar-wrapper">
+            ${avatarHtml}
+            <span class="dossier-prestige-badge">P${this.state.prestige.level}</span>
           </div>
-        </section>
-        <section class="data-panel progress-chart-card">
-          <h3>Economia</h3>
-          <div class="pie-chart" style="--pie:${economyStops.join(", ")}"></div>
-          <div class="chart-legend">
-            <span style="--rarity:#f05d5e">Speso <strong>${formatCredits(this.state.stats.totalSpent, true)}</strong></span>
-            <span style="--rarity:#45c486">Venduto <strong>${formatCredits(this.state.stats.totalEarned, true)}</strong></span>
-            <span style="--rarity:#64d7e3">Locker <strong>${formatCredits(getInventoryValue(this.state), true)}</strong></span>
-            <span style="--rarity:#ffd166">Minigiochi <strong>${formatCredits(minigameSpent, true)}</strong></span>
+          <div class="dossier-hero-meta">
+            <div class="dossier-rank-row">
+              <h2>${escapeHtml(this.state.profile?.name || "Operatore")}</h2>
+              <span class="dossier-title">${escapeHtml(this.state.profile?.title || "Case Runner")}</span>
+            </div>
+            <p class="dossier-status">Stato Account: <span class="status-active">Attivo / Autorizzato</span></p>
+            <div class="dossier-hero-progress">
+              <div class="dossier-progress-text">
+                <span>Grado Operatore (Livello ${level})</span>
+                <span>${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</span>
+              </div>
+              <div class="dossier-progress-bar"><i style="width:${percent(levelProgress)}"></i></div>
+            </div>
           </div>
-        </section>
-      </div>
-      <div class="split-layout">
-        <section class="data-panel">
-          <h3>Skill profilo</h3>
-          <div class="rarity-bars">
-            <div class="rarity-row"><span>Fortuna</span><div><i style="width:${percent(skill.luck / 0.035)}"></i></div><strong>+${(skill.luck * 100).toFixed(1)}%</strong></div>
-            <div class="rarity-row"><span>Fee vendita</span><div><i style="width:${percent(skill.sellFeeReduction / 0.025)}"></i></div><strong>-${(skill.sellFeeReduction * 100).toFixed(1)}%</strong></div>
-            <div class="rarity-row"><span>Goal solo</span><div><i style="width:${percent(skill.goalDiscount / 0.1)}"></i></div><strong>-${(skill.goalDiscount * 100).toFixed(0)}%</strong></div>
-            <div class="rarity-row"><span>Archivio</span><div><i style="width:${percent(Math.min(1, skill.collectionAssist / 5))}"></i></div><strong>+${skill.collectionAssist}</strong></div>
+        </div>
+
+        <div class="stats-grid">
+          ${statTile("Casse aperte", this.state.stats.casesOpened.toLocaleString("it-IT"), `${this.state.stats.manualOpens} manuali - ${this.state.stats.autoOpens} auto`)}
+          ${statTile("Speso totale", formatCredits(this.state.stats.totalSpent), "casse, contratti e market")}
+          ${statTile("Incasso vendite", formatCredits(this.state.stats.totalEarned), "vendita skin")}
+          <div class="stat-tile" style="border-color: ${profit >= 0 ? "rgba(69, 196, 134, 0.4)" : "rgba(240, 93, 94, 0.4)"}">
+            <span>Bilancio Operazione</span>
+            <strong style="color: ${profit >= 0 ? "var(--green)" : "var(--red)"}">
+              ${profit >= 0 ? "+" : ""}${formatCredits(profit)}
+            </strong>
+            <small>Locker + Saldo - Speso</small>
           </div>
-        </section>
-        <section class="data-panel">
-          <h3>Minigiochi</h3>
-          <div class="rarity-bars">
-            <div class="rarity-row"><span>Partite</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.played || 0) / 100))}"></i></div><strong>${this.state.minigames?.played || 0}</strong></div>
-            <div class="rarity-row"><span>Puntato</span><div><i style="width:${percent(Math.min(1, minigameSpent / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameSpent, true)}</strong></div>
-            <div class="rarity-row"><span>Payout</span><div><i style="width:${percent(Math.min(1, minigameEarned / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameEarned, true)}</strong></div>
-            <div class="rarity-row"><span>Best win</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.bestWin || 0) / Math.max(1, minigameEarned)))}"></i></div><strong>${formatCredits(this.state.minigames?.bestWin || 0, true)}</strong></div>
-          </div>
-        </section>
-        <section class="data-panel">
-          <h3>Miglior drop</h3>
-          ${best ? itemCard(best, { compact: false }) : `<div class="empty-state">Ancora nessun drop.</div>`}
-        </section>
-        <section class="data-panel">
-          <h3>Mastery casse</h3>
-          <div class="case-mastery-list">
-            ${topMastery.length ? topMastery.map(({ caseDef, mastery }) => `
-              <div class="case-mastery-row">
-                <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
-                <div>
-                  <strong>${escapeHtml(caseDef.name)}</strong>
-                  <span>Lv ${mastery.level} - +${Math.round(mastery.luckBonus * 1000) / 10}% fortuna - ${mastery.opens} aperture</span>
-                  <div class="progress-line"><i style="width:${percent(mastery.progress)}"></i></div>
+          ${statTile("Drop speciali", this.state.stats.jackpotHits, "coltelli, guanti, rari")}
+          ${statTile("Idle income", formatCredits(this.state.stats.offlineEarned), "guadagno offline")}
+        </div>
+
+        <div class="split-layout">
+          <section class="data-panel">
+            <h3>Bonus passivi grado</h3>
+            <div class="rarity-bars">
+              <div class="rarity-row"><span>Fortuna</span><div><i style="width:${percent(skill.luck / 0.035)}"></i></div><strong>+${(skill.luck * 100).toFixed(1)}%</strong></div>
+              <div class="rarity-row"><span>Sconto commissioni</span><div><i style="width:${percent(skill.sellFeeReduction / 0.025)}"></i></div><strong>-${(skill.sellFeeReduction * 100).toFixed(1)}%</strong></div>
+              <div class="rarity-row"><span>Sconto contratti solo</span><div><i style="width:${percent(skill.goalDiscount / 0.1)}"></i></div><strong>-${(skill.goalDiscount * 100).toFixed(0)}%</strong></div>
+              <div class="rarity-row"><span>Slot archivio extra</span><div><i style="width:${percent(Math.min(1, skill.collectionAssist / 5))}"></i></div><strong>+${skill.collectionAssist}</strong></div>
+            </div>
+          </section>
+
+          <section class="data-panel">
+            <h3>Distribuzione rarità drop</h3>
+            <div class="rarity-bars">
+              ${RARITY_ORDER.map((rarity) => {
+                const count = this.state.stats.rarityCounts[rarity] || 0;
+                const pct = (count / totalDrops) * 100;
+                return `
+                  <div class="rarity-row" style="--rarity:${RARITIES[rarity].color}">
+                    <span>${rarity}</span>
+                    <div><i style="width:${Math.max(2, pct)}%"></i></div>
+                    <strong>${count} <small>(${pct.toFixed(1)}%)</small></strong>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </section>
+
+          <section class="data-panel" style="grid-column: span 2;">
+            <h3>Locker Highlights (Pezzi di Valore)</h3>
+            <div class="showcase-grid-3">
+              ${myBestItems.map(item => itemCard(item, { compact: false, withSell: false })).join("")}
+              ${Array.from({ length: Math.max(0, 3 - myBestItems.length) }).map(() => `
+                <div class="empty-state" style="border: 1px dashed rgba(130, 158, 190, 0.15); border-radius: 12px; display: grid; place-items: center; min-height: 140px;">
+                  <span>Slot vuoto</span>
+                </div>
+              `).join("")}
+            </div>
+          </section>
+
+          <section class="data-panel">
+            <h3>Analisi sessione</h3>
+            <div class="rarity-bars">
+              <div class="rarity-row"><span>Durata</span><strong>${compactTime(session.durationMs)}</strong></div>
+              <div class="rarity-row"><span>Aperture</span><strong>${session.opens} <small>(${session.opensPerMinute.toFixed(1)}/min)</small></strong></div>
+              <div class="rarity-row"><span>Speso sessione</span><strong>${formatCredits(session.spent, true)}</strong></div>
+              <div class="rarity-row"><span>Incassato sessione</span><strong>${formatCredits(session.earned, true)}</strong></div>
+              <div class="rarity-row"><span>Flusso saldo</span><strong style="color: ${session.profit >= 0 ? "var(--green)" : "var(--red)"}">${session.profit >= 0 ? "+" : ""}${formatCredits(session.profit, true)}</strong></div>
+            </div>
+          </section>
+
+          <section class="data-panel">
+            <h3>Attività minigiochi</h3>
+            <div class="rarity-bars">
+              <div class="rarity-row"><span>Partite giocate</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.played || 0) / 100))}"></i></div><strong>${this.state.minigames?.played || 0}</strong></div>
+              <div class="rarity-row"><span>Totale puntato</span><div><i style="width:${percent(Math.min(1, minigameSpent / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameSpent, true)}</strong></div>
+              <div class="rarity-row"><span>Totale payout</span><div><i style="width:${percent(Math.min(1, minigameEarned / Math.max(1, minigameSpent + minigameEarned)))}"></i></div><strong>${formatCredits(minigameEarned, true)}</strong></div>
+              <div class="rarity-row"><span>Miglior vincita</span><div><i style="width:${percent(Math.min(1, (this.state.minigames?.bestWin || 0) / Math.max(1, minigameEarned)))}"></i></div><strong>${formatCredits(this.state.minigames?.bestWin || 0, true)}</strong></div>
+            </div>
+          </section>
+        </div>
+      `;
+    } else if (this.statsSubTab === "mastery") {
+      subTabContentHtml = `
+        <div class="mastery-grid">
+          ${this.skinData.cases.map((caseDef) => {
+            const mastery = getCaseMastery(this.state, caseDef.id);
+            const masteryProgress = mastery.progress || 0;
+            const opens = mastery.opens || 0;
+            const level = mastery.level || 0;
+            const luckBonus = mastery.luckBonus || 0;
+            
+            let tierName = "Novizio";
+            let tierColor = "#9da1aa";
+            if (level >= 30) { tierName = "Campione"; tierColor = "#f2b84b"; }
+            else if (level >= 15) { tierName = "Veterano"; tierColor = "#eb4b4b"; }
+            else if (level >= 5) { tierName = "Esperto"; tierColor = "#d32ee6"; }
+            else if (opens > 0) { tierName = "Pratico"; tierColor = "#4b69ff"; }
+
+            const accentColor = caseDef.accent || "var(--amber)";
+
+            return `
+              <div class="mastery-card" style="--case-accent: ${accentColor}">
+                <div class="mastery-card-header">
+                  <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" class="mastery-case-img" />
+                  <div class="mastery-title-block">
+                    <strong>${escapeHtml(caseDef.name)}</strong>
+                    <span class="mastery-tier-badge" style="background: ${tierColor}18; color: ${tierColor}; border-color: ${tierColor}30">${tierName}</span>
+                  </div>
+                  <div class="mastery-level-circle" style="--case-accent: ${accentColor}">
+                    <span>Lv.</span>
+                    <strong>${level}</strong>
+                  </div>
+                </div>
+                <div class="mastery-card-stats">
+                  <div class="mastery-stat-item">
+                    <span>Aperture</span>
+                    <strong>${opens.toLocaleString("it-IT")}</strong>
+                  </div>
+                  <div class="mastery-stat-item">
+                    <span>Bonus Fortuna</span>
+                    <strong style="color: var(--amber)">+${(luckBonus * 100).toFixed(1)}%</strong>
+                  </div>
+                </div>
+                <div class="mastery-progress-section">
+                  <div class="mastery-progress-label">
+                    <span>Progresso Livello</span>
+                    <span>${Math.round(masteryProgress * 100)}%</span>
+                  </div>
+                  <div class="mastery-progress-bar">
+                    <i style="width: ${percent(masteryProgress)}; background: linear-gradient(90deg, ${accentColor}, var(--amber))"></i>
+                  </div>
                 </div>
               </div>
-            `).join("") : `<div class="empty-state">Apri una cassa per iniziare la mastery.</div>`}
+            `;
+          }).join("")}
+        </div>
+      `;
+    } else if (this.statsSubTab === "achievements") {
+      subTabContentHtml = `
+        <div class="achievements-summary-panel">
+          <div class="achievements-circular-progress">
+            <svg class="progress-ring" width="120" height="120">
+              <circle class="progress-ring__background" stroke="rgba(255,255,255,0.06)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
+              <circle class="progress-ring__circle" stroke="var(--amber)" stroke-width="8" stroke-dasharray="314.16" stroke-dashoffset="${314.16 - (314.16 * achievementsProgress)}" fill="transparent" r="50" cx="60" cy="60"/>
+            </svg>
+            <div class="progress-ring-text">
+              <strong>${unlockedCount}</strong>
+              <span>su ${totalAchievements}</span>
+            </div>
           </div>
-        </section>
-        <section class="data-panel">
-          <h3>Cronologia sessione</h3>
-          <div class="session-history-list">
-            ${session.events.length ? session.events.map((entry) => `
-              <div class="session-history-row ${entry.value > 0 ? "is-positive" : entry.value < 0 ? "is-negative" : ""}">
-                <span>${new Date(entry.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</span>
-                <strong>${escapeHtml(entry.title)}</strong>
-                <small>${escapeHtml(entry.detail)}</small>
-                <em>${entry.value === null || entry.value === undefined ? "" : `${entry.value >= 0 ? "+" : ""}${formatCredits(entry.value, true)}`}</em>
-              </div>
-            `).join("") : `<div class="empty-state">Nessuna azione registrata in questa sessione.</div>`}
+          <div class="achievements-summary-info">
+            <h3>Onorificenze Militari</h3>
+            <p>Sblocca medaglie completando le sfide del dossier operativo. Ogni medaglia sbloccata aumenta il tuo bonus di fortuna passivo e la credibilità sul campo.</p>
+            <div class="achievements-perk-summary">
+              Bonus Attivo: <strong style="color: var(--amber)">+${(unlockedCount * 1.5).toFixed(1)}% Fortuna</strong>
+            </div>
           </div>
-        </section>
+        </div>
+
+        <div class="achievement-grid">
+          ${ACHIEVEMENTS.map((achievement) => {
+            const progress = getAchievementProgress(this.state, achievement);
+            const done = Boolean(this.state.achievements[achievement.id]?.completedAt);
+            const doneAt = this.state.achievements[achievement.id]?.completedAt;
+            return `
+              <article class="achievement-card ${done ? "is-done" : ""}">
+                <div class="achievement-icon-wrapper" style="color: ${done ? "var(--amber)" : "var(--text-muted)"}">
+                  ${iconMarkup(done ? "shield-check" : "shield-alert")}
+                </div>
+                <div class="achievement-info-block">
+                  <div class="achievement-header-row">
+                    <span>${escapeHtml(achievement.name)}</span>
+                    <strong class="achievement-progress-val">${Math.min(progress, achievement.target).toLocaleString("it-IT")} / ${achievement.target.toLocaleString("it-IT")}</strong>
+                  </div>
+                  <p class="achievement-desc">${escapeHtml(achievement.description)}</p>
+                  <div class="progress-line" style="margin: 8px 0;"><i style="width:${percent(Math.min(1, progress / achievement.target))}"></i></div>
+                  <div class="achievement-footer-row">
+                    <span class="achievement-reward-tag">${done ? "Ottenuto" : `Ricompensa: ${formatCredits(achievement.reward)}`}</span>
+                    ${doneAt ? `<span class="achievement-date-tag">${new Date(doneAt).toLocaleDateString("it-IT")}</span>` : ""}
+                  </div>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="stats-sub-tabs">
+        <button class="stats-sub-tab ${this.statsSubTab === "dossier" ? "is-active" : ""}" data-action="change-stats-subtab" data-subtab="dossier">
+          ${iconMarkup("user")} Dossier Operatore
+        </button>
+        <button class="stats-sub-tab ${this.statsSubTab === "mastery" ? "is-active" : ""}" data-action="change-stats-subtab" data-subtab="mastery">
+          ${iconMarkup("award")} Maestria Casse
+        </button>
+        <button class="stats-sub-tab ${this.statsSubTab === "achievements" ? "is-active" : ""}" data-action="change-stats-subtab" data-subtab="achievements">
+          ${iconMarkup("shield")} Medaglie & Obiettivi
+        </button>
       </div>
-      <div class="stats-grid session-rollup">
-        ${statTile("Sessione spesa", formatCredits(session.spent), "solo questa sessione")}
-        ${statTile("Sessione incasso", formatCredits(session.earned), "vendite e auto-sell")}
-        ${statTile("Sessione saldo", `${session.profit >= 0 ? "+" : ""}${formatCredits(session.profit)}`, "flusso locale")}
-        ${statTile("Best sessione", session.bestDrop ? formatCredits(session.bestDrop.value, true) : "-", session.bestDrop?.name || "nessun picco")}
-        ${statTile("Mastery casse", `Lv ${maxMastery}`, `${topMastery.length} casse allenate`)}
+      <div class="stats-sub-tab-content">
+        ${subTabContentHtml}
       </div>
     `;
   }
