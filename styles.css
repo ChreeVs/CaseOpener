@@ -3898,32 +3898,56 @@ body {
 
 .tech-menu-card {
   display: grid;
-  gap: 12px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid rgba(130, 158, 190, 0.16);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(10, 14, 20, 0.98);
   box-shadow: var(--shadow);
 }
 
+.tech-menu-card input[type="checkbox"] {
+  min-height: unset;
+  min-width: unset;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.tech-menu-card input[type="range"] {
+  min-height: unset;
+  min-width: unset;
+  height: 5px;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  border-radius: 99px;
+}
+
 .tech-menu-head {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tech-menu-head strong {
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .tech-menu-head small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .tech-menu-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .tech-menu .ghost-button.is-active {
@@ -3934,10 +3958,10 @@ body {
 
 .tech-menu-cloud {
   display: grid;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid rgba(94, 150, 255, 0.16);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(78, 129, 255, 0.055);
 }
 
@@ -5742,9 +5766,9 @@ body {
 
 .tech-menu-audio {
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid rgba(126, 151, 179, 0.12);
 }
 
