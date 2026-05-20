@@ -1,5 +1,5 @@
 import { RARITIES, RARITY_ORDER } from "../../config/rarityConfig.js";
-import { formatCredits, getSellReturn, getOpenDuration, getLuckMultiplier, isAutoOpenerEnabled, getAutoInterval, getMultiOpenCount, getPassiveRate, getMarketAnalystDiscount, getDropInsuranceRate, getCollectionMultiplier, getTradeUpInputCount } from "../../gameLogic.js";
+import { formatCredits, getSellReturn, getOpenDuration, getLuckMultiplier, isAutoOpenerEnabled, getAutoInterval, getMultiOpenCount, getPassiveRate, getMarketAnalystDiscount, getDropInsuranceRate, getCollectionMultiplier, getTradeUpInputCount, isPermanentMalusItem } from "../../gameLogic.js";
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -283,23 +283,28 @@ export function itemCard(item, { compact = false, withSell = false, selectable =
     `;
   }
   const sellValue = state ? getSellReturn(state, item) : item.value;
+  const malus = isPermanentMalusItem(item);
   return `
-    <article class="item-card ${rarityClass(item.rarity)} ${item.crit ? "is-crit" : ""} ${item.locked ? "is-locked" : ""} ${item.favorite ? "is-favorite" : ""}" style="--rarity:${item.rarityColor}">
-      ${selectable ? `<button class="select-dot ${selected ? "is-selected" : ""}" data-action="toggle-select" data-id="${item.id}" aria-label="Seleziona skin"></button>` : ""}
+    <article class="item-card ${rarityClass(item.rarity)} ${item.crit ? "is-crit" : ""} ${item.locked ? "is-locked" : ""} ${item.favorite ? "is-favorite" : ""} ${malus ? "is-malus" : ""}" style="--rarity:${item.rarityColor}">
+      ${selectable && !malus ? `<button class="select-dot ${selected ? "is-selected" : ""}" data-action="toggle-select" data-id="${item.id}" aria-label="Seleziona skin"></button>` : ""}
       <div class="item-art" data-action="inspect-item" data-id="${item.id}">
         <img src="${item.image}" alt="${escapeHtml(item.name)}" loading="lazy" />
       </div>
       <div class="item-info" data-action="inspect-item" data-id="${item.id}">
         <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
-        <span>${escapeHtml(item.wear)} - ${Number(item.float).toFixed(4)}</span>
-        <span class="item-meta">${escapeHtml(item.rarity)} - ${escapeHtml(item.caseName)}</span>
+        <span>${malus ? "Permanente - non rimuovibile" : `${escapeHtml(item.wear)} - ${Number(item.float).toFixed(4)}`}</span>
+        <span class="item-meta">${malus ? "Malus" : escapeHtml(item.rarity)} - ${escapeHtml(item.caseName)}</span>
       </div>
       <div class="item-value">${formatCredits(item.value, compact)}</div>
       ${withSell ? `
         <div class="item-actions">
-          <button class="icon-button ${item.favorite ? "is-on" : ""}" data-action="toggle-favorite" data-id="${item.id}" title="Preferita" data-tip="${item.favorite ? "Rimuovi dai preferiti" : "Tieni questa skin in evidenza"}">&#9733;</button>
-          <button class="icon-button ${item.locked ? "is-on" : ""}" data-action="toggle-lock" data-id="${item.id}" title="Blocco" data-tip="${item.locked ? "Sblocca la skin" : "Blocca la skin per evitare vendite"}">L</button>
-          <button class="ghost-button tiny" data-action="sell-item" data-id="${item.id}" ${item.locked ? "disabled" : ""}>Vendi ${formatCredits(sellValue, true)}</button>
+          ${malus ? `
+            <span class="malus-lock-tag">Malus permanente</span>
+          ` : `
+            <button class="icon-button ${item.favorite ? "is-on" : ""}" data-action="toggle-favorite" data-id="${item.id}" title="Preferita" data-tip="${item.favorite ? "Rimuovi dai preferiti" : "Tieni questa skin in evidenza"}">&#9733;</button>
+            <button class="icon-button ${item.locked ? "is-on" : ""}" data-action="toggle-lock" data-id="${item.id}" title="Blocco" data-tip="${item.locked ? "Sblocca la skin" : "Blocca la skin per evitare vendite"}">L</button>
+            <button class="ghost-button tiny" data-action="sell-item" data-id="${item.id}" ${item.locked ? "disabled" : ""}>Vendi ${formatCredits(sellValue, true)}</button>
+          `}
         </div>
       ` : ""}
     </article>

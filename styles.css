@@ -11360,6 +11360,44 @@ body {
   justify-content: flex-end;
 }
 
+.item-card.is-malus {
+  border-color: rgba(255, 94, 115, 0.62);
+  border-left-color: #ff5e73;
+  background:
+    linear-gradient(180deg, rgba(50, 12, 22, 0.94), rgba(15, 15, 22, 0.96));
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.item-card.is-malus .item-art {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 94, 115, 0.18), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+}
+
+.item-card.is-malus .item-value {
+  color: #ff8896;
+}
+
+.item-card.is-malus .item-meta {
+  color: #ff9aa6;
+}
+
+.malus-lock-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 94, 115, 0.46);
+  border-radius: 999px;
+  color: #ffd8dd;
+  background: rgba(255, 94, 115, 0.14);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .profile-avatar-img {
   width: 100%;
   height: 100%;
@@ -14563,4 +14601,193 @@ textarea {
     width: 100% !important;
     grid-template-columns: repeat(7, minmax(82px, 1fr)) !important;
   }
+}
+
+/* Compact case content panel without inner scroll. */
+@media (min-width: 1180px) {
+  .main-grid.is-cases-mode .opener-panel .selected-case .case-content-shell {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    align-self: start !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+.case-content-shell {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.case-content-toggle {
+  min-height: 64px;
+  padding: 14px 16px !important;
+}
+
+.case-content-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+.case-content-overview span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid rgba(83, 232, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.case-content-overview small,
+.case-content-overview strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-content-overview small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.case-content-overview strong {
+  color: var(--kq-text);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.case-content-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.case-preview-drop {
+  min-width: 0;
+  min-height: 78px;
+  display: grid;
+  grid-template-rows: 48px auto;
+  gap: 5px;
+  place-items: center;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--rarity), transparent 48%);
+  border-bottom: 3px solid var(--rarity);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 26%, color-mix(in srgb, var(--rarity), transparent 76%), transparent 70%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.case-preview-drop img {
+  width: 72px;
+  height: 46px;
+  object-fit: contain;
+  filter: drop-shadow(0 7px 10px rgba(0, 0, 0, 0.36));
+}
+
+.case-preview-drop span {
+  width: 100%;
+  overflow: hidden;
+  color: var(--kq-text);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-content-body {
+  padding: 12px 14px 14px;
+  border-top: 1px solid rgba(83, 232, 255, 0.14);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.case-content-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.case-content-body h4 {
+  margin-bottom: 10px !important;
+  font-size: 13px !important;
+}
+
+.case-content-body [style*="grid-template-columns: 100px 1fr 70px 100px"] {
+  grid-template-columns: 86px minmax(0, 1fr) 58px 74px !important;
+  gap: 9px !important;
+  padding: 8px 10px !important;
+}
+
+@media (max-width: 760px) {
+  .case-content-overview,
+  .case-content-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Move legal links away from the main case controls. */
+.legal-links {
+  left: auto !important;
+  right: 18px !important;
+  top: 18px !important;
+  bottom: auto !important;
+  z-index: 80 !important;
+  gap: 2px !important;
+  padding: 3px !important;
+  border-color: rgba(83, 232, 255, 0.1) !important;
+  background: rgba(5, 8, 19, 0.46) !important;
+  opacity: 0.55;
+  transform: none;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+
+.legal-links:hover,
+.legal-links:focus-within {
+  opacity: 1;
+  background: rgba(5, 8, 19, 0.78) !important;
+}
+
+.legal-links button {
+  min-height: 20px !important;
+  padding: 0 7px !important;
+  color: rgba(207, 216, 243, 0.78) !important;
+  font-size: 9px !important;
+}
+
+@media (max-width: 760px) {
+  .legal-links {
+    top: auto !important;
+    right: 50% !important;
+    bottom: 10px !important;
+    transform: translateX(50%);
+  }
+}
+
+/* Malus sell button — warn-style for negative-price disposals */
+.malus-sell {
+  background: linear-gradient(135deg, #8b2232 0%, #6b1728 100%) !important;
+  border-color: rgba(220, 50, 70, 0.45) !important;
+  color: #ffd0d4 !important;
+  box-shadow: 0 0 12px rgba(220, 50, 70, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.malus-sell:hover:not(:disabled) {
+  background: linear-gradient(135deg, #a62840 0%, #8b2232 100%) !important;
+  border-color: rgba(220, 50, 70, 0.65) !important;
+  box-shadow: 0 0 18px rgba(220, 50, 70, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.malus-sell:disabled {
+  opacity: 0.45;
 }

@@ -1,3 +1,31 @@
+const PRESTIGE_RISK_CASES = [
+  { prestige: 5, price: 2200, accent: "#ff7a90", image: "Operation Broken Fang Case" },
+  { prestige: 6, price: 4400, accent: "#ff8f5e", image: "Prisma Case" },
+  { prestige: 7, price: 8500, accent: "#f7c948", image: "Revolution Case" },
+  { prestige: 8, price: 14500, accent: "#72d572", image: "Recoil Case" },
+  { prestige: 9, price: 25500, accent: "#46d8c8", image: "Fracture Case" },
+  { prestige: 10, price: 42000, accent: "#64d7e3", image: "Dreams & Nightmares Case" },
+  { prestige: 11, price: 68000, accent: "#7aa2ff", image: "Snakebite Case" },
+  { prestige: 12, price: 110000, accent: "#a77cff", image: "Clutch Case" },
+  { prestige: 13, price: 170000, accent: "#d56cff", image: "Glove Case" },
+  { prestige: 14, price: 250000, accent: "#ff5ec4", image: "CS:GO Weapon Case 2" },
+  { prestige: 15, price: 365000, accent: "#ff5e73", image: "Operation Hydra Case" }
+].map(({ prestige, price, accent, image }) => ({
+  id: `prestige-${prestige}-risk`,
+  name: `Prestige ${prestige} Risk Case`,
+  description: "Cassa ad EV alto: puoi guadagnare, ma solo qui puo' uscire una skin malus permanente.",
+  synthetic: "prestige-risk",
+  preferredImage: image,
+  price,
+  profile: "risk",
+  unlockPrestige: prestige,
+  accent,
+  valueScale: 1,
+  riskCase: true,
+  malusEnabled: true,
+  alwaysAvailable: true
+}));
+
 export const CASE_BLUEPRINTS = [
   {
     id: "recruit-supply",
@@ -123,5 +151,6 @@ export const CASE_BLUEPRINTS = [
     accent: "#64d7e3",
     valueScale: 2850,
     alwaysAvailable: true
-  }
+  },
+  ...PRESTIGE_RISK_CASES
 ];

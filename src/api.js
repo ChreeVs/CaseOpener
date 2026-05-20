@@ -76,7 +76,8 @@ const CASE_PROFILE_PRICE = {
   standard: 8,
   premium: 15,
   collector: 27,
-  jackpot: 58
+  jackpot: 58,
+  risk: 34
 };
 
 const CASE_VALUE_SCALE = {
@@ -84,7 +85,8 @@ const CASE_VALUE_SCALE = {
   standard: 0.96,
   premium: 1.04,
   collector: 1.12,
-  jackpot: 1.22
+  jackpot: 1.22,
+  risk: 1.18
 };
 
 const PROFILE_QUALITY = {
@@ -92,7 +94,8 @@ const PROFILE_QUALITY = {
   standard: 0.32,
   premium: 0.52,
   collector: 0.72,
-  jackpot: 0.92
+  jackpot: 0.92,
+  risk: 0.78
 };
 
 function normalizeCachedPayload(cached) {
@@ -389,9 +392,19 @@ function createSyntheticCase(blueprint, globalPool, crateMap) {
     addMany("Rare Special Item", 105);
   }
 
+  if (blueprint.synthetic === "prestige-risk") {
+    const prestige = Math.max(5, Number(blueprint.unlockPrestige) || 5);
+    addMany("Mil-Spec", 90 + prestige * 3);
+    addMany("Restricted", 170 + prestige * 5);
+    addMany("Classified", 130 + prestige * 5);
+    addMany("Covert", 82 + prestige * 4);
+    addMany("Rare Special Item", 42 + prestige * 4);
+  }
+
   const preferredImage = blueprint.preferredImage || (
     blueprint.synthetic === "jackpot" ? "Glove Case" :
     blueprint.synthetic === "prestige14" ? "CS:GO Weapon Case 2" :
+    blueprint.synthetic === "prestige-risk" ? "Operation Hydra Case" :
     blueprint.synthetic === "free" ? "Gallery Case" :
     "Recoil Case"
   );
@@ -422,6 +435,9 @@ function toCaseDefinition(blueprint, crate) {
     accent: blueprint.accent || "#ffd166",
     manualOnly: Boolean(blueprint.manualOnly),
     valueScale: Number(blueprint.valueScale || 1),
+    riskCase: Boolean(blueprint.riskCase),
+    malusEnabled: Boolean(blueprint.malusEnabled),
+    riskGrossRoi: Number(blueprint.riskGrossRoi || 0),
     pool,
     availableRarities,
     totalSkins: countPool(pool)
@@ -591,7 +607,43 @@ function deriveBalancedProfile(caseDef) {
   return "budget";
 }
 
+function rebalanceRiskCaseDefinition(caseDef) {
+  const profileName = caseDef.profileName || caseDef.profile || "risk";
+  const profile = DROP_PROFILES[profileName] || DROP_PROFILES.risk || DROP_PROFILES.premium;
+  const prestige = Math.max(5, Math.floor(Number(caseDef.unlockPrestige) || 5));
+  const economy = getPrestigeEconomyTier(prestige);
+  const price = roundGamePrice(clampNumber(
+    Number(caseDef.price) || economy.minPrice,
+    economy.minPrice,
+    economy.maxPrice
+  ));
+  const prestigeStep = Math.max(0, prestige - 5);
+  const malusChance = 0.052 + Math.min(0.033, prestigeStep * 0.0033);
+  const malusPenaltyRatio = 0.32 + Math.min(0.24, prestigeStep * 0.018);
+  const prestigeValueMultiplier = 1 + prestige * 0.018;
+  const prestigeRarityLift = 1.03 + Math.min(0.08, prestigeStep * 0.008);
+  const targetNetRoi = 1.03 + Math.min(0.03, prestigeStep * 0.003);
+  const grossRoi = Number(caseDef.riskGrossRoi) || Number(((targetNetRoi + malusChance * malusPenaltyRatio) / ((1 - malusChance) * prestigeValueMultiplier * prestigeRarityLift)).toFixed(3));
+  const baseEv = estimateStaticCaseEv({ ...caseDef, profile }, profileName, 1);
+  const valueScale = Number(Math.max(0.01, (price * grossRoi) / Math.max(1, baseEv)).toFixed(2));
+
+  return {
+    ...caseDef,
+    price,
+    profileName,
+    profile,
+    valueScale,
+    riskGrossRoi: grossRoi,
+    riskCase: true,
+    malusEnabled: true
+  };
+}
+
 function rebalanceCaseDefinition(caseDef) {
+  if (caseDef.riskCase || caseDef.malusEnabled) {
+    return rebalanceRiskCaseDefinition(caseDef);
+  }
+
   if (caseDef.price <= 0) {
     return caseDef;
   }

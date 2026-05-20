@@ -72,6 +72,7 @@ import {
   claimCollectionReward,
   claimCommunityGoalReward,
   claimDailyReward,
+  createAuctionListing,
   createPromoCode,
   clearExpiredEvent,
   deletePromoCode,
@@ -108,6 +109,7 @@ import {
   isAutoOpenerEnabled,
   isEventActive,
   isLimitedEventActive,
+  isPermanentMalusItem,
   maybeStartLimitedEvent,
   openCases,
   openRewardCase,
@@ -116,6 +118,7 @@ import {
   runTradeUpContract,
   sellItem,
   sellItems,
+  settleAuctionListing,
   setAutoOpenerEnabled,
   redeemPromoCode,
   resetCommunityGoalState,
@@ -583,7 +586,7 @@ export class CaseOpenerUI {
     }
     const topDrop = result.drops
       .map((drop) => drop.item)
-      .filter((item) => (RARITIES[item.rarity]?.tier || 0) >= ECONOMY_CONFIG.rareRevealTier)
+      .filter((item) => !isPermanentMalusItem(item) && (RARITIES[item.rarity]?.tier || 0) >= ECONOMY_CONFIG.rareRevealTier)
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))[0];
     if (!topDrop) {
       return;
@@ -731,23 +734,38 @@ export class CaseOpenerUI {
     if (!idSet.size) {
       return;
     }
-    this.state.inventory = this.state.inventory.filter((item) => !idSet.has(item.id));
-    [...idSet].forEach((id) => {
+    const removableIds = new Set(
+      this.state.inventory
+        .filter((item) => idSet.has(item.id) && !isPermanentMalusItem(item))
+        .map((item) => item.id)
+    );
+    if (!removableIds.size) {
+      return;
+    }
+    this.state.inventory = this.state.inventory.filter((item) => !removableIds.has(item.id));
+    [...removableIds].forEach((id) => {
       this.selectedInventory.delete(id);
     });
-    this.lastOpenedDropIds = (this.lastOpenedDropIds || []).filter((id) => !idSet.has(id));
-    if (this.inspectedItem?.id && idSet.has(this.inspectedItem.id)) {
+    this.lastOpenedDropIds = (this.lastOpenedDropIds || []).filter((id) => !removableIds.has(id));
+    if (this.inspectedItem?.id && removableIds.has(this.inspectedItem.id)) {
       this.closeInspector();
     }
   }
 
   receiveInventoryItems(items = [], { prepend = true } = {}) {
-    const receivedItems = (Array.isArray(items) ? items : []).map((item) => ({
-      ...item,
-      obtainedAt: item.obtainedAt || Date.now(),
-      locked: Boolean(item.locked),
-      favorite: Boolean(item.favorite)
-    }));
+    const receivedItems = (Array.isArray(items) ? items : []).map((item) => {
+      const malus = isPermanentMalusItem(item);
+      return {
+        ...item,
+        value: malus ? -Math.max(0.01, Math.abs(Number(item.value) || 1)) : item.value,
+        malus,
+        permanentMalus: malus || item.permanentMalus,
+        undeletable: malus || item.undeletable,
+        obtainedAt: item.obtainedAt || Date.now(),
+        locked: Boolean(item.locked),
+        favorite: malus ? false : Boolean(item.favorite)
+      };
+    });
     if (!receivedItems.length) {
       return [];
     }
@@ -759,7 +777,7 @@ export class CaseOpenerUI {
 
   getSocialProfilePayload() {
     const lockerItems = [...(this.state.inventory || [])]
-      .filter((item) => !item.locked)
+      .filter((item) => !item.locked && !isPermanentMalusItem(item))
       .sort((a, b) => Number(b.favorite) - Number(a.favorite) || Number(b.value || 0) - Number(a.value || 0))
       .slice(0, 500)
       .map((item) => ({
@@ -2339,6 +2357,8 @@ this.refreshIcons();
     const node = this.root.querySelector("#selectedCase");
     const caseDef = this.selectedCase;
     const table = getCaseDropTable(this.state, caseDef);
+    const topDrop = table.bestPreview[0];
+    const totalSkins = caseDef.totalSkins || Object.values(caseDef.pool || {}).reduce((sum, pool) => sum + (pool?.length || 0), 0);
     
     node.innerHTML = `
       <div class="case-content-panel" style="--case-accent:${caseDef.accent || "var(--loot-legendary)"}">
@@ -2357,10 +2377,24 @@ this.refreshIcons();
               ${iconMarkup("chevron-down")}
             </div>
           </button>
+          <div class="case-content-overview">
+            <span><small>Pool</small><strong>${totalSkins}</strong></span>
+            <span><small>Rarita'</small><strong>${table.rows.length}</strong></span>
+            <span><small>Top</small><strong>${topDrop ? escapeHtml(topDrop.rarity || table.bestRarity || "Drop") : "-"}</strong></span>
+            ${table.malusChance > 0 ? `<span><small>Malus</small><strong>${formatPercent(table.malusChance)}</strong></span>` : ""}
+          </div>
+          <div class="case-content-preview">
+            ${table.bestPreview.slice(0, 3).map((skin) => `
+              <div class="case-preview-drop" style="--rarity:${RARITIES[skin.rarity]?.color || "#ffd166"}">
+                <img src="${skin.image}" alt="${escapeHtml(skin.name)}" loading="lazy" />
+                <span title="${escapeHtml(skin.name)}">${escapeHtml(skin.name)}</span>
+              </div>
+            `).join("")}
+          </div>
           
           ${this.caseDetailsOpen ? `
-            <div style="padding: 24px; border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px;">
+            <div class="case-content-body">
+              <div class="case-content-detail-grid">
                 <div>
                   <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">${iconMarkup("pie-chart", "button-icon")} Probabilità di Drop</h4>
                   <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -2372,6 +2406,14 @@ this.refreshIcons();
                         <small style="text-align: right; color: var(--text-secondary); font-size: 0.85rem;">${formatCredits(row.estimatedValue, true)} EV</small>
                       </div>
                     `).join("")}
+                    ${table.malusChance > 0 ? `
+                      <div style="--rarity:#ff5e73; background: rgba(255, 94, 115, 0.08); padding: 10px 16px; border-radius: 8px; display: grid; grid-template-columns: 100px 1fr 70px 100px; align-items: center; gap: 16px; border-left: 3px solid var(--rarity);">
+                        <span style="font-weight: bold; color: var(--rarity); text-shadow: 0 1px 2px rgba(0,0,0,0.5); font-size: 0.9rem;">Malus</span>
+                        <div style="height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden;"><i style="height: 100%; display: block; background: var(--rarity); width:${percent(table.malusChance)}; box-shadow: 0 0 8px var(--rarity);"></i></div>
+                        <strong style="text-align: right; font-size: 0.95rem; color: var(--text-primary);">${formatPercent(table.malusChance)}</strong>
+                        <small style="text-align: right; color: var(--text-secondary); font-size: 0.85rem;">${formatCredits(table.malusPenaltyEstimate, true)} penale</small>
+                      </div>
+                    ` : ""}
                   </div>
                 </div>
                 
@@ -2608,7 +2650,7 @@ this.refreshIcons();
         if (!item || event.mode !== "case_drop") {
           return false;
         }
-        if ((RARITIES[item.rarity]?.tier || 0) < ECONOMY_CONFIG.rareRevealTier) {
+        if (isPermanentMalusItem(item) || (RARITIES[item.rarity]?.tier || 0) < ECONOMY_CONFIG.rareRevealTier) {
           return false;
         }
         const eventAt = Date.parse(event.createdAt || "") || Number(event.payload?.openedAt || 0) || now;
@@ -2802,10 +2844,12 @@ this.refreshIcons();
       const matchesRarity = this.inventoryRarity === "all" || item.rarity === this.inventoryRarity;
       const matchesWear = this.inventoryWear === "all" || item.wear === this.inventoryWear;
       const isCase = item.type === "rewardCase";
+      const isMalus = isPermanentMalusItem(item);
       const matchesType = this.inventoryType === "all" ||
         (this.inventoryType === "cases" && isCase) ||
-        (this.inventoryType === "skins" && !isCase);
-      const matchesSearch = !query || `${item.name} ${item.weapon || ""} ${item.caseName || ""} ${item.wear || ""} ${isCase ? "cassa reward case" : "skin"}`.toLowerCase().includes(query);
+        (this.inventoryType === "skins" && !isCase && !isMalus) ||
+        (this.inventoryType === "malus" && isMalus);
+      const matchesSearch = !query || `${item.name} ${item.weapon || ""} ${item.caseName || ""} ${item.wear || ""} ${isCase ? "cassa reward case" : ""} ${isMalus ? "malus permanente" : "skin"}`.toLowerCase().includes(query);
       return matchesRarity && matchesWear && matchesType && matchesSearch;
     });
 
@@ -2838,11 +2882,14 @@ this.refreshIcons();
     const start = (this.inventoryPage - 1) * INVENTORY_PAGE_SIZE;
     const pageItems = items.slice(start, start + INVENTORY_PAGE_SIZE);
     const filteredValue = items.reduce((sum, item) => sum + item.value, 0);
-    const selectedItems = this.state.inventory.filter((item) => this.selectedInventory.has(item.id));
+    const filteredSellableItems = items.filter((item) => !item.locked && !item.favorite);
+    const filteredSellValue = filteredSellableItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
+    const selectedItems = this.state.inventory.filter((item) => this.selectedInventory.has(item.id) && !item.locked && !item.favorite);
     const selectedValue = selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
     const totalInventoryValue = getInventoryValue(this.state);
     const lockedCount = this.state.inventory.filter((item) => item.locked).length;
     const favoriteCount = this.state.inventory.filter((item) => item.favorite).length;
+    const malusCount = this.state.inventory.filter((item) => isPermanentMalusItem(item)).length;
 
     return `
       ${this.renderSectionTabs("inventory")}
@@ -2856,7 +2903,7 @@ this.refreshIcons();
             ${statTile("Inventario", this.state.inventory.length, `${formatCredits(totalInventoryValue, true)} totale`)}
             ${statTile("Filtrate", items.length, `${formatCredits(filteredValue, true)} valore`)}
             ${statTile("Selezione", selectedItems.length, `${formatCredits(selectedValue, true)} vendibili`)}
-            ${statTile("Bloccate", lockedCount, `${favoriteCount} preferite`)}
+            ${statTile("Bloccate", lockedCount, `${favoriteCount} preferite - ${malusCount} malus`)}
           </div>
         </section>
         <section class="locker-controls">
@@ -2874,6 +2921,7 @@ this.refreshIcons();
               <option value="all" ${this.inventoryType === "all" ? "selected" : ""}>Skin e casse</option>
               <option value="skins" ${this.inventoryType === "skins" ? "selected" : ""}>Solo skin</option>
               <option value="cases" ${this.inventoryType === "cases" ? "selected" : ""}>Solo casse</option>
+              <option value="malus" ${this.inventoryType === "malus" ? "selected" : ""}>Solo malus${malusCount ? ` (${malusCount})` : ""}</option>
             </select>
             <select id="sortFilter">
               <option value="newest" ${this.inventorySort === "newest" ? "selected" : ""}>Piu' recenti</option>
@@ -2883,7 +2931,7 @@ this.refreshIcons();
             </select>
           </div>
           <div class="locker-action-row">
-            <button class="ghost-button" data-action="sell-filtered" ${items.length ? "" : "disabled"}>${iconMarkup("banknote", "button-icon")} Vendi filtrate ${formatCredits(filteredValue, true)}</button>
+            <button class="ghost-button" data-action="sell-filtered" ${filteredSellableItems.length ? "" : "disabled"}>${iconMarkup("banknote", "button-icon")} Vendi filtrate ${formatCredits(filteredSellValue, true)}</button>
             <button class="ghost-button" data-action="select-page" ${pageItems.length ? "" : "disabled"}>${iconMarkup("square-check", "button-icon")} Seleziona pagina</button>
             <button class="ghost-button" data-action="sell-selected" ${selectedItems.length ? "" : "disabled"}>${iconMarkup("circle-euro", "button-icon")} Vendi selezione ${formatCredits(selectedValue, true)}</button>
             <button class="ghost-button" data-action="clear-selection" ${selectedItems.length ? "" : "disabled"}>${iconMarkup("x", "button-icon")} Deseleziona</button>
@@ -3098,11 +3146,11 @@ this.refreshIcons();
   renderContracts() {
     const inputCount = getTradeUpInputCount(this.state);
     const counts = RARITY_ORDER.reduce((map, rarity) => {
-      map[rarity] = this.state.inventory.filter((item) => item.rarity === rarity && !item.locked && !item.favorite).length;
+      map[rarity] = this.state.inventory.filter((item) => item.rarity === rarity && !item.locked && !item.favorite && !isPermanentMalusItem(item)).length;
       return map;
     }, {});
     const inputs = this.state.inventory
-      .filter((item) => item.rarity === this.contractRarity && !item.locked && !item.favorite && item.type !== "rewardCase")
+      .filter((item) => item.rarity === this.contractRarity && !item.locked && !item.favorite && !isPermanentMalusItem(item) && item.type !== "rewardCase")
       .sort((a, b) => a.value - b.value)
       .slice(0, inputCount);
     const inputValue = inputs.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
@@ -3237,7 +3285,7 @@ this.refreshIcons();
 
   getSocialLockerCandidates() {
     return [...(this.state.inventory || [])]
-      .filter((item) => !item.locked)
+      .filter((item) => !item.locked && !isPermanentMalusItem(item))
       .sort((a, b) => Number(b.favorite) - Number(a.favorite) || Number(b.value || 0) - Number(a.value || 0))
       .slice(0, 500);
   }
@@ -4453,7 +4501,7 @@ this.refreshIcons();
     this.publishRareCaseDrops(this.selectedCase, result);
 
     this.playDropSound(showcase);
-    if (auto && RARITIES[showcase.rarity].tier >= ECONOMY_CONFIG.rareRevealTier) {
+    if (auto && !isPermanentMalusItem(showcase) && RARITIES[showcase.rarity].tier >= ECONOMY_CONFIG.rareRevealTier) {
       this.showRareReveal(showcase, result.drops.length);
     }
     this.renderDrops(result.drops);
@@ -4674,7 +4722,7 @@ this.refreshIcons();
 
   showRareReveal(item, batchSize = 1) {
     const overlay = this.root.querySelector("#rareReveal");
-    if (!overlay) {
+    if (!overlay || isPermanentMalusItem(item)) {
       return;
     }
     window.clearTimeout(this.revealTimer);
@@ -4729,9 +4777,12 @@ this.refreshIcons();
     }
 
     const grossValue = Number(sortedDrops.reduce((sum, drop) => sum + Number(drop.item.value || 0), 0).toFixed(2));
-    const sellableTop = !topDrop.autoSold && this.state.inventory.some((item) => item.id === topDrop.item.id && !item.locked);
-    const keptCount = sortedDrops.filter((drop) => !drop.autoSold).length;
-    const autoSoldCount = sortedDrops.length - keptCount;
+    const topIsMalus = isPermanentMalusItem(topDrop.item);
+    const sellableTop = !topDrop.autoSold && !topDrop.malusConsumed && this.state.inventory.some((item) => item.id === topDrop.item.id && !item.locked);
+    const keptCount = sortedDrops.filter((drop) => !drop.autoSold && !drop.malusConsumed).length;
+    const autoSoldCount = sortedDrops.filter((drop) => drop.autoSold).length;
+    const malusResultCount = sortedDrops.filter((drop) => drop.malusConsumed).length;
+    const malusTotalPenalty = sortedDrops.filter((drop) => drop.malusConsumed).reduce((sum, drop) => sum + Math.abs(Number(drop.item.value) || 0), 0);
     const raritySummary = RARITY_ORDER
       .slice()
       .reverse()
@@ -4759,12 +4810,12 @@ this.refreshIcons();
             <img src="${topDrop.item.image}" alt="${escapeHtml(topDrop.item.name)}" loading="eager" />
           </div>
           <div class="open-result-hero-copy">
-            <span>${escapeHtml(topDrop.item.rarity)} - skin piu' costosa</span>
+            <span>${topIsMalus ? "Malus permanente" : `${escapeHtml(topDrop.item.rarity)} - skin piu' costosa`}</span>
             <h3>${escapeHtml(topDrop.item.name)}</h3>
-            <p>${escapeHtml(topDrop.item.wear)} - float ${Number(topDrop.item.float).toFixed(6)} - ${topDrop.autoSold ? "auto-sold" : "tenuta in inventario"}</p>
+            <p>${topIsMalus ? `Penalita' istantanea: -${formatCredits(Math.abs(topDrop.item.value))} crediti` : `${escapeHtml(topDrop.item.wear)} - float ${Number(topDrop.item.float).toFixed(6)} - ${topDrop.autoSold ? "auto-sold" : "tenuta in inventario"}`}</p>
             <div class="open-result-hero-metrics">
               ${statTile("Top drop", formatCredits(topDrop.item.value), topDrop.item.rarity)}
-              ${statTile("Valore batch", formatCredits(grossValue), `${keptCount} tenute - ${autoSoldCount} auto-sell`)}
+              ${statTile("Valore batch", formatCredits(grossValue), `${keptCount} tenute - ${autoSoldCount} auto-sell${malusResultCount ? ` - ${malusResultCount} malus (-${formatCredits(malusTotalPenalty)})` : ""}`)}
               ${statTile("Aperture", result.opened, caseDef.profileName)}
             </div>
           </div>
@@ -4782,14 +4833,14 @@ this.refreshIcons();
             <article class="open-result-item ${rarityClass(drop.item.rarity)} ${drop.item.id === topDrop.item.id ? "is-top" : ""}" style="--rarity:${drop.item.rarityColor}">
               <div class="open-result-item-head">
                 <span>#${index + 1}</span>
-                ${drop.autoSold ? `<small class="open-result-auto">Auto-sell</small>` : `<small>Tenuta</small>`}
+                ${drop.malusConsumed ? `<small class="open-result-auto" style="color:#ff5e73">Malus -${formatCredits(Math.abs(drop.item.value))}</small>` : drop.autoSold ? `<small class="open-result-auto">Auto-sell</small>` : `<small>Tenuta</small>`}
               </div>
               <div class="open-result-item-art" data-action="inspect-item" data-id="${drop.item.id}">
                 <img src="${drop.item.image}" alt="${escapeHtml(drop.item.name)}" loading="lazy" />
               </div>
               <div class="open-result-item-copy" data-action="inspect-item" data-id="${drop.item.id}">
                 <strong title="${escapeHtml(drop.item.name)}">${escapeHtml(drop.item.name)}</strong>
-                <small>${escapeHtml(drop.item.rarity)} - ${escapeHtml(drop.item.wear)}</small>
+                <small>${drop.malusConsumed ? `Penalita' istantanea` : `${escapeHtml(drop.item.rarity)} - ${escapeHtml(drop.item.wear)}`}</small>
               </div>
               <div class="open-result-item-footer">
                 <div class="open-result-item-value">${formatCredits(drop.item.value, true)}</div>
@@ -4798,8 +4849,8 @@ this.refreshIcons();
                   data-action="toggle-result-lock"
                   data-id="${drop.item.id}"
                   type="button"
-                  title="${drop.autoSold ? "Gia' venduta dall'auto-sell" : drop.item.locked ? "Sblocca" : "Blocca"}"
-                  ${drop.autoSold ? "disabled" : ""}
+                  title="${drop.malusConsumed ? "Malus consumato" : drop.autoSold ? "Gia' venduta dall'auto-sell" : drop.item.locked ? "Sblocca" : "Blocca"}"
+                  ${drop.autoSold || drop.malusConsumed ? "disabled" : ""}
                 >
                   ${iconMarkup(drop.item.locked ? "lock-keyhole" : "lock")}
                 </button>
@@ -4809,7 +4860,7 @@ this.refreshIcons();
         </div>
         ` : ""}
         <div class="open-result-foot">
-          <button class="primary-button small" data-action="sell-result-item" data-id="${topDrop.item.id}" ${sellableTop ? "" : "disabled"}>Vendi</button>
+          <button class="primary-button small ${topIsMalus ? 'malus-sell' : ''}" data-action="sell-result-item" data-id="${topDrop.item.id}" ${sellableTop ? "" : "disabled"}>${topIsMalus ? "Smaltisci" : "Vendi"}</button>
           <button class="ghost-button small" data-action="close-open-result">Chiudi</button>
           <button class="ghost-button small" data-action="toggle-open-result-details" ${sortedDrops.length > 1 ? "" : "disabled"}>${this.openResultExpanded ? "Nascondi" : "Vedi tutto"}</button>
           <button class="ghost-button small danger result-sell-all" data-action="sell-last-open" ${keptCount ? "" : "disabled"}>Vendi tutto</button>
@@ -4865,6 +4916,7 @@ this.refreshIcons();
       return;
     }
     const inInventory = this.state.inventory.some((candidate) => candidate.id === item.id);
+    const malus = isPermanentMalusItem(item);
     const sellValue = getSellReturn(this.state, item);
     const floatPercent = Math.max(0, Math.min(100, Number(item.float || 0) * 100));
     node.hidden = false;
@@ -4884,13 +4936,13 @@ this.refreshIcons();
           </div>
           <div class="inspector-stats">
             ${statTile("Valore", formatCredits(item.value), "stima locale")}
-            ${statTile("Vendita", formatCredits(sellValue), `${Math.round((1 - sellValue / Math.max(1, item.value)) * 100)}% fee`)}
-            ${statTile("Flag", `${item.favorite ? "Fav " : ""}${item.locked ? "Lock" : item.crit ? "Crit" : "Normale"}`, item.marketCost ? `cost ${formatCredits(item.marketCost)}` : "inventario")}
+            ${statTile("Vendita", malus ? formatCredits(getSellReturn(this.state, item)) : formatCredits(sellValue), malus ? "costo smaltimento malus" : `${Math.round((1 - sellValue / Math.max(1, item.value)) * 100)}% fee`)}
+            ${statTile("Flag", malus ? "Malus" : `${item.favorite ? "Fav " : ""}${item.locked ? "Lock" : item.crit ? "Crit" : "Normale"}`, item.marketCost ? `cost ${formatCredits(item.marketCost)}` : "inventario")}
           </div>
           <div class="inspector-actions">
-            <button class="ghost-button" data-action="toggle-favorite" data-id="${item.id}" ${inInventory ? "" : "disabled"}>${item.favorite ? "Unfavorite" : "Favorite"}</button>
-            <button class="ghost-button" data-action="toggle-lock" data-id="${item.id}" ${inInventory ? "" : "disabled"}>${item.locked ? "Unlock" : "Lock"}</button>
-            <button class="primary-button small" data-action="sell-inspected" ${inInventory && !item.locked ? "" : "disabled"}>Vendi ${formatCredits(sellValue)}</button>
+            <button class="ghost-button" data-action="toggle-favorite" data-id="${item.id}" ${inInventory && !malus ? "" : "disabled"}>${item.favorite ? "Unfavorite" : "Favorite"}</button>
+            <button class="ghost-button" data-action="toggle-lock" data-id="${item.id}" ${inInventory && !malus ? "" : "disabled"}>${item.locked ? "Unlock" : "Lock"}</button>
+            <button class="primary-button small ${malus ? 'malus-sell' : ''}" data-action="sell-inspected" ${inInventory && !item.locked ? "" : "disabled"}>${malus ? `Smaltisci ${formatCredits(getSellReturn(this.state, item))}` : `Vendi ${formatCredits(sellValue)}`}</button>
           </div>
         </div>
       </div>
@@ -4907,7 +4959,7 @@ this.refreshIcons();
 
   getLastOpenedBatchState() {
     const ids = new Set(this.lastOpenedDropIds || []);
-    const items = this.state.inventory.filter((item) => ids.has(item.id));
+    const items = this.state.inventory.filter((item) => ids.has(item.id) && !item.locked && !item.favorite);
     return {
       items,
       count: items.length,
@@ -4927,7 +4979,9 @@ this.refreshIcons();
     this.lastOpenedDropIds = this.lastOpenedDropIds.filter((id) => !result.sold.some((item) => item.id === id));
     this.session.earned += result.total;
     this.recordSessionEvent("sell", "Vendi risultato", `${result.sold.length} skin`, result.total);
-    this.toast(`${result.sold.length} skin del risultato vendute per ${formatCredits(result.total)}.`);
+    this.toast(result.sold.length
+      ? `${result.sold.length} skin del risultato vendute per ${formatCredits(result.total)}.`
+      : "Nessuna skin vendibile nel risultato.");
     syncAchievements(this.state);
     this.closeOpenResultSummary();
     this.renderAll();
@@ -4942,13 +4996,20 @@ this.refreshIcons();
       this.toast(item?.locked ? "Skin bloccata: sbloccala prima di venderla." : "Skin non disponibile.");
       return;
     }
+    if (isPermanentMalusItem(item)) {
+      const cost = Math.abs(getSellReturn(this.state, item));
+      if (this.state.credits < cost) {
+        this.toast(`Crediti insufficienti per smaltire il malus (servono ${formatCredits(cost)}).`);
+        return;
+      }
+    }
     const sold = sellItem(this.state, id);
     if (sold) {
       this.selectedInventory.delete(id);
       this.lastOpenedDropIds = this.lastOpenedDropIds.filter((candidateId) => candidateId !== id);
       this.session.earned += Number(sold.sellValue || 0);
       this.recordSessionEvent("sell", sold.name, "Vendita top risultato", sold.sellValue || 0);
-      this.toast(`${sold.name} venduta per ${formatCredits(sold.sellValue || sold.value)}.`);
+      this.toast(isPermanentMalusItem(sold) ? `${sold.name} smaltita: ${formatCredits(sold.sellValue)} dal saldo.` : `${sold.name} venduta per ${formatCredits(sold.sellValue || sold.value)}.`);
     }
     syncAchievements(this.state);
     this.closeOpenResultSummary();
@@ -4957,6 +5018,11 @@ this.refreshIcons();
   }
 
   toggleResultLock(id, button) {
+    const current = this.state.inventory.find((candidate) => candidate.id === id);
+    if (isPermanentMalusItem(current)) {
+      this.toast("Skin malus permanente: il lock non puo' essere rimosso.");
+      return;
+    }
     const item = toggleItemFlag(this.state, id, "locked");
     if (!item) {
       return;
@@ -5006,7 +5072,9 @@ this.refreshIcons();
     result.sold.forEach((item) => this.selectedInventory.delete(item.id));
     this.session.earned += result.total;
     this.recordSessionEvent("sell", "Vendita selezione", `${result.sold.length} skin`, result.total);
-    this.toast(`${result.sold.length} skin selezionate vendute per ${formatCredits(result.total)}.`);
+    this.toast(result.sold.length
+      ? `${result.sold.length} skin selezionate vendute per ${formatCredits(result.total)}.`
+      : "Nessuna skin vendibile nella selezione.");
     syncAchievements(this.state);
     this.renderAll();
     this.queueSocialProfileSync();
@@ -5022,6 +5090,11 @@ this.refreshIcons();
   }
 
   toggleItemFlag(id, flag) {
+    const current = this.state.inventory.find((candidate) => candidate.id === id);
+    if (isPermanentMalusItem(current)) {
+      this.toast("Skin malus permanente: non puoi modificarla.");
+      return;
+    }
     const item = toggleItemFlag(this.state, id, flag);
     if (item) {
       this.toast(`${item.name}: ${flag === "locked" ? "lock" : "favorite"} ${item[flag] ? "on" : "off"}.`);
@@ -5075,12 +5148,20 @@ this.refreshIcons();
   }
 
   sellItem(id) {
+    const current = this.state.inventory.find((candidate) => candidate.id === id);
+    if (isPermanentMalusItem(current)) {
+      const cost = Math.abs(getSellReturn(this.state, current));
+      if (this.state.credits < cost) {
+        this.toast(`Crediti insufficienti per smaltire il malus (servono ${formatCredits(cost)}).`);
+        return;
+      }
+    }
     const item = sellItem(this.state, id);
     if (item) {
       this.selectedInventory.delete(id);
       this.session.earned += Number(item.sellValue || 0);
-      this.recordSessionEvent("sell", item.name, "Vendita singola", item.sellValue || 0);
-      this.toast(`${item.name} venduta per ${formatCredits(item.sellValue || item.value)}.`);
+      this.recordSessionEvent("sell", item.name, isPermanentMalusItem(item) ? "Smaltimento malus" : "Vendita singola", item.sellValue || 0);
+      this.toast(isPermanentMalusItem(item) ? `${item.name} smaltita: ${formatCredits(item.sellValue)} dal saldo.` : `${item.name} venduta per ${formatCredits(item.sellValue || item.value)}.`);
     }
     syncAchievements(this.state);
     this.renderAll();
@@ -5092,7 +5173,9 @@ this.refreshIcons();
     const result = sellItems(this.state, (item) => ids.has(item.id));
     this.session.earned += result.total;
     this.recordSessionEvent("sell", "Vendi filtrate", `${result.sold.length} skin`, result.total);
-    this.toast(`${result.sold.length} skin vendute per ${formatCredits(result.total)}.`);
+    this.toast(result.sold.length
+      ? `${result.sold.length} skin vendute per ${formatCredits(result.total)}.`
+      : "Nessuna skin vendibile tra quelle filtrate.");
     syncAchievements(this.state);
     this.renderAll();
     this.queueSocialProfileSync();
@@ -5102,7 +5185,9 @@ this.refreshIcons();
     const result = sellItems(this.state, (item) => RARITIES[item.rarity].tier <= maxTier);
     this.session.earned += result.total;
     this.recordSessionEvent("sell", "Vendi low-tier", `${result.sold.length} skin`, result.total);
-    this.toast(`${result.sold.length} skin low-tier vendute per ${formatCredits(result.total)}.`);
+    this.toast(result.sold.length
+      ? `${result.sold.length} skin low-tier vendute per ${formatCredits(result.total)}.`
+      : "Nessuna skin low-tier vendibile.");
     syncAchievements(this.state);
     this.renderAll();
     this.queueSocialProfileSync();
@@ -5559,7 +5644,7 @@ this.refreshIcons();
       return;
     }
     const offer = (this.socialState?.trades?.incoming || []).find((entry) => entry.id === offerId);
-    const requestedLocalItem = this.state.inventory.find((item) => item.id === offer?.requestedItem?.id && !item.locked);
+    const requestedLocalItem = this.state.inventory.find((item) => item.id === offer?.requestedItem?.id && !item.locked && !isPermanentMalusItem(item));
     if (!offer || !requestedLocalItem) {
       this.toast("La skin richiesta non e' piu' nel tuo locker.");
       return;

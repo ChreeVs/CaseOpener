@@ -30,6 +30,16 @@ const PRESTIGE_NODE_BY_ID = new Map(PRESTIGE_TREE.map((node) => [node.id, node])
 const MAX_PRESTIGE_LEVEL = CASE_MAX_PRESTIGE_UNLOCK;
 const MARKETPLACE_ACTIVE_LISTING_LIMIT = 5;
 const MARKETPLACE_MAX_PRICE = 1000000;
+const MALUS_MIN_PRESTIGE_LEVEL = 2;
+const MALUS_RARITY_COLOR = "#ff5e73";
+const MALUS_LABELS = [
+  "Red Ledger",
+  "Debt Mark",
+  "Bad Float",
+  "Overdraft",
+  "Locked Loss",
+  "Penalty"
+];
 
 function emptyRarityCounts() {
   return RARITY_ORDER.reduce((counts, rarity) => {
@@ -275,7 +285,7 @@ export function normalizeState(raw) {
   state.promoCodes.custom = { ...(raw?.promoCodes?.custom || {}) };
   state.auctions = { ...createDefaultState().auctions, ...(raw?.auctions || {}) };
   state.auctions.listings = Array.isArray(raw?.auctions?.listings) ? raw.auctions.listings.slice(0, 50) : [];
-  state.inventory = Array.isArray(raw?.inventory) ? raw.inventory : [];
+  state.inventory = Array.isArray(raw?.inventory) ? raw.inventory.map(normalizePermanentMalusItem) : [];
   state.dropHistory = Array.isArray(raw?.dropHistory) ? raw.dropHistory.slice(0, 40) : [];
   return state;
 }
@@ -369,9 +379,83 @@ export function getProfileSkillBonus(state) {
 }
 
 export function getSellReturn(state, item) {
+  if (isPermanentMalusItem(item)) {
+    // Malus items have negative value: selling them costs 75% of the malus value
+    return -Number((Math.max(0.01, Math.abs(Number(item.value) || 1)) * 0.75).toFixed(2));
+  }
   const marketAnalyst = state.upgrades.marketAnalyst || 0;
   const fee = Math.max(0, ECONOMY_CONFIG.sellFee - getPrestigeNodeEffect(state, "sell") - marketAnalyst * 0.001 - getProfileSkillBonus(state).sellFeeReduction);
   return Number(Math.max(0, (item.value || 0) * (1 - fee)).toFixed(2));
+}
+
+export function isPermanentMalusItem(item) {
+  return Boolean(item?.malus || item?.permanentMalus || item?.undeletable);
+}
+
+function normalizePermanentMalusItem(item) {
+  if (!isPermanentMalusItem(item)) {
+    return item;
+  }
+  const value = Math.max(0.01, Math.abs(Number(item.value) || 1));
+  item.malus = true;
+  item.permanentMalus = true;
+  item.undeletable = true;
+  item.locked = false;
+  item.favorite = false;
+  item.value = -Number(value.toFixed(2));
+  item.rarityColor = MALUS_RARITY_COLOR;
+  item.marketCost = 0;
+  item.autoSold = false;
+  return item;
+}
+
+function getMalusPriceAnchor(caseDef, item = null) {
+  const casePrice = Math.max(0, Number(caseDef?.price) || 0);
+  const caseValue = Math.max(0, Number(caseDef?.value) || 0);
+  const itemValue = Math.max(0, Math.abs(Number(item?.value) || 0));
+  return Math.max(STARTING_CREDITS, casePrice || caseValue || itemValue || STARTING_CREDITS);
+}
+
+export function getMalusDropChance(state, caseDef = {}) {
+  const casePrestige = Math.max(0, Number(caseDef?.unlockPrestige) || 0);
+  // All cases from P2+ can drop malus; Risk Cases get boosted rates
+  const isRisk = Boolean(caseDef?.malusEnabled || caseDef?.riskCase);
+  if (casePrestige < MALUS_MIN_PRESTIGE_LEVEL && !isRisk) {
+    return 0;
+  }
+  const effectivePrestige = Math.max(MALUS_MIN_PRESTIGE_LEVEL, casePrestige);
+  const prestigeStep = Math.max(0, effectivePrestige - MALUS_MIN_PRESTIGE_LEVEL);
+  // Progressive scaling: 3% at P2, ~6% at P5, ~10% at P10, ~14% at P15
+  const baseChance = 0.03 + prestigeStep * 0.0085;
+  const riskMultiplier = isRisk ? 1.5 : 1;
+  const chance = baseChance * riskMultiplier;
+  return Number(Math.min(0.21, chance).toFixed(4));
+}
+
+function estimateMalusPenaltyValue(state, caseDef = {}, item = null) {
+  const casePrestige = Math.max(MALUS_MIN_PRESTIGE_LEVEL, Number(caseDef?.unlockPrestige) || MALUS_MIN_PRESTIGE_LEVEL);
+  const prestigeStep = Math.max(0, casePrestige - MALUS_MIN_PRESTIGE_LEVEL);
+  const anchor = getMalusPriceAnchor(caseDef, item);
+  // Scales from 22% at P2 to ~45% at P15; Risk Cases add +40%
+  const isRisk = Boolean(caseDef?.malusEnabled || caseDef?.riskCase);
+  const baseMultiplier = 0.22 + Math.min(0.23, prestigeStep * 0.018);
+  const riskBoost = isRisk ? 1.4 : 1;
+  const multiplier = baseMultiplier * riskBoost;
+  // Net worth drag scales more aggressively with prestige
+  const netWorthDrag = Math.max(0, getNetWorth(state)) * Math.min(0.004, 0.0008 + prestigeStep * 0.00018);
+  const floor = Math.max(1, anchor * 0.12);
+  const cap = anchor * (0.55 + Math.min(0.25, prestigeStep * 0.016));
+  const penalty = Math.min(cap, Math.max(floor, anchor * multiplier + netWorthDrag));
+  return -Number(penalty.toFixed(2));
+}
+
+function rollMalusPenaltyValue(state, caseDef = {}, item = null) {
+  const estimate = Math.abs(estimateMalusPenaltyValue(state, caseDef, item));
+  const anchor = getMalusPriceAnchor(caseDef, item);
+  const variance = 0.72 + Math.random() * 0.56;
+  const cap = anchor * 0.78;
+  const penalty = Math.min(cap, Math.max(anchor * 0.12, estimate * variance));
+  return -Number(penalty.toFixed(2));
 }
 
 export function getDropInsuranceRate(state) {
@@ -863,7 +947,10 @@ export function getCaseDropTable(state, caseDef) {
       expectedValue: estimatedValue * entry.probability
     };
   });
-  const expectedValue = rows.reduce((sum, row) => sum + row.expectedValue, 0);
+  const grossExpectedValue = rows.reduce((sum, row) => sum + row.expectedValue, 0);
+  const malusChance = getMalusDropChance(state, caseDef);
+  const malusPenaltyEstimate = malusChance > 0 ? estimateMalusPenaltyValue(state, caseDef) : 0;
+  const expectedValue = grossExpectedValue * (1 - malusChance) + malusPenaltyEstimate * malusChance;
   const roi = caseDef.price > 0 ? expectedValue / caseDef.price : 0;
   const bestRarity = [...rows].sort((a, b) => RARITIES[b.rarity].tier - RARITIES[a.rarity].tier)[0]?.rarity;
   const bestPool = bestRarity ? caseDef.pool[bestRarity] || [] : [];
@@ -871,7 +958,10 @@ export function getCaseDropTable(state, caseDef) {
   return {
     rows,
     expectedValue,
+    grossExpectedValue,
     roi,
+    malusChance,
+    malusPenaltyEstimate,
     bestRarity,
     bestPreview: bestPool.slice(0, 4)
   };
@@ -980,6 +1070,35 @@ export function createInventoryItem(skin, rarity, caseDef, state) {
   };
 }
 
+function maybeApplyMalusToItem(state, item, caseDef) {
+  const chance = getMalusDropChance(state, caseDef);
+  if (chance <= 0 || Math.random() >= chance) {
+    return item;
+  }
+
+  const label = MALUS_LABELS[Math.floor(Math.random() * MALUS_LABELS.length)];
+  const originalName = item.baseName || item.name;
+  const penaltyValue = rollMalusPenaltyValue(state, caseDef, item);
+  return normalizePermanentMalusItem({
+    ...item,
+    id: `malus-${item.id}`,
+    name: `Malus ${label} | ${originalName}`,
+    baseName: `Malus ${label} | ${originalName}`,
+    value: penaltyValue,
+    rarityColor: MALUS_RARITY_COLOR,
+    locked: false,
+    favorite: false,
+    malus: true,
+    permanentMalus: true,
+    undeletable: true,
+    malusLabel: label,
+    malusChance: chance,
+    malusSourceValue: item.value,
+    marketCost: 0,
+    insuranceRefund: 0
+  });
+}
+
 function updateCombo(state) {
   const now = Date.now();
   state.combo.count = now - state.combo.lastOpenAt < 9000 ? state.combo.count + 1 : 1;
@@ -988,7 +1107,7 @@ function updateCombo(state) {
 }
 
 function maybeStartLuckyEvent(state, item) {
-  if (isEventActive(state)) {
+  if (isEventActive(state) || isPermanentMalusItem(item)) {
     return null;
   }
 
@@ -1016,7 +1135,7 @@ function maybeStartLuckyEvent(state, item) {
 }
 
 function shouldAutoSell(state, item) {
-  if (!state.autoSell?.enabled) {
+  if (!state.autoSell?.enabled || isPermanentMalusItem(item)) {
     return false;
   }
   const tier = RARITIES[item.rarity]?.tier || 0;
@@ -1120,47 +1239,64 @@ export function openCases(state, caseDef, skinData, requestedCount, source = "ma
 
     const rarity = rollRarity(caseDef, state);
     const skin = pickSkin(caseDef, rarity, skinData);
-    const item = createInventoryItem(skin, rarity, caseDef, state);
-    if (RARITIES[rarity].tier <= 2 && item.value < caseDef.price) {
-      const refund = Number((caseDef.price * getDropInsuranceRate(state)).toFixed(2));
-      if (refund > 0) {
-        state.credits += refund;
-        state.stats.insuranceEarned += refund;
-        item.insuranceRefund = refund;
+    let item = createInventoryItem(skin, rarity, caseDef, state);
+    item = maybeApplyMalusToItem(state, item, caseDef);
+
+    const isMalus = isPermanentMalusItem(item);
+
+    if (isMalus) {
+      // Malus is an instant penalty: deduct credits and discard the item
+      const penalty = Math.abs(Number(item.value) || 1);
+      state.credits -= penalty;
+      state.stats.malusPenalties = (state.stats.malusPenalties || 0) + 1;
+      state.stats.malusTotalLost = Number(((state.stats.malusTotalLost || 0) + penalty).toFixed(2));
+      item.malusConsumed = true;
+      item.autoSold = false;
+      recordCaseDropStats(state, caseDef, item);
+    } else {
+      if (RARITIES[rarity].tier <= 2 && item.value < caseDef.price) {
+        const refund = Number((caseDef.price * getDropInsuranceRate(state)).toFixed(2));
+        if (refund > 0) {
+          state.credits += refund;
+          state.stats.insuranceEarned += refund;
+          item.insuranceRefund = refund;
+        }
+      }
+      const autoSold = shouldAutoSell(state, item);
+      if (autoSold) {
+        const returned = getSellReturn(state, item);
+        state.credits += returned;
+        state.stats.totalEarned += returned;
+        state.stats.autoSold += 1;
+        item.autoSold = true;
+        item.sellValue = returned;
+        recordCaseDropStats(state, caseDef, item, { autoSold: true, soldValue: returned });
+      } else {
+        state.inventory.unshift(item);
+        recordCaseDropStats(state, caseDef, item);
       }
     }
-    const autoSold = shouldAutoSell(state, item);
-    if (autoSold) {
-      const returned = getSellReturn(state, item);
-      state.credits += returned;
-      state.stats.totalEarned += returned;
-      state.stats.autoSold += 1;
-      item.autoSold = true;
-      item.sellValue = returned;
-      recordCaseDropStats(state, caseDef, item, { autoSold: true, soldValue: returned });
-    } else {
-      state.inventory.unshift(item);
-      recordCaseDropStats(state, caseDef, item);
-    }
     rememberDrop(state, item);
-    grantCollectionArchivePoints(state, rarity);
+    if (!isMalus) {
+      grantCollectionArchivePoints(state, rarity);
+    }
     state.stats.rarityCounts[rarity] = (state.stats.rarityCounts[rarity] || 0) + 1;
-    state.stats.totalDropValue += item.value;
+    state.stats.totalDropValue += isMalus ? 0 : item.value;
     const xpMultiplier = getLimitedEventEffect(state).xpMultiplier || 1;
     state.profile.xp += Math.max(2, Math.round((Math.max(1, caseDef.price) * 0.55 + RARITIES[rarity].tier * 4) * xpMultiplier));
     state.profile.level = getProfileLevel(state.profile.xp);
 
-    if (!state.stats.bestDrop || item.value > state.stats.bestDrop.value) {
+    if (!isMalus && (!state.stats.bestDrop || item.value > state.stats.bestDrop.value)) {
       state.stats.bestDrop = item;
     }
-    if (rarity === "Rare Special Item") {
+    if (!isMalus && rarity === "Rare Special Item") {
       state.stats.jackpotHits += 1;
     }
 
     const event = maybeStartLuckyEvent(state, item);
     const mastery = addCaseMasteryXp(state, caseDef, 1);
     masteryLevelUps.push(...mastery.levelUps);
-    drops.push({ item, event, limitedEvent: index === 0 ? limitedEvent : null, autoSold });
+    drops.push({ item, event, limitedEvent: index === 0 ? limitedEvent : null, autoSold: item.autoSold || false, malusConsumed: isMalus });
   }
 
   return {
@@ -1185,10 +1321,17 @@ export function sellItem(state, itemId) {
   if (state.inventory[index].locked) {
     return null;
   }
-  const [item] = state.inventory.splice(index, 1);
+  const item = state.inventory[index];
   const returned = getSellReturn(state, item);
+  // For malus items, selling costs credits: check the player can afford it
+  if (returned < 0 && state.credits < Math.abs(returned)) {
+    return null;
+  }
+  state.inventory.splice(index, 1);
   state.credits += returned;
-  state.stats.totalEarned += returned;
+  if (returned >= 0) {
+    state.stats.totalEarned += returned;
+  }
   recordCaseSaleStats(state, item, returned);
   if (item.marketCost && returned > item.marketCost * 1.05) {
     state.stats.marketFlips += 1;
@@ -1207,15 +1350,27 @@ export function sellItems(state, predicate) {
       keep.push(item);
     }
   });
-  state.inventory = keep;
+  // Calculate total cost — if negative (malus items dominate), check player can afford
   let total = 0;
+  sold.forEach((item) => {
+    total += getSellReturn(state, item);
+  });
+  if (total < 0 && state.credits < Math.abs(total)) {
+    // Player can't afford to sell all malus items; abort
+    return { sold: [], total: 0 };
+  }
+  state.inventory = keep;
+  // Re-calculate with recordCaseSaleStats
+  total = 0;
   sold.forEach((item) => {
     const returned = getSellReturn(state, item);
     total += returned;
     recordCaseSaleStats(state, item, returned);
   });
   state.credits += total;
-  state.stats.totalEarned += total;
+  if (total >= 0) {
+    state.stats.totalEarned += total;
+  }
   state.stats.marketFlips += sold.filter((item) => item.marketCost && getSellReturn(state, item) > item.marketCost * 1.05).length;
   return { sold, total };
 }
@@ -1226,6 +1381,10 @@ export function toggleItemFlag(state, itemId, flag) {
   }
   const item = state.inventory.find((candidate) => candidate.id === itemId);
   if (!item) {
+    return null;
+  }
+  if (isPermanentMalusItem(item)) {
+    normalizePermanentMalusItem(item);
     return null;
   }
   item[flag] = !item[flag];
@@ -1460,7 +1619,7 @@ export function playCoinflip(state, { bet, side } = {}) {
 
 export function playUpgrader(state, skinData, { itemId, itemIds = [], targetMultiplier } = {}) {
   const ids = Array.isArray(itemIds) && itemIds.length ? [...new Set(itemIds)] : [itemId].filter(Boolean);
-  const selectedItems = state.inventory.filter((candidate) => ids.includes(candidate.id) && !candidate.locked && candidate.type !== "rewardCase");
+  const selectedItems = state.inventory.filter((candidate) => ids.includes(candidate.id) && !candidate.locked && !isPermanentMalusItem(candidate) && candidate.type !== "rewardCase");
   if (!selectedItems.length) {
     return { ok: false, reason: "Seleziona una skin non bloccata." };
   }
@@ -1633,7 +1792,7 @@ function normalizeJackpotOpponents(opponents, playerDeposit) {
  */
 export function playJackpot(state, skinData, { itemIds = [], opponents = [] } = {}) {
   const ids = Array.isArray(itemIds) ? [...new Set(itemIds)] : [];
-  const depositedItems = state.inventory.filter((item) => ids.includes(item.id) && !item.locked);
+  const depositedItems = state.inventory.filter((item) => ids.includes(item.id) && !item.locked && !isPermanentMalusItem(item));
   if (!depositedItems.length) {
     return { ok: false, reason: "Seleziona almeno una skin non bloccata per il jackpot." };
   }
@@ -1649,7 +1808,7 @@ export function playJackpot(state, skinData, { itemIds = [], opponents = [] } = 
   if (!normalizedOpponents.length) {
     return { ok: false, reason: "Il jackpot aspetta almeno 2 utenti online." };
   }
-  state.inventory = state.inventory.filter((item) => !ids.includes(item.id));
+  state.inventory = state.inventory.filter((item) => !ids.includes(item.id) || isPermanentMalusItem(item));
   state.minigames.jackpot = {};
 
   const participants = [
@@ -1742,12 +1901,13 @@ export function prestige(state) {
 
   const netWorth = getNetWorth(state);
   const gainedShards = Math.max(1, Math.floor(Math.sqrt(netWorth / 120) + state.prestige.level * 0.65));
+  const permanentMalusItems = state.inventory.filter(isPermanentMalusItem).map(normalizePermanentMalusItem);
   state.prestige.level += 1;
   state.prestige.shards += gainedShards;
   state.prestige.lifetimeShards += gainedShards;
   state.prestige.totalResets += 1;
   state.credits = getPrestigeResetCredits(state.prestige.level);
-  state.inventory = [];
+  state.inventory = permanentMalusItems;
   state.upgrades = UPGRADE_DEFINITIONS.reduce((upgrades, upgrade) => {
     upgrades[upgrade.id] = 0;
     return upgrades;
@@ -1861,7 +2021,7 @@ export function runTradeUpContract(state, rarity, caseDef, skinData) {
   }
 
   const candidates = state.inventory
-    .filter((item) => item.rarity === rarity && !item.locked && !item.favorite)
+    .filter((item) => item.rarity === rarity && !item.locked && !item.favorite && !isPermanentMalusItem(item))
     .sort((a, b) => a.value - b.value)
     .slice(0, inputCount);
 
@@ -2165,17 +2325,29 @@ export function openRewardCase(state, itemId, skinData) {
   const rarity = weightedPick(profiles[tier].map(([value, weight]) => ({ value, weight })));
   const pool = skinData.globalPool?.[rarity]?.length ? skinData.globalPool[rarity] : skinData.skins.filter((skin) => skin.rarity === rarity);
   const skin = pool[Math.floor(Math.random() * pool.length)] || skinData.skins[Math.floor(Math.random() * skinData.skins.length)];
-  const item = createInventoryItem(skin, rarity, {
+  let item = createInventoryItem(skin, rarity, {
     id: `reward-${rewardCase.id}`,
     name: rewardCase.name,
+    price: rewardCase.value,
+    value: rewardCase.value,
+    unlockPrestige: state.prestige?.level || 0,
     valueScale: 1 + tier * 0.08
   }, state);
-  item.name = `${rewardCase.name} ${item.name}`;
+  item = maybeApplyMalusToItem(state, item, {
+    id: `reward-${rewardCase.id}`,
+    name: rewardCase.name,
+    price: rewardCase.value,
+    value: rewardCase.value,
+    unlockPrestige: state.prestige?.level || 0
+  });
+  if (!isPermanentMalusItem(item)) {
+    item.name = `${rewardCase.name} ${item.name}`;
+  }
   state.inventory.unshift(item);
   rememberDrop(state, item);
   state.stats.rarityCounts[rarity] = (state.stats.rarityCounts[rarity] || 0) + 1;
   state.stats.totalDropValue += item.value;
-  if (!state.stats.bestDrop || item.value > state.stats.bestDrop.value) {
+  if (!isPermanentMalusItem(item) && (!state.stats.bestDrop || item.value > state.stats.bestDrop.value)) {
     state.stats.bestDrop = item;
   }
   return { ok: true, rewardCase, item };
@@ -2267,7 +2439,7 @@ export function resetCommunityGoalState(state) {
 }
 
 export function createAuctionListing(state, itemId, price) {
-  const item = state.inventory.find((candidate) => candidate.id === itemId && !candidate.locked && candidate.type !== "rewardCase");
+  const item = state.inventory.find((candidate) => candidate.id === itemId && !candidate.locked && !isPermanentMalusItem(candidate) && candidate.type !== "rewardCase");
   if (!item) {
     return { ok: false, reason: "Seleziona una skin non bloccata." };
   }
