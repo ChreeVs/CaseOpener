@@ -1,5 +1,14 @@
 export const MINIGAME_DEFINITIONS = [
   {
+    id: "roulette",
+    name: "Roulette",
+    mode: "credits-live",
+    stake: "credits",
+    reward: "credits",
+    serverAuthoritative: false,
+    description: "Round realtime condivisi con puntate su rosso, nero e verde."
+  },
+  {
     id: "market-simulator",
     name: "Market Simulator",
     mode: "economy",

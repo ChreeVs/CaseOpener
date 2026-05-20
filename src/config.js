@@ -138,7 +138,7 @@ export const TAB_LABELS = {
   shop: "Upgrade",
   stats: "Progress",
   prestige: "Prestige",
-  games: "Giochi",
+  games: "Mini-Games",
   community: "Community",
   achievements: "Achievement",
   contracts: "Contratti",

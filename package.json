@@ -1,10 +1,10 @@
 {
   "name": "case-opener-incremental",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.cjs",
-    "check": "node --check server.cjs && node --check src/config.js && node --check src/config/supabaseConfig.js && node --check src/api.js && node --check src/store.js && node --check src/gameLogic.js && node --check src/network/supabaseClient.js && node --check src/network/supabaseChat.js && node --check src/network/communityGoals.js && node --check src/network/globalPromoCodes.js && node --check src/network/sharedGames.js && node --check src/network/cloudSave.js && node --check src/systems/games/gameDefinitions.js && node --check src/ui.js && node --check src/main.js"
+    "check": "node --check server.cjs && node --check src/config.js && node --check src/config/supabaseConfig.js && node --check src/api.js && node --check src/store.js && node --check src/gameLogic.js && node --check src/network/supabaseClient.js && node --check src/network/supabaseChat.js && node --check src/network/supabaseRoulette.js && node --check src/network/communityGoals.js && node --check src/network/globalPromoCodes.js && node --check src/network/sharedGames.js && node --check src/network/cloudSave.js && node --check src/systems/games/gameDefinitions.js && node --check src/ui.js && node --check src/main.js"
   }
 }

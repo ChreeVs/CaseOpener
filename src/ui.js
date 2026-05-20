@@ -20,6 +20,21 @@ import {
   subscribeSupabaseChat
 } from "./network/supabaseChat.js";
 import {
+  buildRouletteReelNumbers,
+  getRouletteChoiceLabel,
+  getRouletteColor,
+  getRouletteMultiplier,
+  getRouletteNumberForRound,
+  getRouletteRound,
+  isRouletteRealtimeAvailable,
+  publishRouletteMessage,
+  publishRouletteBet,
+  ROULETTE_CHOICES,
+  ROULETTE_FLOW,
+  subscribeRouletteBets,
+  subscribeRouletteMessages
+} from "./network/supabaseRoulette.js";
+import {
   fetchCommunityGoalTotals,
   isCommunityGoalsSyncAvailable,
   submitCommunityGoalContribution,
@@ -130,7 +145,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.6.0";
+const GAME_VERSION = "v1.7.0";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -179,6 +194,19 @@ export class CaseOpenerUI {
     this.unsubscribeSharedGameEvents = null;
     this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions = null;
+    this.rouletteBetAmount = "10";
+    this.rouletteBets = new Map();
+    this.rouletteSettledBetIds = new Set();
+    this.rouletteRoundPayouts = new Map();
+    this.rouletteLastRenderKey = "";
+    this.rouletteLastRenderAt = 0;
+    this.rouletteRealtimeStatus = isRouletteRealtimeAvailable() ? "Roulette realtime in attesa" : "Roulette realtime non configurata";
+    this.rouletteMessages = [];
+    this.rouletteChatDraft = "";
+    this.rouletteChatBusy = false;
+    this.unsubscribeRouletteBets = null;
+    this.unsubscribeRouletteMessages = null;
+    this.rouletteTickTimer = null;
     this.globalPromoCodes = [];
     this.globalPromoStatus = isGlobalPromoCodesAvailable() ? "Promo globali in attesa" : "Promo globali non configurati";
     this.adminPromoCode = "";
@@ -256,12 +284,14 @@ export class CaseOpenerUI {
     this.renderAll();
     this.initCommunityGoalsSync();
     this.initSharedGamesSync();
+    this.initRouletteRealtime();
     this.initGlobalPromoCodes();
     this.initCloudChat();
     this.refreshCloudSession();
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
+    this.rouletteTickTimer = window.setInterval(() => this.updateRouletteRuntime(), 250);
   }
 
   dispose() {
@@ -277,6 +307,10 @@ export class CaseOpenerUI {
     this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions?.();
     this.unsubscribeGlobalAuctions = null;
+    this.unsubscribeRouletteBets?.();
+    this.unsubscribeRouletteBets = null;
+    this.unsubscribeRouletteMessages?.();
+    this.unsubscribeRouletteMessages = null;
     if (this.chatPollTimer) {
       window.clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
@@ -284,6 +318,10 @@ export class CaseOpenerUI {
     if (this.liveSyncTimer) {
       window.clearInterval(this.liveSyncTimer);
       this.liveSyncTimer = null;
+    }
+    if (this.rouletteTickTimer) {
+      window.clearInterval(this.rouletteTickTimer);
+      this.rouletteTickTimer = null;
     }
     if (this.crashTimer) {
       window.clearInterval(this.crashTimer);
@@ -547,6 +585,38 @@ export class CaseOpenerUI {
     }
   }
 
+  async initRouletteRealtime() {
+    if (!isRouletteRealtimeAvailable() || this.unsubscribeRouletteBets || this.unsubscribeRouletteMessages) {
+      return;
+    }
+    try {
+      this.unsubscribeRouletteBets = await subscribeRouletteBets(
+        (bet) => this.applyRouletteBet(bet),
+        (status) => {
+          this.rouletteRealtimeStatus = status === "SUBSCRIBED"
+            ? "Roulette realtime live"
+            : `Roulette realtime ${String(status || "in attesa").toLowerCase()}`;
+          if (this.activeTab === "games") {
+            this.renderTab();
+          }
+        }
+      );
+      this.unsubscribeRouletteMessages = await subscribeRouletteMessages(
+        (message) => this.applyRouletteMessage(message),
+        (status) => {
+          this.rouletteRealtimeStatus = status === "SUBSCRIBED"
+            ? "Roulette realtime live"
+            : `Roulette realtime ${String(status || "in attesa").toLowerCase()}`;
+          if (this.activeTab === "games") {
+            this.renderTab();
+          }
+        }
+      );
+    } catch (error) {
+      this.rouletteRealtimeStatus = "Roulette realtime non disponibile";
+    }
+  }
+
   async refreshLiveSync({ silent = true } = {}) {
     await Promise.allSettled([
       this.refreshCommunityGoals({ silent }),
@@ -564,7 +634,7 @@ export class CaseOpenerUI {
     publishSharedGameEvent({
       mode,
       game: result.game || mode,
-      playerName: this.state.profile?.name || "Operatore",
+      playerName: this.getVisiblePlayerProfile().name || "Operatore",
       detail: result.detail || result.label || "",
       stake: result.bet || 0,
       payout: result.payout || 0,
@@ -578,6 +648,303 @@ export class CaseOpenerUI {
     }).catch(() => {
       this.sharedGamesStatus = "Sync giochi non disponibile";
     });
+  }
+
+  getRoulettePlayerId() {
+    return this.socialConnection?.clientId || this.cloudSession?.user?.id || this.accountSessionId;
+  }
+
+  applyRouletteBet(bet) {
+    if (!bet?.id || this.rouletteBets.has(bet.id)) {
+      return false;
+    }
+    const amount = Number(bet.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return false;
+    }
+    this.rouletteBets.set(bet.id, {
+      ...bet,
+      amount: Number(amount.toFixed(2)),
+      at: Number(bet.at || Date.now())
+    });
+    this.applyRouletteMessage({
+      id: `bet-log-${bet.id}`,
+      type: "system",
+      roundId: bet.roundId,
+      playerName: "Roulette",
+      text: `${bet.playerName} ha puntato ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(bet.choice)}.`,
+      tone: bet.choice,
+      at: Number(bet.at || Date.now())
+    });
+    this.pruneRouletteBets();
+    if (this.activeTab === "games") {
+      this.renderTab();
+    }
+    return true;
+  }
+
+  applyRouletteMessage(message) {
+    if (!message?.id || !message.text || this.rouletteMessages.some((entry) => entry.id === message.id)) {
+      return false;
+    }
+    this.rouletteMessages = [...this.rouletteMessages, {
+      id: message.id,
+      type: message.type || "chat",
+      roundId: Number(message.roundId || 0),
+      playerId: message.playerId || "",
+      sessionId: message.sessionId || "",
+      playerName: message.playerName || "Operatore",
+      text: String(message.text || "").slice(0, 220),
+      tone: message.tone || "",
+      at: Number(message.at || Date.now())
+    }]
+      .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+      .slice(-120);
+    if (this.activeTab === "games") {
+      this.renderTab();
+    }
+    return true;
+  }
+
+  pruneRouletteBets() {
+    const currentRound = getRouletteRound().roundId;
+    [...this.rouletteBets.entries()].forEach(([id, bet]) => {
+      if (Number(bet.roundId || 0) < currentRound - 6) {
+        this.rouletteBets.delete(id);
+        this.rouletteSettledBetIds.delete(id);
+      }
+    });
+    [...this.rouletteRoundPayouts.keys()].forEach((roundId) => {
+      if (Number(roundId) < currentRound - 8) {
+        this.rouletteRoundPayouts.delete(roundId);
+      }
+    });
+  }
+
+  getRouletteBetsForRound(roundId) {
+    const merged = new Map(this.rouletteBets);
+    (this.sharedGameEvents || [])
+      .filter((entry) => entry.mode === "roulette_bet" && Number(entry.payload?.roundId) === Number(roundId))
+      .forEach((entry) => {
+        const id = entry.payload?.betId || entry.id;
+        if (merged.has(id)) {
+          return;
+        }
+        merged.set(id, {
+          id,
+          roundId: Number(entry.payload?.roundId),
+          playerId: entry.payload?.playerId || "",
+          sessionId: entry.payload?.sessionId || "",
+          playerName: entry.playerName || "Operatore",
+          choice: ROULETTE_CHOICES[entry.payload?.choice]?.id || "red",
+          amount: Number(entry.stake || entry.payload?.amount || 0),
+          at: Date.parse(entry.createdAt || "") || Date.now()
+        });
+      });
+    return [...merged.values()]
+      .filter((bet) => Number(bet.roundId) === Number(roundId))
+      .sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
+  }
+
+  getLocalRouletteBetsForRound(roundId) {
+    const playerId = this.getRoulettePlayerId();
+    return this.getRouletteBetsForRound(roundId)
+      .filter((bet) => bet.playerId === playerId || bet.sessionId === this.accountSessionId);
+  }
+
+  parseRouletteBetAmount(value = this.rouletteBetAmount) {
+    const amount = Number(String(value || "").replace(",", "."));
+    if (!Number.isFinite(amount)) {
+      return 0;
+    }
+    return Number(Math.max(1, amount).toFixed(2));
+  }
+
+  setRouletteBetAmount(amount) {
+    this.rouletteBetAmount = String(Math.max(1, Number(amount || 0)));
+    if (this.activeTab === "games") {
+      this.renderTab();
+    }
+  }
+
+  async placeRouletteBet(choice) {
+    const round = getRouletteRound();
+    if (round.phase.key !== "betting") {
+      this.toast("Le puntate sono chiuse per questo giro.");
+      return;
+    }
+    if (!isRouletteRealtimeAvailable()) {
+      this.toast("Roulette online non disponibile.");
+      return;
+    }
+    const normalizedChoice = ROULETTE_CHOICES[choice]?.id || "";
+    if (!normalizedChoice) {
+      return;
+    }
+    const amount = Math.min(this.parseRouletteBetAmount(), Number(this.state.credits || 0));
+    if (amount <= 0) {
+      this.toast("Crediti insufficienti.");
+      return;
+    }
+    const profile = this.getVisiblePlayerProfile();
+    const bet = {
+      id: `${this.accountSessionId}-${round.roundId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      roundId: round.roundId,
+      playerId: this.getRoulettePlayerId(),
+      sessionId: this.accountSessionId,
+      playerName: profile.name || "Operatore",
+      choice: normalizedChoice,
+      amount,
+      at: Date.now()
+    };
+    this.state.credits = Number(Math.max(0, Number(this.state.credits || 0) - amount).toFixed(2));
+    this.applyRouletteBet(bet);
+    this.setSaved(false);
+    this.renderTopStats();
+    try {
+      const status = await publishRouletteBet(bet);
+      if (status && status !== "ok") {
+        throw new Error("Roulette realtime non raggiungibile.");
+      }
+      this.publishSharedGameResult("roulette_bet", {
+        game: "Roulette",
+        detail: `${getRouletteChoiceLabel(normalizedChoice)} ${formatCredits(amount, true)}`,
+        label: "Puntata",
+        bet: amount,
+        payout: 0,
+        profit: 0,
+        outcome: "Puntata"
+      }, {
+        roundId: round.roundId,
+        betId: bet.id,
+        playerId: bet.playerId,
+        sessionId: bet.sessionId,
+        choice: normalizedChoice,
+        amount
+      });
+      this.toast(`Puntati ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(normalizedChoice)}.`);
+      this.queueSocialProfileSync();
+    } catch (error) {
+      this.state.credits = Number((Number(this.state.credits || 0) + amount).toFixed(2));
+      this.rouletteBets.delete(bet.id);
+      this.rouletteMessages = this.rouletteMessages.filter((entry) => entry.id !== `bet-log-${bet.id}`);
+      this.toast(error?.message || "Puntata non inviata.");
+      this.renderTopStats();
+    } finally {
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+    }
+  }
+
+  settleRouletteRound(roundId) {
+    const localBets = this.getLocalRouletteBetsForRound(roundId)
+      .filter((bet) => !this.rouletteSettledBetIds.has(bet.id));
+    if (!localBets.length) {
+      return;
+    }
+    const number = getRouletteNumberForRound(roundId);
+    const color = getRouletteColor(number);
+    const colorLabel = getRouletteChoiceLabel(color);
+    let stake = 0;
+    let payout = 0;
+    localBets.forEach((bet) => {
+      const amount = Number(bet.amount || 0);
+      const won = bet.choice === color;
+      const betPayout = won ? Number((amount * getRouletteMultiplier(bet.choice)).toFixed(2)) : 0;
+      stake += amount;
+      payout += betPayout;
+      this.rouletteSettledBetIds.add(bet.id);
+      this.applyRouletteMessage({
+        id: `result-log-${bet.id}`,
+        type: "system",
+        roundId,
+        playerName: "Roulette",
+        text: won
+          ? `${bet.playerName} vince ${formatCredits(betPayout, true)} su ${getRouletteChoiceLabel(bet.choice)}: uscito ${colorLabel} ${number}.`
+          : `${bet.playerName} perde ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(bet.choice)}: uscito ${colorLabel} ${number}.`,
+        tone: won ? "win" : "loss",
+        at: Date.now()
+      });
+      this.publishSharedGameResult("roulette", {
+        game: "Roulette",
+        detail: `${getRouletteChoiceLabel(bet.choice)} ${formatCredits(amount, true)} - uscito ${colorLabel} ${number}`,
+        label: getRouletteChoiceLabel(bet.choice),
+        bet: amount,
+        payout: betPayout,
+        profit: betPayout - amount,
+        outcome: `${colorLabel} ${number}`,
+        playerWon: won
+      }, {
+        roundId,
+        betId: bet.id,
+        playerId: bet.playerId,
+        sessionId: bet.sessionId,
+        choice: bet.choice,
+        amount,
+        resultNumber: number,
+        resultColor: color
+      });
+    });
+    if (payout > 0) {
+      this.state.credits = Number((Number(this.state.credits || 0) + payout).toFixed(2));
+      this.toast(`Roulette: +${formatCredits(payout, true)}.`);
+    }
+    this.rouletteRoundPayouts.set(roundId, {
+      stake: Number(stake.toFixed(2)),
+      payout: Number(payout.toFixed(2)),
+      profit: Number((payout - stake).toFixed(2))
+    });
+    this.setSaved(false);
+    this.renderTopStats();
+    this.queueSocialProfileSync();
+  }
+
+  updateRouletteRuntime() {
+    const round = getRouletteRound();
+    const candidateRounds = new Set(
+      [...this.rouletteBets.values()]
+        .map((bet) => Number(bet.roundId))
+        .filter((roundId) => Number.isFinite(roundId) && roundId <= round.roundId && roundId >= round.roundId - 4)
+    );
+    candidateRounds.forEach((roundId) => {
+      if (roundId < round.roundId || (roundId === round.roundId && round.phase.key === "release")) {
+        this.settleRouletteRound(roundId);
+      }
+    });
+    this.pruneRouletteBets();
+    if (this.activeTab !== "games") {
+      return;
+    }
+    const currentBets = this.getRouletteBetsForRound(round.roundId)
+      .map((bet) => `${bet.id}:${bet.amount}`)
+      .join("|");
+    const payout = this.rouletteRoundPayouts.get(round.roundId);
+    const chatSignature = this.getRouletteChatItems()
+      .slice(-12)
+      .map((entry) => `${entry.id || entry.at}:${entry.text}`)
+      .join("|");
+    const sharedSignature = (this.sharedGameEvents || [])
+      .filter((entry) => entry.mode === "roulette" || entry.mode === "roulette_bet")
+      .slice(0, 8)
+      .map((entry) => entry.id)
+      .join("|");
+    const renderKey = [
+      round.roundId,
+      round.phase.key,
+      Math.ceil(round.phase.remaining / 1000),
+      currentBets,
+      payout ? `${payout.stake}:${payout.payout}` : "",
+      chatSignature,
+      sharedSignature,
+      this.rouletteRealtimeStatus
+    ].join("::");
+    const minDelay = round.phase.key === "spin" ? 150 : 500;
+    if (renderKey !== this.rouletteLastRenderKey && Date.now() - this.rouletteLastRenderAt >= minDelay) {
+      this.rouletteLastRenderKey = renderKey;
+      this.rouletteLastRenderAt = Date.now();
+      this.renderTab();
+    }
   }
 
   publishRareCaseDrops(caseDef, result) {
@@ -1023,9 +1390,24 @@ export class CaseOpenerUI {
   }
 
   getPlayerInitials() {
-    const source = String(this.state.profile?.name || "Operatore").trim();
+    const source = String(this.getVisiblePlayerProfile().name || "Operatore").trim();
     const parts = source.split(/\s+/).filter(Boolean).slice(0, 2);
     return (parts.map((part) => part[0]?.toUpperCase() || "").join("") || "OP").slice(0, 2);
+  }
+
+  getVisiblePlayerProfile() {
+    const profile = this.state.profile || {};
+    const cloudName = getSessionDisplayName(this.cloudSession);
+    const rawProfileName = String(profile.name || "").trim();
+    const useCloudName = Boolean(cloudName && (!profile.configured || rawProfileName === "Operatore"));
+    const name = useCloudName ? cloudName : rawProfileName || cloudName || "Operatore";
+    return {
+      ...profile,
+      name,
+      title: profile.title || (this.cloudSession?.user ? "Online Player" : "Case Runner"),
+      avatarSrc: profile.avatarImage || profile.avatarProviderImage || this.cloudSession?.user?.user_metadata?.avatar_url || "",
+      accent: profile.accent || "#7fe37c"
+    };
   }
 
   refreshIcons() {
@@ -1183,12 +1565,22 @@ export class CaseOpenerUI {
           valueNode.textContent = `${Math.round(percentValue)}%`;
         }
       }
-if (target.matches("#socialChatInput, #footerChatInput")) {
+      if (target.matches("#rouletteChatInput")) {
+        this.rouletteChatDraft = target.value.slice(0, 220);
+        const sendButton = target.closest(".chat-footer-compose")?.querySelector("[data-action='send-roulette-chat']");
+        if (sendButton) {
+          sendButton.disabled = !this.rouletteChatDraft.trim() || this.rouletteChatBusy || !isRouletteRealtimeAvailable();
+        }
+      }
+      if (target.matches("#socialChatInput, #footerChatInput")) {
         this.chatDraft = target.value.slice(0, 180);
         const sendButton = target.closest(".chat-footer-compose")?.querySelector("[data-action='send-chat']");
         if (sendButton) {
           sendButton.disabled = !this.chatDraft.trim() || this.chatBusy;
         }
+      }
+      if (target.matches("#rouletteBetAmount")) {
+        this.rouletteBetAmount = target.value.slice(0, 16);
       }
       if (target.matches("#socialMarketSearch")) {
         this.socialMarketSearch = target.value;
@@ -1334,6 +1726,10 @@ if (target.matches("#coinflipSide")) {
 
     this.root.addEventListener("keydown", (event) => {
       const target = event.target;
+      if (target.matches("#rouletteChatInput") && event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        this.sendRouletteChat();
+      }
       if (target.matches("#footerChatInput") && event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         this.sendChat();
@@ -1589,6 +1985,15 @@ if (target.matches("#coinflipSide")) {
       case "send-chat":
         this.sendChat();
         break;
+      case "send-roulette-chat":
+        this.sendRouletteChat();
+        break;
+      case "roulette-bet":
+        this.placeRouletteBet(data.choice);
+        break;
+      case "roulette-set-bet":
+        this.setRouletteBetAmount(data.amount);
+        break;
       case "set-chat-team":
         this.setChatTeam(data.team);
         break;
@@ -1815,13 +2220,14 @@ this.refreshIcons();
     const levelXp = Math.max(0, totalXp - levelFloor);
     const levelXpNeed = Math.max(1, levelCeil - levelFloor);
     const levelProgress = Math.min(1, levelXp / levelXpNeed);
-    const accent = this.state.profile?.accent || "#7fe37c";
+    const visibleProfile = this.getVisiblePlayerProfile();
+    const accent = visibleProfile.accent || "#7fe37c";
 
     if (playerBtn) {
-      const avatarSrc = this.state.profile?.avatarImage || this.state.profile?.avatarProviderImage || "";
+      const avatarSrc = visibleProfile.avatarSrc || "";
       const avatarHtml = avatarSrc
         ? `<img class="player-avatar-img" src="${escapeHtml(avatarSrc)}" alt="Avatar" />`
-        : `<span class="player-avatar-fallback" style="background: linear-gradient(135deg, ${accent}, #45c486)">${escapeHtml((this.state.profile?.name || "OP").slice(0, 2).toUpperCase())}</span>`;
+        : `<span class="player-avatar-fallback" style="background: linear-gradient(135deg, ${accent}, #45c486)">${escapeHtml(this.getPlayerInitials())}</span>`;
       
       playerBtn.style.setProperty("--player-accent", accent);
       playerBtn.innerHTML = `
@@ -1832,8 +2238,8 @@ this.refreshIcons();
         <div class="player-meta-info">
           <div class="player-name-row">
             <span class="player-card-label">${iconMarkup("id-card", "top-stat-mini")} SCHEDA UTENTE</span>
-            <strong class="player-name-text">${escapeHtml(this.state.profile?.name || "Operatore")}</strong>
-            <span class="player-title-badge">${escapeHtml(this.state.profile?.title || "Case Runner")}</span>
+            <strong class="player-name-text">${escapeHtml(visibleProfile.name || "Operatore")}</strong>
+            <span class="player-title-badge">${escapeHtml(visibleProfile.title || "Case Runner")}</span>
           </div>
           <div class="player-level-info">
             <span class="player-level-badge">Lv. ${level}</span>
@@ -1884,22 +2290,49 @@ this.refreshIcons();
         : "Non connesso";
     const accountName = getSessionDisplayName(this.cloudSession) || profile.name || "Operatore";
     const accountProvider = this.cloudSession?.user?.app_metadata?.provider || "";
+    const profileAvatarHtml = profile.avatarSrc
+      ? `<img class="tech-profile-avatar-img" src="${escapeHtml(profile.avatarSrc)}" alt="Avatar" />`
+      : `<span class="tech-profile-avatar-fallback" style="background: linear-gradient(135deg, ${profile.accent}, #45c486)">${escapeHtml(this.getPlayerInitials())}</span>`;
+    const level = this.state.profile.level;
+    const totalXp = Math.round(this.state.profile.xp);
+    const levelFloor = Math.max(0, Math.pow(Math.max(0, level - 1), 2) * 125);
+    const levelCeil = Math.max(levelFloor + 125, Math.pow(level, 2) * 125);
+    const levelXp = Math.max(0, totalXp - levelFloor);
+    const levelXpNeed = Math.max(1, levelCeil - levelFloor);
+    const levelProgress = Math.min(1, levelXp / levelXpNeed);
     button.setAttribute("aria-expanded", this.techMenuOpen ? "true" : "false");
     menu.hidden = !this.techMenuOpen;
     menu.innerHTML = `
       <div class="tech-menu-card">
+        <section class="tech-profile-card" style="--player-accent:${escapeHtml(profile.accent)}">
+          <div class="tech-profile-avatar">
+            ${profileAvatarHtml}
+            <span>P${this.state.prestige.level}</span>
+          </div>
+          <div class="tech-profile-copy">
+            <div class="tech-profile-title-row">
+              <strong>${escapeHtml(profile.name || "Operatore")}</strong>
+              ${isAdmin ? `<em>Admin</em>` : ""}
+            </div>
+            <small>${escapeHtml(profile.title || "Case Runner")} - Lv ${level}</small>
+            <div class="tech-profile-progress">
+              <i style="width:${percent(levelProgress)}"></i>
+            </div>
+            <span>${levelXp.toLocaleString("it-IT")} / ${levelXpNeed.toLocaleString("it-IT")} XP</span>
+          </div>
+        </section>
         <div class="tech-menu-head">
           <strong>${escapeHtml(profile.name || "Operatore")}</strong>
           <small>${escapeHtml(profile.title || "Case Runner")} · P${this.state.prestige.level} · Lv ${this.state.profile.level}${isAdmin ? " · Admin" : ""}</small>
         </div>
         <div class="tech-menu-actions">
-          <button class="ghost-button tiny" data-action="open-profile-setup">${iconMarkup("user-round-cog", "button-icon")} Scheda</button>
+          <button class="ghost-button tiny" data-action="open-profile-setup">${iconMarkup("user-round-cog", "button-icon")} Modifica scheda</button>
           ${isAdmin ? `
           <button class="ghost-button tiny ${this.sessionPanelOpen ? "is-active" : ""}" data-action="toggle-session-panel">
             ${iconMarkup("sliders-horizontal", "button-icon")} Sessione ${this.sessionPanelOpen ? "On" : "Off"}
           </button>
           <button class="ghost-button tiny" data-action="refresh-api">${iconMarkup("refresh-cw", "button-icon")} Aggiorna API</button>
-          <button class="ghost-button tiny" data-action="tab" data-tab="cheats">${iconMarkup("wrench", "button-icon")} Cheat</button>
+          <button class="ghost-button tiny" data-action="tab" data-tab="admin">${iconMarkup("wrench", "button-icon")} Admin</button>
           <button class="ghost-button tiny" data-action="start-event">${iconMarkup("sparkles", "button-icon")} Forza evento</button>
           <button class="ghost-button tiny" data-action="export-save">${iconMarkup("download", "button-icon")} Export</button>
           <button class="ghost-button tiny" data-action="import-save">${iconMarkup("upload", "button-icon")} Import</button>
@@ -2822,6 +3255,7 @@ this.refreshIcons();
       contracts: () => this.renderContracts(),
       collections: () => this.renderCollections(),
       market: () => this.renderMarket(),
+      games: () => this.renderMiniGames(),
       admin: () => this.renderAdminPanel(),
       cheats: () => this.renderCheats()
     };
@@ -2835,6 +3269,10 @@ this.refreshIcons();
           el.setSelectionRange(selectionStart, selectionEnd);
         }
       }
+    }
+    const rouletteChatLog = content.querySelector(".roulette-chat-log");
+    if (rouletteChatLog && !focusedId) {
+      rouletteChatLog.scrollTop = rouletteChatLog.scrollHeight;
     }
   }
 
@@ -3363,6 +3801,310 @@ this.refreshIcons();
             <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
           </div>
         `).join("")}
+      </div>
+    `;
+  }
+
+  formatRouletteTimer(ms) {
+    return `${Math.max(0, Math.ceil(Number(ms || 0) / 1000))}s`;
+  }
+
+  renderRouletteReel(round) {
+    const targetIndex = 46;
+    const itemStep = 96;
+    const itemCenter = 48;
+    const showCurrentRound = round.phase.key === "spin" || round.phase.key === "release";
+    const displayRoundId = Math.max(0, showCurrentRound ? round.roundId : round.roundId - 1);
+    const displayNumber = getRouletteNumberForRound(displayRoundId);
+    const displayColor = getRouletteColor(displayNumber);
+    const displayLabel = getRouletteChoiceLabel(displayColor);
+    const numbers = buildRouletteReelNumbers(displayRoundId, targetIndex, 66);
+    const isSpinning = round.phase.key === "spin";
+    const isRelease = round.phase.key === "release";
+    const spinElapsed = isSpinning ? Math.min(round.phase.elapsed, ROULETTE_FLOW.spin) : ROULETTE_FLOW.spin;
+    return `
+      <div
+        class="roulette-case-reel ${isSpinning ? "is-spinning" : "is-settled"} result-${displayColor}"
+        style="--roulette-target-shift:calc(-${itemCenter}px - ${targetIndex * itemStep}px); --roulette-duration:${ROULETTE_FLOW.spin}ms; --roulette-spin-delay:-${spinElapsed}ms; --roulette-result:${displayColor === "green" ? "#52e695" : displayColor === "red" ? "#f05c63" : "#8da2bd"}"
+      >
+        <div class="reel-marker"></div>
+        <div class="roulette-reel-track">
+          ${numbers.map((number, index) => {
+            const color = getRouletteColor(number);
+            return `
+              <div class="roulette-reel-item ${color} ${index === targetIndex ? "is-target" : ""}">
+                <strong>${number}</strong>
+                <span>${getRouletteChoiceLabel(color)}</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+      <div class="roulette-result-readout result-${displayColor}">
+        <strong>${isSpinning ? "..." : displayNumber}</strong>
+        <span>${isSpinning ? "Giro in corso" : isRelease ? `Uscito ${displayLabel}` : `Ultima uscita ${displayLabel}`}</span>
+      </div>
+    `;
+  }
+
+  renderRouletteControls(round) {
+    const bettingOpen = round.phase.key === "betting";
+    const onlineReady = isRouletteRealtimeAvailable();
+    const amount = this.parseRouletteBetAmount();
+    const canBet = bettingOpen && onlineReady && amount > 0 && Number(this.state.credits || 0) >= amount;
+    const quickAmounts = [10, 50, 100, 500];
+    return `
+      <div class="roulette-controls">
+        <div class="roulette-amount-row">
+          <label>
+            <span>Crediti</span>
+            <input id="rouletteBetAmount" type="text" inputmode="decimal" value="${escapeHtml(this.rouletteBetAmount)}" placeholder="Importo" />
+          </label>
+          <div class="roulette-chip-row">
+            ${quickAmounts.map((value) => `
+              <button class="ghost-button tiny" data-action="roulette-set-bet" data-amount="${value}" type="button">${formatCredits(value, true)}</button>
+            `).join("")}
+          </div>
+        </div>
+        <div class="roulette-choice-grid">
+          <button class="roulette-choice-button red" data-action="roulette-bet" data-choice="red" type="button" ${canBet ? "" : "disabled"}>
+            <span>Rosso</span>
+            <strong>x2</strong>
+          </button>
+          <button class="roulette-choice-button black" data-action="roulette-bet" data-choice="black" type="button" ${canBet ? "" : "disabled"}>
+            <span>Nero</span>
+            <strong>x2</strong>
+          </button>
+          <button class="roulette-choice-button green" data-action="roulette-bet" data-choice="green" type="button" ${canBet ? "" : "disabled"}>
+            <span>Verde</span>
+            <strong>x35</strong>
+          </button>
+        </div>
+        <small>${bettingOpen ? "Puntate aperte: scegli un colore." : "Puntate chiuse per questa fase."}</small>
+      </div>
+    `;
+  }
+
+  renderRouletteBetLog(round) {
+    const bets = this.getRouletteBetsForRound(round.roundId);
+    const totals = { red: 0, black: 0, green: 0 };
+    bets.forEach((bet) => {
+      totals[bet.choice] = Number(((totals[bet.choice] || 0) + Number(bet.amount || 0)).toFixed(2));
+    });
+    const totalStake = bets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+    return `
+      <section class="roulette-side-panel">
+        <div class="roulette-panel-head">
+          <strong>Totali round</strong>
+          <small>${bets.length} nel round #${round.roundId}</small>
+        </div>
+        <div class="roulette-total-grid">
+          ${["red", "black", "green"].map((choice) => `
+            <div class="roulette-total-chip ${choice}">
+              <span>${getRouletteChoiceLabel(choice)}</span>
+              <strong>${formatCredits(totals[choice] || 0, true)}</strong>
+            </div>
+          `).join("")}
+        </div>
+        <div class="roulette-round-summary">
+          <span>Totale puntato</span>
+          <strong>${formatCredits(totalStake, true)}</strong>
+        </div>
+      </section>
+    `;
+  }
+
+  renderRouletteHistory(round) {
+    const lastRound = round.phase.key === "release" ? round.roundId : round.roundId - 1;
+    const rounds = Array.from({ length: 14 }, (_, index) => Math.max(0, lastRound - index));
+    const onlineLog = (this.sharedGameEvents || [])
+      .filter((entry) => entry.mode === "roulette" || entry.mode === "roulette_bet")
+      .slice(0, 10);
+    return `
+      <section class="roulette-side-panel">
+        <div class="roulette-panel-head">
+          <strong>Giocate uscite</strong>
+          <small>risultati condivisi</small>
+        </div>
+        <div class="roulette-result-strip">
+          ${rounds.map((roundId) => {
+            const number = getRouletteNumberForRound(roundId);
+            const color = getRouletteColor(number);
+            return `<span class="${color}" title="Round ${roundId}">${number}</span>`;
+          }).join("")}
+        </div>
+        <div class="roulette-online-log">
+          ${onlineLog.length ? onlineLog.map((entry) => {
+            const isBet = entry.mode === "roulette_bet";
+            const profit = Number(entry.profit || 0);
+            return `
+            <div class="roulette-online-row ${isBet ? "is-bet" : profit >= 0 ? "is-win" : "is-loss"}">
+              <div>
+                <strong>${escapeHtml(entry.playerName)}</strong>
+                <small>${escapeHtml(isBet ? `Puntata ${entry.detail}` : entry.detail || entry.outcome || "Roulette")}</small>
+              </div>
+              <em>${isBet ? formatCredits(entry.stake || 0, true) : `${profit >= 0 ? "+" : ""}${formatCredits(profit, true)}`}</em>
+            </div>
+          `;
+          }).join("") : `<div class="empty-state small">Il log online si aggiorna con puntate e vincite.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  getRouletteChatItems() {
+    const round = getRouletteRound();
+    const lastResolvedRound = round.phase.key === "release" ? round.roundId : round.roundId - 1;
+    const currentRoundStart = Date.now() - round.elapsed;
+    const entries = [];
+
+    for (let index = 0; index < 12; index += 1) {
+      const roundId = lastResolvedRound - index;
+      if (roundId < 0) {
+        break;
+      }
+      const number = getRouletteNumberForRound(roundId);
+      const color = getRouletteColor(number);
+      entries.push({
+        id: `round-result-${roundId}`,
+        type: "system",
+        roundId,
+        playerName: "Roulette",
+        text: `Round #${roundId}: uscito ${getRouletteChoiceLabel(color)} ${number}.`,
+        tone: color,
+        at: currentRoundStart - ((round.roundId - roundId) * round.duration) + ROULETTE_FLOW.delay + ROULETTE_FLOW.betting + ROULETTE_FLOW.closing + ROULETTE_FLOW.spin
+      });
+    }
+
+    (this.sharedGameEvents || [])
+      .filter((entry) => entry.mode === "roulette" || entry.mode === "roulette_bet")
+      .forEach((entry) => {
+        const payload = entry.payload || {};
+        const at = Date.parse(entry.createdAt || "") || Date.now();
+        if (entry.mode === "roulette_bet") {
+          const choice = ROULETTE_CHOICES[payload.choice]?.id || "red";
+          const amount = Number(entry.stake || payload.amount || 0);
+          entries.push({
+            id: `bet-log-${payload.betId || entry.id}`,
+            type: "system",
+            roundId: Number(payload.roundId || 0),
+            playerName: "Roulette",
+            text: `${entry.playerName || "Operatore"} ha puntato ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(choice)}.`,
+            tone: choice,
+            at
+          });
+          return;
+        }
+        const choice = ROULETTE_CHOICES[payload.choice]?.id || "";
+        const resultColor = ROULETTE_CHOICES[payload.resultColor]?.id || payload.resultColor || "";
+        const resultLabel = resultColor ? getRouletteChoiceLabel(resultColor) : entry.outcome || "Roulette";
+        const resultNumber = payload.resultNumber ?? "";
+        const outcome = resultNumber === "" ? resultLabel : `${resultLabel} ${resultNumber}`;
+        const amount = Number(entry.stake || payload.amount || 0);
+        const payout = Number(entry.payout || 0);
+        entries.push({
+          id: `result-log-${payload.betId || entry.id}`,
+          type: "system",
+          roundId: Number(payload.roundId || 0),
+          playerName: "Roulette",
+          text: payout > 0
+            ? `${entry.playerName || "Operatore"} vince ${formatCredits(payout, true)}${choice ? ` su ${getRouletteChoiceLabel(choice)}` : ""}: uscito ${outcome}.`
+            : `${entry.playerName || "Operatore"} perde ${formatCredits(amount, true)}${choice ? ` su ${getRouletteChoiceLabel(choice)}` : ""}: uscito ${outcome}.`,
+          tone: payout > 0 ? "win" : "loss",
+          at
+        });
+      });
+
+    this.rouletteMessages.forEach((entry) => entries.push(entry));
+    const unique = new Map();
+    entries
+      .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+      .forEach((entry) => {
+        if (!unique.has(entry.id)) {
+          unique.set(entry.id, entry);
+        }
+      });
+    return [...unique.values()]
+      .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+      .slice(-80);
+  }
+
+  renderRouletteChat() {
+    const chat = this.getRouletteChatItems();
+    const canSend = this.rouletteChatDraft.trim() && !this.rouletteChatBusy && isRouletteRealtimeAvailable();
+    return `
+      <section class="roulette-side-panel roulette-chat-panel">
+        <div class="roulette-panel-head">
+          <strong>${iconMarkup("messages-square", "button-icon")} Chat Roulette</strong>
+          <small>${this.rouletteRealtimeStatus.replace("Roulette realtime ", "")}</small>
+        </div>
+        <div class="roulette-chat-log">
+          ${chat.length ? chat.map((entry) => {
+            const typeClass = entry.type === "system" ? "is-system" : "is-user";
+            const toneClass = ["red", "black", "green", "win", "loss"].includes(entry.tone) ? entry.tone : "neutral";
+            return `
+            <div class="roulette-chat-message ${typeClass} ${toneClass}">
+              <strong>
+                ${escapeHtml(entry.type === "system" ? "Roulette" : entry.playerName || "Operatore")}
+                <small>${new Date(entry.at || Date.now()).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</small>
+              </strong>
+              <span>${escapeHtml(entry.text)}</span>
+            </div>
+          `;
+          }).join("") : `<div class="empty-state small">Nessun messaggio live.</div>`}
+        </div>
+        <div class="chat-footer-compose roulette-chat-compose">
+          <input id="rouletteChatInput" maxlength="220" value="${escapeHtml(this.rouletteChatDraft)}" placeholder="Scrivi nella chat Roulette..." />
+          <button class="primary-button small" data-action="send-roulette-chat" type="button" ${canSend ? "" : "disabled"}>${iconMarkup("send-horizontal", "button-icon")}</button>
+        </div>
+      </section>
+    `;
+  }
+
+  renderMiniGames() {
+    const round = getRouletteRound();
+    const onlinePlayers = Array.isArray(this.socialState?.players) ? this.socialState.players : [];
+    const currentBets = this.getRouletteBetsForRound(round.roundId);
+    const ownBets = this.getLocalRouletteBetsForRound(round.roundId);
+    const ownStake = ownBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+    const roundStake = currentBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
+    const payout = this.rouletteRoundPayouts.get(round.roundId);
+    return `
+      <div class="games-shell mini-games-shell">
+        <div class="games-header mini-games-header">
+          ${statTile("Fase", round.phase.label, this.formatRouletteTimer(round.phase.remaining))}
+          ${statTile("Online", onlinePlayers.length || "-", this.rouletteRealtimeStatus.replace("Roulette realtime ", ""))}
+          ${statTile("Puntato round", formatCredits(roundStake, true), `${currentBets.length} puntate`)}
+          ${statTile("La tua puntata", formatCredits(ownStake, true), payout ? `payout ${formatCredits(payout.payout, true)}` : "round attivo")}
+        </div>
+        <section class="roulette-live-layout">
+          <article class="game-card roulette-live-card">
+            <div class="roulette-live-head">
+              <div>
+                <span>${iconMarkup("disc-3", "button-icon")} Mini-Games</span>
+                <h3>Roulette Online</h3>
+              </div>
+              <div class="roulette-phase-pill ${round.phase.key}">
+                <strong id="roulettePhaseLabel">${escapeHtml(round.phase.label)}</strong>
+                <small id="rouletteCountdown">${this.formatRouletteTimer(round.phase.remaining)}</small>
+              </div>
+            </div>
+            <div class="roulette-phase-bar"><i style="width:${percent(round.phase.progress)}"></i></div>
+            ${this.renderRouletteReel(round)}
+            ${payout && round.phase.key === "release" ? `
+              <div class="roulette-payout-banner ${payout.profit >= 0 ? "is-win" : "is-loss"}">
+                <span>Rilascio vincite</span>
+                <strong>${payout.profit >= 0 ? "+" : ""}${formatCredits(payout.profit, true)}</strong>
+                <small>Puntato ${formatCredits(payout.stake, true)} - payout ${formatCredits(payout.payout, true)}</small>
+              </div>
+            ` : ""}
+            ${this.renderRouletteControls(round)}
+          </article>
+          <div class="roulette-side-stack">
+            ${this.renderRouletteBetLog(round)}
+            ${this.renderRouletteChat()}
+          </div>
+        </section>
       </div>
     `;
   }
@@ -3981,7 +4723,7 @@ this.refreshIcons();
     return [...rows.values()].sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  renderAdminPanel() {
+  renderLegacyAdminPanel() {
     if (!this.isAdmin()) {
       return `<div class="empty-state">Accesso admin richiesto.</div>`;
     }
@@ -3989,13 +4731,60 @@ this.refreshIcons();
     const globalSyncHint = isGlobalPromoCodesAvailable()
       ? (this.adminPasswordSecret ? this.globalPromoStatus : "Rifai login admin dopo un refresh per salvare online.")
       : "Promo globali non configurati.";
+    const selectedMastery = getCaseMastery(this.state, this.selectedCase.id);
+    const maxUnlock = Math.max(0, ...this.skinData.cases.map((caseDef) => caseDef.unlockPrestige || 0));
     return `
       <div class="admin-panel">
         <div class="cheat-console">
           <div class="cheat-header">
-            <h3>Pannello admin</h3>
+            <span>${iconMarkup("shield-check", "button-icon")} Staff</span>
+            <h3>Pannello admin e cheat</h3>
+            <p>Strumenti operativi, debug economia e gestione promo in un'unica console.</p>
           </div>
-          ${this.renderCheats()}
+          <div class="games-header admin-status-grid">
+            ${statTile("Saldo", formatCredits(this.state.credits), "saldo attuale")}
+            ${statTile("Prestige", this.state.prestige.level, `max unlock P${maxUnlock}`)}
+            ${statTile("Shard", this.state.prestige.shards, `${this.state.prestige.lifetimeShards || 0} lifetime`)}
+            ${statTile("Cassa", `Lv ${selectedMastery.level}`, this.selectedCase.name)}
+          </div>
+          <div class="cheat-grid admin-unified-grid">
+            <section class="cheat-card">
+              <span>Economia</span>
+              <h4>Saldo</h4>
+              <div class="cheat-controls">
+                <input id="cheatCredits" type="number" min="1" step="1000" value="10000" />
+                <button class="primary-button small" data-action="cheat-add-credits">Aggiungi</button>
+                <button class="ghost-button small" data-action="cheat-set-credits">Imposta</button>
+              </div>
+            </section>
+            <section class="cheat-card">
+              <span>Prestige</span>
+              <h4>Progressione</h4>
+              <div class="cheat-controls">
+                <input id="cheatPrestige" type="number" min="1" step="1" value="1" />
+                <button class="primary-button small" data-action="cheat-add-prestige">+ Prestige</button>
+                <button class="ghost-button small" data-action="cheat-unlock-cases">Sblocca casse</button>
+              </div>
+            </section>
+            <section class="cheat-card">
+              <span>Shard</span>
+              <h4>Albero Prestige</h4>
+              <div class="cheat-controls">
+                <input id="cheatShards" type="number" min="1" step="10" value="25" />
+                <button class="primary-button small" data-action="cheat-add-shards">Aggiungi shard</button>
+                <button class="ghost-button small" data-action="cheat-max-upgrades">Max upgrade</button>
+              </div>
+            </section>
+            <section class="cheat-card">
+              <span>Mastery</span>
+              <h4>${escapeHtml(this.selectedCase.name)}</h4>
+              <div class="cheat-controls">
+                <input id="cheatCaseMastery" type="number" min="0" step="1" value="${Math.max(10, selectedMastery.level)}" />
+                <button class="primary-button small" data-action="cheat-master-case">Imposta livello</button>
+                <button class="ghost-button small" data-action="cheat-reset-cooldowns">Reset cooldown</button>
+              </div>
+            </section>
+          </div>
           <div class="cheat-grid">
             <section class="cheat-card">
               <span>Goal</span>
@@ -4067,7 +4856,7 @@ this.refreshIcons();
     `;
   }
 
-  renderCheats() {
+  renderLegacyCheats() {
     const selectedMastery = getCaseMastery(this.state, this.selectedCase.id);
     const maxUnlock = Math.max(0, ...this.skinData.cases.map((caseDef) => caseDef.unlockPrestige || 0));
     return `
@@ -4121,6 +4910,239 @@ this.refreshIcons();
         </div>
       </div>
     `;
+  }
+
+  renderAdminPanel() {
+    if (!this.isAdmin()) {
+      return `<div class="empty-state">Accesso admin richiesto.</div>`;
+    }
+    const promoRows = this.getAdminPromoRows();
+    const selectedMastery = getCaseMastery(this.state, this.selectedCase.id);
+    const maxUnlock = Math.max(0, ...this.skinData.cases.map((caseDef) => caseDef.unlockPrestige || 0));
+    const unlockedCases = this.skinData.cases.filter((caseDef) => isCaseUnlocked(this.state, caseDef)).length;
+    const netWorth = getNetWorth(this.state);
+    const inventoryValue = getInventoryValue(this.state);
+    const activePromoCount = promoRows.filter((row) => row.active).length;
+    const cloudName = getSessionDisplayName(this.cloudSession) || "Offline";
+    const currentEvent = isLimitedEventActive(this.state) ? this.state.limitedEvent.label || "Evento attivo" : "Nessun evento";
+    const globalSyncHint = isGlobalPromoCodesAvailable()
+      ? (this.adminPasswordSecret ? this.globalPromoStatus : "Rifai login admin dopo un refresh per salvare online.")
+      : "Promo globali non configurati.";
+    const promoRewardPreview = [
+      formatCredits(Number(this.adminPromoCredits || 0), true),
+      `${Number(this.adminPromoCases || 0)} casse T${Number(this.adminPromoTier || 1)}`,
+      `${Number(this.adminPromoWeapons || 0)} armi ${this.adminPromoRarity}`
+    ].join(" - ");
+    const metric = (label, value, detail, icon = "activity") => `
+      <div class="admin-metric">
+        <span>${iconMarkup(icon, "button-icon")} ${escapeHtml(label)}</span>
+        <strong>${value}</strong>
+        <small>${escapeHtml(detail)}</small>
+      </div>
+    `;
+    const toolButton = (action, label, icon, extra = "") => `
+      <button class="ghost-button small admin-tool-button ${extra}" data-action="${action}" type="button">
+        ${iconMarkup(icon, "button-icon")} ${label}
+      </button>
+    `;
+    return `
+      <div class="admin-panel admin-console-v2">
+        <section class="admin-hero-v2">
+          <div class="admin-hero-copy">
+            <span>${iconMarkup("shield-check", "button-icon")} Staff console</span>
+            <h3>Admin Control</h3>
+            <p>Economia, progressione, promo e manutenzione riunite in una console unica.</p>
+          </div>
+          <div class="admin-hero-session">
+            <strong>${escapeHtml(cloudName)}</strong>
+            <small>${escapeHtml(this.adminStatus || "Sessione staff attiva")}</small>
+            <button class="ghost-button tiny" data-action="admin-logout" type="button">${iconMarkup("log-out", "button-icon")} Logout</button>
+          </div>
+        </section>
+
+        <section class="admin-metrics-grid">
+          ${metric("Saldo", formatCredits(this.state.credits), `net worth ${formatCredits(netWorth, true)}`, "wallet")}
+          ${metric("Prestige", `P${this.state.prestige.level}`, `${unlockedCases}/${this.skinData.cases.length} casse - max P${maxUnlock}`, "crown")}
+          ${metric("Shard", this.state.prestige.shards, `${this.state.prestige.lifetimeShards || 0} lifetime`, "gem")}
+          ${metric("Mastery", `Lv ${selectedMastery.level}`, this.selectedCase.name, "target")}
+          ${metric("Inventario", this.state.inventory.length, formatCredits(inventoryValue, true), "archive")}
+          ${metric("Promo", activePromoCount, `${promoRows.length} codici totali`, "ticket")}
+        </section>
+
+        <section class="admin-tool-strip">
+          ${toolButton("toggle-session-panel", this.sessionPanelOpen ? "Sessione On" : "Sessione Off", "panel-right")}
+          ${toolButton("refresh-api", "Aggiorna API", "refresh-cw")}
+          ${toolButton("start-event", "Forza evento", "sparkles")}
+          ${toolButton("export-save", "Export", "download")}
+          ${toolButton("import-save", "Import", "upload")}
+          ${toolButton("reset-save", "Reset save", "rotate-ccw", "danger")}
+        </section>
+
+        <section class="admin-workbench">
+          <article class="admin-control-panel admin-panel-wide">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("banknote", "button-icon")} Economia</span>
+              <strong>Saldo giocatore</strong>
+            </div>
+            <div class="admin-field-line">
+              <label for="cheatCredits">Crediti</label>
+              <input id="cheatCredits" type="number" min="1" step="1000" value="10000" />
+              <button class="primary-button small" data-action="cheat-add-credits" type="button">Aggiungi</button>
+              <button class="ghost-button small" data-action="cheat-set-credits" type="button">Imposta</button>
+            </div>
+          </article>
+
+          <article class="admin-control-panel">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("trending-up", "button-icon")} Progressione</span>
+              <strong>Prestige e unlock</strong>
+            </div>
+            <div class="admin-field-stack">
+              <div class="admin-field-line">
+                <label for="cheatPrestige">Prestige</label>
+                <input id="cheatPrestige" type="number" min="1" step="1" value="1" />
+                <button class="primary-button small" data-action="cheat-add-prestige" type="button">+ Prestige</button>
+              </div>
+              <div class="admin-button-row">
+                <button class="ghost-button small" data-action="cheat-unlock-cases" type="button">${iconMarkup("unlock", "button-icon")} Sblocca casse</button>
+                <button class="ghost-button small" data-action="cheat-reset-cooldowns" type="button">${iconMarkup("timer-reset", "button-icon")} Reset cooldown</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="admin-control-panel">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("gem", "button-icon")} Prestige tree</span>
+              <strong>Shard e upgrade</strong>
+            </div>
+            <div class="admin-field-stack">
+              <div class="admin-field-line">
+                <label for="cheatShards">Shard</label>
+                <input id="cheatShards" type="number" min="1" step="10" value="25" />
+                <button class="primary-button small" data-action="cheat-add-shards" type="button">Aggiungi</button>
+              </div>
+              <div class="admin-button-row">
+                <button class="ghost-button small" data-action="cheat-max-upgrades" type="button">${iconMarkup("chevrons-up", "button-icon")} Max upgrade</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="admin-control-panel">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("crosshair", "button-icon")} Mastery</span>
+              <strong>${escapeHtml(this.selectedCase.name)}</strong>
+            </div>
+            <div class="admin-field-line">
+              <label for="cheatCaseMastery">Livello</label>
+              <input id="cheatCaseMastery" type="number" min="0" step="1" value="${Math.max(10, selectedMastery.level)}" />
+              <button class="primary-button small" data-action="cheat-master-case" type="button">Imposta</button>
+            </div>
+          </article>
+
+          <article class="admin-control-panel">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("goal", "button-icon")} Goal</span>
+              <strong>Community e reward</strong>
+            </div>
+            <div class="admin-status-line">
+              <span>${escapeHtml(this.sharedGoalStatus || "Sync community in attesa")}</span>
+              <small>${escapeHtml(currentEvent)}</small>
+            </div>
+            <div class="admin-button-row">
+              <button class="primary-button small" data-action="cheat-complete-goals" type="button">Completa goal</button>
+              <button class="ghost-button small danger" data-action="cheat-reset-community-goals" type="button">Reset community</button>
+            </div>
+          </article>
+
+          <article class="admin-control-panel">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("cloud", "button-icon")} Account cloud</span>
+              <strong>${escapeHtml(this.cloudStatus || "Cloud")}</strong>
+            </div>
+            <div class="admin-status-line">
+              <span>${escapeHtml(cloudName)}</span>
+              <small>${this.cloudSession?.user ? "Connesso" : "Non connesso"}</small>
+            </div>
+            <div class="admin-button-row">
+              <button class="ghost-button small" data-action="cloud-save" type="button" ${this.cloudSession?.user ? "" : "disabled"}>${iconMarkup("cloud-upload", "button-icon")} Salva cloud</button>
+              <button class="ghost-button small" data-action="cloud-load" type="button" ${this.cloudSession?.user ? "" : "disabled"}>${iconMarkup("cloud-download", "button-icon")} Carica cloud</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="admin-promo-lab">
+          <article class="admin-control-panel admin-promo-editor">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("ticket", "button-icon")} Promo lab</span>
+              <strong>${this.adminPromoEditingCode ? `Modifica ${escapeHtml(this.adminPromoEditingCode)}` : "Crea codice"}</strong>
+            </div>
+            <p class="admin-sync-note">${escapeHtml(globalSyncHint)}</p>
+            <div class="admin-promo-form">
+              <label class="admin-promo-field admin-promo-code-field">
+                <span>Codice</span>
+                <input id="adminPromoCode" value="${escapeHtml(this.adminPromoCode)}" placeholder="MARCUS2" ${this.adminPromoEditingCode ? "readonly" : ""} />
+                <small>3-24 caratteri, lettere/numeri/_/-</small>
+              </label>
+              <div class="admin-promo-grid">
+                <label class="admin-promo-field">
+                  <span>Crediti</span>
+                  <input id="adminPromoCredits" type="number" min="0" step="100" value="${escapeHtml(this.adminPromoCredits)}" placeholder="0" />
+                </label>
+                <label class="admin-promo-field">
+                  <span>Casse reward</span>
+                  <input id="adminPromoCases" type="number" min="0" step="1" value="${escapeHtml(this.adminPromoCases)}" placeholder="0" />
+                </label>
+                <label class="admin-promo-field">
+                  <span>Tier casse</span>
+                  <input id="adminPromoTier" type="number" min="1" max="5" step="1" value="${escapeHtml(this.adminPromoTier)}" placeholder="2" />
+                </label>
+                <label class="admin-promo-field">
+                  <span>Armi</span>
+                  <input id="adminPromoWeapons" type="number" min="0" max="12" step="1" value="${escapeHtml(this.adminPromoWeapons)}" placeholder="0" />
+                </label>
+              </div>
+              <label class="admin-promo-field">
+                <span>Rarita' armi</span>
+                <select id="adminPromoRarity">
+                  ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.adminPromoRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
+                </select>
+              </label>
+              <div class="admin-promo-preview">
+                <span>Reward generato</span>
+                <strong>${escapeHtml(promoRewardPreview)}</strong>
+              </div>
+              <div class="admin-button-row">
+                <button class="primary-button small" data-action="admin-create-promo" type="button">${this.adminPromoEditingCode ? "Aggiorna promo" : "Crea promo"}</button>
+                <button class="ghost-button small" data-action="admin-clear-promo-form" type="button">Pulisci</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="admin-control-panel admin-promo-registry">
+            <div class="admin-panel-title">
+              <span>${iconMarkup("list-checks", "button-icon")} Registro promo</span>
+              <strong>${promoRows.length} codici</strong>
+            </div>
+            <div class="admin-promo-list">
+              ${promoRows.length ? promoRows.map(({ code, reward, source, active }) => `
+                <div class="admin-promo-row">
+                  <div>
+                    <strong>${escapeHtml(code)}</strong>
+                    <small>${escapeHtml(source)}${active ? "" : " - disattivo"} - ${formatCredits(reward.credits || 0, true)} - ${reward.cases || 0} casse T${reward.rewardTier || 1} - ${reward.weapons || 0} armi ${escapeHtml(reward.weaponRarity || "Mil-Spec")}</small>
+                  </div>
+                  <button class="ghost-button tiny" data-action="admin-edit-promo" data-code="${escapeHtml(code)}" type="button">Modifica</button>
+                  <button class="ghost-button tiny danger" data-action="admin-delete-promo" data-code="${escapeHtml(code)}" type="button">Elimina</button>
+                </div>
+              `).join("") : `<div class="empty-state small">Nessun codice custom.</div>`}
+            </div>
+          </article>
+        </section>
+      </div>
+    `;
+  }
+
+  renderCheats() {
+    return this.renderAdminPanel();
   }
 
   renderCaseFilters(visibleCases) {
@@ -6219,6 +7241,49 @@ const now = Date.now();
     this.lastChatSignature = signature;
     this.chatMessages = next;
     return true;
+  }
+
+  async sendRouletteChat() {
+    const text = String(this.rouletteChatDraft || this.root.querySelector("#rouletteChatInput")?.value || "")
+      .trim()
+      .slice(0, 220);
+    if (!text || this.rouletteChatBusy) {
+      return;
+    }
+    if (!isRouletteRealtimeAvailable()) {
+      this.toast("Chat roulette online non disponibile.");
+      return;
+    }
+    const profile = this.getVisiblePlayerProfile();
+    const message = {
+      id: `roulette-chat-${this.accountSessionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "chat",
+      roundId: getRouletteRound().roundId,
+      playerId: this.getRoulettePlayerId(),
+      sessionId: this.accountSessionId,
+      playerName: profile.name || "Operatore",
+      text,
+      tone: "",
+      at: Date.now()
+    };
+    this.rouletteChatBusy = true;
+    this.rouletteChatDraft = "";
+    this.applyRouletteMessage(message);
+    try {
+      const status = await publishRouletteMessage(message);
+      if (status && status !== "ok") {
+        throw new Error("Chat roulette non raggiungibile.");
+      }
+    } catch (error) {
+      this.rouletteMessages = this.rouletteMessages.filter((entry) => entry.id !== message.id);
+      this.rouletteChatDraft = text;
+      this.toast(error?.message || "Chat roulette non disponibile.");
+    } finally {
+      this.rouletteChatBusy = false;
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+    }
   }
 
   async sendChat() {
