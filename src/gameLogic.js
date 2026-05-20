@@ -1226,11 +1226,13 @@ export function openCases(state, caseDef, skinData, requestedCount, source = "ma
     return { ok: false, reason: "Crediti insufficienti.", drops };
   }
 
+  const totalCost = caseDef.price * affordable;
+  state.credits = Math.max(0, state.credits - totalCost);
+  state.stats.totalSpent += totalCost;
+
   limitedEvent = maybeStartLimitedEvent(state);
 
   for (let index = 0; index < affordable; index += 1) {
-    state.credits -= caseDef.price;
-    state.stats.totalSpent += caseDef.price;
     state.stats.casesOpened += 1;
     state.stats[source === "auto" ? "autoOpens" : "manualOpens"] += 1;
     state.stats.caseCounts[caseDef.id] = (state.stats.caseCounts[caseDef.id] || 0) + 1;
@@ -1245,9 +1247,9 @@ export function openCases(state, caseDef, skinData, requestedCount, source = "ma
     const isMalus = isPermanentMalusItem(item);
 
     if (isMalus) {
-      // Malus is an instant penalty: deduct credits and discard the item
+      // Malus is an instant penalty: deduct credits (clamped to 0) and discard the item
       const penalty = Math.abs(Number(item.value) || 1);
-      state.credits -= penalty;
+      state.credits = Math.max(0, state.credits - penalty);
       state.stats.malusPenalties = (state.stats.malusPenalties || 0) + 1;
       state.stats.malusTotalLost = Number(((state.stats.malusTotalLost || 0) + penalty).toFixed(2));
       item.malusConsumed = true;
