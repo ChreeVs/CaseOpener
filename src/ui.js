@@ -153,7 +153,7 @@ export class CaseOpenerUI {
     this.contractRarity = "Consumer Grade";
     this.selectedCase = this.getInitialCase();
     this.casePrestigeGroup = this.selectedCase?.unlockPrestige ?? this.casePrestigeGroup ?? 0;
-    this.caseDetailsOpen = true;
+    this.caseDetailsOpen = false;
     this.caseInfoOpenId = null;
     this.sessionPanelOpen = false;
     this.techMenuOpen = false;
@@ -2339,37 +2339,21 @@ this.refreshIcons();
     const node = this.root.querySelector("#selectedCase");
     const caseDef = this.selectedCase;
     const table = getCaseDropTable(this.state, caseDef);
-    const openedToday = this.state.stats.caseCounts[caseDef.id] || 0;
     
     node.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px; margin-bottom: 24px;">
-        <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: linear-gradient(135deg, var(--surface-2), var(--surface-1)); border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
-          <div style="position: relative;">
-            <div style="position: absolute; inset: 0; background: radial-gradient(circle, ${caseDef.accent || 'var(--loot-legendary)'}40 0%, transparent 70%); filter: blur(10px);"></div>
-            <img src="${caseDef.image || ''}" alt="Case" style="position: relative; width: 110px; height: 110px; object-fit: contain; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.6));" />
-          </div>
-          <div style="flex-grow: 1;">
-            <h2 style="margin: 0 0 8px 0; font-size: 2rem; color: var(--text-primary); text-shadow: 0 2px 4px rgba(0,0,0,0.4); font-weight: 800; letter-spacing: -0.5px;">${escapeHtml(caseDef.name)}</h2>
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; color: var(--text-secondary); font-size: 0.95rem;">
-              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("tag", "button-icon")} Costo: <strong style="color: var(--loot-restricted);">${formatCredits(caseDef.price)}</strong></span>
-              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("trending-up", "button-icon")} EV: <strong style="color: var(--loot-legendary);">${formatCredits(table.expectedValue)}</strong> <span style="opacity: 0.7;">(ROI ${(table.roi * 100).toFixed(1)}%)</span></span>
-              <span style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">${iconMarkup("box", "button-icon")} Aperte: <strong style="color: var(--text-primary);">${openedToday}</strong></span>
-            </div>
-          </div>
-        </div>
-        
-        <div style="background: var(--surface-1); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-          <button data-action="toggle-case-details" style="all: unset; box-sizing: border-box; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: ${this.caseDetailsOpen ? 'var(--surface-2)' : 'transparent'}; cursor: pointer; transition: background 0.2s;">
+      <div class="case-content-panel" style="--case-accent:${caseDef.accent || "var(--loot-legendary)"}">
+        <div class="case-content-shell">
+          <button class="case-content-toggle" data-action="toggle-case-details" type="button" aria-expanded="${this.caseDetailsOpen ? "true" : "false"}">
             <div style="display: flex; align-items: center; gap: 12px;">
               <div style="width: 36px; height: 36px; border-radius: 8px; background: var(--loot-legendary); color: #000; display: grid; place-items: center;">
-                ${iconMarkup("search")}
+                ${iconMarkup("list-filter")}
               </div>
               <div>
-                <strong style="display: block; font-size: 1.1rem; color: var(--text-primary);">Dettagli e Contenuto Cassa</strong>
-                <span style="font-size: 0.85rem; color: var(--text-secondary);">Esamina probabilità di drop e gli oggetti più rari</span>
+                <strong style="display: block; font-size: 1.1rem; color: var(--text-primary);">Contenuto cassa</strong>
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">${escapeHtml(caseDef.name)}</span>
               </div>
             </div>
-            <div style="color: var(--text-secondary); transition: transform 0.3s; transform: rotate(${this.caseDetailsOpen ? '180deg' : '0deg'});">
+            <div class="case-content-chevron" style="color: var(--text-secondary); transition: transform 0.3s;">
               ${iconMarkup("chevron-down")}
             </div>
           </button>
@@ -2635,7 +2619,9 @@ this.refreshIcons();
         return !onlineIds.size || onlineIds.has(playerId) || onlineNames.has(event.playerName);
       })
       .slice(0, 12);
-    const reelItems = history.length ? [...history, ...history] : [];
+    const reelItems = history.length
+      ? Array.from({ length: Math.max(3, Math.ceil(24 / history.length)) }, () => history).flat().slice(0, 48)
+      : [];
     const avatarSignature = (this.socialState?.players || [])
       .map((player) => `${player.id || player.name || ""}:${player.avatarImage || ""}:${player.accent || ""}`)
       .join("|");
@@ -2854,53 +2840,69 @@ this.refreshIcons();
     const filteredValue = items.reduce((sum, item) => sum + item.value, 0);
     const selectedItems = this.state.inventory.filter((item) => this.selectedInventory.has(item.id));
     const selectedValue = selectedItems.reduce((sum, item) => sum + getSellReturn(this.state, item), 0);
+    const totalInventoryValue = getInventoryValue(this.state);
+    const lockedCount = this.state.inventory.filter((item) => item.locked).length;
+    const favoriteCount = this.state.inventory.filter((item) => item.favorite).length;
 
     return `
       ${this.renderSectionTabs("inventory")}
-      <div class="toolbar">
-        <input id="inventorySearch" value="${escapeHtml(this.inventorySearch)}" placeholder="Cerca skin, arma, cassa..." />
-        <select id="rarityFilter">
-          <option value="all">Tutte le rarita'</option>
-          ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.inventoryRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
-        </select>
-        <select id="wearFilter">
-          <option value="all">Tutte le usure</option>
-          ${["Factory New", "Minimal Wear", "Field-Tested", "Well-Worn", "Battle-Scarred"].map((wear) => `<option value="${wear}" ${this.inventoryWear === wear ? "selected" : ""}>${wear}</option>`).join("")}
-        </select>
-        <select id="typeFilter">
-          <option value="all" ${this.inventoryType === "all" ? "selected" : ""}>Skin e casse</option>
-          <option value="skins" ${this.inventoryType === "skins" ? "selected" : ""}>Solo skin</option>
-          <option value="cases" ${this.inventoryType === "cases" ? "selected" : ""}>Solo casse</option>
-        </select>
-        <select id="sortFilter">
-          <option value="newest" ${this.inventorySort === "newest" ? "selected" : ""}>Piu' recenti</option>
-          <option value="value" ${this.inventorySort === "value" ? "selected" : ""}>Valore</option>
-          <option value="rarity" ${this.inventorySort === "rarity" ? "selected" : ""}>Rarita'</option>
-          <option value="float" ${this.inventorySort === "float" ? "selected" : ""}>Float basso</option>
-        </select>
-        <button class="ghost-button" data-action="sell-filtered" ${items.length ? "" : "disabled"}>Vendi filtrate (${formatCredits(filteredValue)})</button>
-        <button class="ghost-button" data-action="select-page" ${pageItems.length ? "" : "disabled"}>Seleziona pagina</button>
-        <button class="ghost-button" data-action="sell-selected" ${selectedItems.length ? "" : "disabled"}>Vendi selezione (${formatCredits(selectedValue)})</button>
-        <button class="ghost-button" data-action="clear-selection" ${selectedItems.length ? "" : "disabled"}>Deseleziona</button>
-        <button class="ghost-button" data-action="sell-consumer">Vendi low-tier</button>
-      </div>
-      <div class="inventory-summary">
-        ${statTile("Skin filtrate", items.length, `${pageItems.length} visibili`)}
-        ${statTile("Valore filtrato", formatCredits(filteredValue), `Totale ${formatCredits(getInventoryValue(this.state))}`)}
-        ${statTile("Selezione", selectedItems.length, `${formatCredits(selectedValue)} vendibili`)}
-        ${statTile("Pagina", `${this.inventoryPage}/${pages}`, `${INVENTORY_PAGE_SIZE} per pagina`)}
-      </div>
-      <div class="inventory-grid">
-        ${pageItems.length ? pageItems.map((item) => itemCard(item, {
-          withSell: true,
-          selectable: true,
-          selected: this.selectedInventory.has(item.id),
-          state: this.state
-        })).join("") : `<div class="empty-state">Nessuna skin in inventario.</div>`}
-      </div>
-      <div class="pager">
-        <button class="ghost-button" data-action="page" data-page="${this.inventoryPage - 1}" ${this.inventoryPage <= 1 ? "disabled" : ""}>Precedente</button>
-        <button class="ghost-button" data-action="page" data-page="${this.inventoryPage + 1}" ${this.inventoryPage >= pages ? "disabled" : ""}>Successiva</button>
+      <div class="locker-page">
+        <section class="locker-hero">
+          <div>
+            <span class="marketplace-kicker">${iconMarkup("briefcase", "button-icon")} Locker</span>
+            <h2>Locker</h2>
+          </div>
+          <div class="locker-stat-grid">
+            ${statTile("Inventario", this.state.inventory.length, `${formatCredits(totalInventoryValue, true)} totale`)}
+            ${statTile("Filtrate", items.length, `${formatCredits(filteredValue, true)} valore`)}
+            ${statTile("Selezione", selectedItems.length, `${formatCredits(selectedValue, true)} vendibili`)}
+            ${statTile("Bloccate", lockedCount, `${favoriteCount} preferite`)}
+          </div>
+        </section>
+        <section class="locker-controls">
+          <div class="locker-filter-grid">
+            <input id="inventorySearch" value="${escapeHtml(this.inventorySearch)}" placeholder="Cerca skin, arma, cassa..." />
+            <select id="rarityFilter">
+              <option value="all">Tutte le rarita'</option>
+              ${RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${this.inventoryRarity === rarity ? "selected" : ""}>${rarity}</option>`).join("")}
+            </select>
+            <select id="wearFilter">
+              <option value="all">Tutte le usure</option>
+              ${["Factory New", "Minimal Wear", "Field-Tested", "Well-Worn", "Battle-Scarred"].map((wear) => `<option value="${wear}" ${this.inventoryWear === wear ? "selected" : ""}>${wear}</option>`).join("")}
+            </select>
+            <select id="typeFilter">
+              <option value="all" ${this.inventoryType === "all" ? "selected" : ""}>Skin e casse</option>
+              <option value="skins" ${this.inventoryType === "skins" ? "selected" : ""}>Solo skin</option>
+              <option value="cases" ${this.inventoryType === "cases" ? "selected" : ""}>Solo casse</option>
+            </select>
+            <select id="sortFilter">
+              <option value="newest" ${this.inventorySort === "newest" ? "selected" : ""}>Piu' recenti</option>
+              <option value="value" ${this.inventorySort === "value" ? "selected" : ""}>Valore</option>
+              <option value="rarity" ${this.inventorySort === "rarity" ? "selected" : ""}>Rarita'</option>
+              <option value="float" ${this.inventorySort === "float" ? "selected" : ""}>Float basso</option>
+            </select>
+          </div>
+          <div class="locker-action-row">
+            <button class="ghost-button" data-action="sell-filtered" ${items.length ? "" : "disabled"}>${iconMarkup("banknote", "button-icon")} Vendi filtrate ${formatCredits(filteredValue, true)}</button>
+            <button class="ghost-button" data-action="select-page" ${pageItems.length ? "" : "disabled"}>${iconMarkup("square-check", "button-icon")} Seleziona pagina</button>
+            <button class="ghost-button" data-action="sell-selected" ${selectedItems.length ? "" : "disabled"}>${iconMarkup("circle-euro", "button-icon")} Vendi selezione ${formatCredits(selectedValue, true)}</button>
+            <button class="ghost-button" data-action="clear-selection" ${selectedItems.length ? "" : "disabled"}>${iconMarkup("x", "button-icon")} Deseleziona</button>
+            <button class="ghost-button" data-action="sell-consumer">${iconMarkup("archive", "button-icon")} Vendi low-tier</button>
+          </div>
+        </section>
+        <div class="inventory-grid locker-inventory-grid">
+          ${pageItems.length ? pageItems.map((item) => itemCard(item, {
+            withSell: true,
+            selectable: true,
+            selected: this.selectedInventory.has(item.id),
+            state: this.state
+          })).join("") : `<div class="empty-state">Nessuna skin in inventario.</div>`}
+        </div>
+        <div class="pager locker-pager">
+          <button class="ghost-button" data-action="page" data-page="${this.inventoryPage - 1}" ${this.inventoryPage <= 1 ? "disabled" : ""}>Precedente</button>
+          <span>${this.inventoryPage}/${pages} - ${pageItems.length}/${items.length}</span>
+          <button class="ghost-button" data-action="page" data-page="${this.inventoryPage + 1}" ${this.inventoryPage >= pages ? "disabled" : ""}>Successiva</button>
+        </div>
       </div>
     `;
   }
@@ -2984,52 +2986,88 @@ this.refreshIcons();
     const netWorth = getNetWorth(this.state);
     const requirement = getPrestigeRequirement(this.state);
     const ready = canPrestige(this.state);
+    const prestigeLevel = this.state.prestige.level || 0;
+    const casesRequired = 60 + prestigeLevel * 8;
+    const caseProgress = clamp(this.state.stats.casesOpened / Math.max(1, casesRequired), 0, 1);
+    const worthProgress = clamp(netWorth / Math.max(1, requirement), 0, 1);
+    const shardPreview = Math.max(1, Math.floor(Math.sqrt(netWorth / 120) + prestigeLevel * 0.65));
     const nextCases = this.skinData.cases
-      .filter((caseDef) => caseDef.unlockPrestige > this.state.prestige.level)
+      .filter((caseDef) => caseDef.unlockPrestige > prestigeLevel)
       .sort((a, b) => a.unlockPrestige - b.unlockPrestige || a.name.localeCompare(b.name));
     return `
       ${this.renderSectionTabs("prestige")}
-      <div class="prestige-panel">
-        <div>
-          <span>Prestige ${this.state.prestige.level}/${CASE_MAX_PRESTIGE_UNLOCK}</span>
-          <h3>Bonus permanente x${getPrestigeMultiplier(this.state).toFixed(2)}</h3>
-          <p>Resetta saldo, upgrade e inventario. Mantieni statistiche, achievement, livello profilo e ottieni shard permanenti.</p>
-        </div>
-        <button class="primary-button" data-action="prestige" ${ready ? "" : "disabled"}>Rebirth</button>
-      </div>
-      <div class="stats-grid">
-        ${statTile("Net worth", formatCredits(netWorth), `Richiesto ${formatCredits(requirement)}`)}
-        ${statTile("Casse aperte", this.state.stats.casesOpened, `minimo ${60 + this.state.prestige.level * 8}`)}
-        ${statTile("Shard", this.state.prestige.shards, `${this.state.prestige.lifetimeShards || 0} lifetime`)}
-        ${statTile("Reset", this.state.prestige.totalResets, "totali")}
-      </div>
-      <div class="prestige-tree">
-        ${PRESTIGE_TREE.map((node) => {
-          const level = getPrestigeNodeLevel(this.state, node.id);
-          const cost = getPrestigeNodeCost(this.state, node.id);
-          return `
-            <article class="tree-node">
-              <div>
-                <span>${escapeHtml(node.branch)}</span>
-                <strong>${escapeHtml(node.name)}</strong>
-                <p>${escapeHtml(node.description)}</p>
-                <small>Lv ${level}/${node.maxLevel}</small>
-              </div>
-              <button class="primary-button small" data-action="buy-prestige-node" data-id="${node.id}" ${level >= node.maxLevel || this.state.prestige.shards < cost ? "disabled" : ""}>
-                ${level >= node.maxLevel ? "Max" : `${cost} shard`}
-              </button>
-            </article>
-          `;
-        }).join("")}
-      </div>
-      <div class="unlock-list">
-        ${nextCases.length ? nextCases.map((caseDef) => `
-          <div class="unlock-row">
-            <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
-            <span>${escapeHtml(caseDef.name)}</span>
-            <strong>P${caseDef.unlockPrestige}</strong>
+      <div class="prestige-page">
+        <section class="prestige-hero">
+          <div class="prestige-hero-copy">
+            <span class="marketplace-kicker">${iconMarkup("crown", "button-icon")} Prestige ${prestigeLevel}/${CASE_MAX_PRESTIGE_UNLOCK}</span>
+            <h2>x${getPrestigeMultiplier(this.state).toFixed(2)}</h2>
+            <div class="prestige-hero-stats">
+              ${statTile("Net worth", formatCredits(netWorth, true), `richiesto ${formatCredits(requirement, true)}`)}
+              ${statTile("Aperture", this.state.stats.casesOpened, `minimo ${casesRequired}`)}
+              ${statTile("Shard", this.state.prestige.shards, `+${shardPreview} al reset`)}
+              ${statTile("Reset", this.state.prestige.totalResets, `${this.state.prestige.lifetimeShards || 0} shard vita`)}
+            </div>
           </div>
-        `).join("") : `<div class="empty-state">Tutte le casse sono sbloccate.</div>`}
+          <div class="prestige-action-card">
+            <div class="prestige-meter">
+              <span>Net worth</span>
+              <div class="progress-line"><i style="width:${percent(worthProgress)}"></i></div>
+              <strong>${Math.round(worthProgress * 100)}%</strong>
+            </div>
+            <div class="prestige-meter">
+              <span>Casse aperte</span>
+              <div class="progress-line"><i style="width:${percent(caseProgress)}"></i></div>
+              <strong>${Math.round(caseProgress * 100)}%</strong>
+            </div>
+            <button class="primary-button" data-action="prestige" ${ready ? "" : "disabled"}>${iconMarkup("refresh-cw", "button-icon")} Rebirth</button>
+          </div>
+        </section>
+        <section class="prestige-layout">
+          <div class="prestige-tree-panel">
+            <div class="section-head">
+              <span>${iconMarkup("git-branch", "button-icon")} Albero shard</span>
+              <strong>${this.state.prestige.shards} disponibili</strong>
+            </div>
+            <div class="prestige-tree redesigned">
+              ${PRESTIGE_TREE.map((node) => {
+                const level = getPrestigeNodeLevel(this.state, node.id);
+                const cost = getPrestigeNodeCost(this.state, node.id);
+                const progress = clamp(level / Math.max(1, node.maxLevel), 0, 1);
+                return `
+                  <article class="tree-node prestige-node-card">
+                    <div>
+                      <span>${escapeHtml(node.branch)}</span>
+                      <strong>${escapeHtml(node.name)}</strong>
+                      <p>${escapeHtml(node.description)}</p>
+                    </div>
+                    <div class="prestige-node-foot">
+                      <div class="progress-line"><i style="width:${percent(progress)}"></i></div>
+                      <small>Lv ${level}/${node.maxLevel}</small>
+                      <button class="primary-button small" data-action="buy-prestige-node" data-id="${node.id}" ${level >= node.maxLevel || this.state.prestige.shards < cost ? "disabled" : ""}>
+                        ${level >= node.maxLevel ? "Max" : `${cost} shard`}
+                      </button>
+                    </div>
+                  </article>
+                `;
+              }).join("")}
+            </div>
+          </div>
+          <aside class="prestige-unlocks-panel">
+            <div class="section-head">
+              <span>${iconMarkup("lock-open", "button-icon")} Prossimi unlock</span>
+              <strong>${nextCases.length}</strong>
+            </div>
+            <div class="unlock-list redesigned">
+              ${nextCases.length ? nextCases.slice(0, 10).map((caseDef) => `
+                <div class="unlock-row">
+                  <img src="${caseDef.image}" alt="${escapeHtml(caseDef.name)}" loading="lazy" />
+                  <span>${escapeHtml(caseDef.name)}</span>
+                  <strong>P${caseDef.unlockPrestige}</strong>
+                </div>
+              `).join("") : `<div class="empty-state">Tutte le casse sono sbloccate.</div>`}
+            </div>
+          </aside>
+        </section>
       </div>
     `;
   }
@@ -3147,27 +3185,25 @@ this.refreshIcons();
 
   renderMarket() {
     const offers = refreshMarket(this.state, this.skinData, this.selectedCase);
-    const trend = getMarketTrend(this.state);
+    const refreshRemaining = Math.max(0, this.state.market.lastRefreshAt + ECONOMY_CONFIG.marketplaceRefreshMs - Date.now());
     return `
-      <div class="marketplace-page">
+      <div class="marketplace-page marketplace-redesign">
         <div class="marketplace-hero">
           <div>
             <span class="marketplace-kicker">${iconMarkup("store", "button-icon")} Marketplace</span>
             <h2>Marketplace</h2>
-            <p>Offerte economy e mercato globale dei giocatori in un'unica area.</p>
           </div>
-          <div class="social-chip-stack">
-            ${statTile("Trend", `x${trend.multiplier.toFixed(2)}`, trend.name)}
-            ${statTile("Refresh", compactTime(Math.max(0, this.state.market.lastRefreshAt + ECONOMY_CONFIG.marketplaceRefreshMs - Date.now())), "offerte economy")}
-            ${statTile("Globali", this.sharedAuctions.filter((listing) => listing.status === "active").length, "inserzioni live")}
+          <div class="market-refresh-card">
+            <span>${iconMarkup("refresh-cw", "button-icon")} Refresh</span>
+            <strong>${compactTime(refreshRemaining)}</strong>
+            <small>${offers?.length || 0} offerte economy</small>
           </div>
         </div>
         <section class="marketplace-economy-card">
           <div class="social-card-head">
             <div>
               <span class="marketplace-kicker">${iconMarkup("candlestick-chart", "button-icon")} Offerte economy</span>
-              <h3>Marketplace economy</h3>
-              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">Le offerte cambiano ogni 12h.</p>
+              <h3>Offerte disponibili</h3>
             </div>
           </div>
           
@@ -3191,7 +3227,7 @@ this.refreshIcons();
             <div class="market-empty-state" style="text-align: center; padding: 48px 24px; color: var(--text-secondary); background: var(--surface-2); border-radius: 8px; margin-top: 16px;">
               ${iconMarkup("shopping-bag", "button-icon")}
               <h4 style="margin: 12px 0 8px;">Tutto esaurito!</h4>
-              <p style="margin-bottom: 24px;">Hai acquistato tutte le offerte attuali. Attendi il termine del timer di refresh in alto per visualizzarne di nuove.</p>
+              <p style="margin-bottom: 24px;">Nuove offerte tra ${compactTime(refreshRemaining)}.</p>
             </div>
           `}
         </section>
@@ -3750,7 +3786,7 @@ this.refreshIcons();
     `;
   }
 
-  renderCommunityGoals() {
+  renderCommunityGoalsLegacy() {
     const goals = this.getCommunityGoalRows();
     const promoRedeemed = Object.keys(this.state.promoCodes?.redeemed || {}).length;
     return `
@@ -3805,6 +3841,71 @@ this.refreshIcons();
           `;
           }).join("")}
         </div>
+      </div>
+    `;
+  }
+
+  renderCommunityGoals() {
+    const goals = this.getCommunityGoalRows();
+    const promoRedeemed = Object.keys(this.state.promoCodes?.redeemed || {}).length;
+    const readyGoals = goals.filter((goal) => goal.ready && !goal.claimed).length;
+    const rewardCases = this.state.inventory.filter((item) => item.type === "rewardCase").length;
+    return `
+      <div class="community-page community-redesign">
+        <section class="community-hero">
+          <div>
+            <span class="marketplace-kicker">${iconMarkup("users-round", "button-icon")} Community</span>
+            <h2>Community</h2>
+          </div>
+          <div class="community-stat-grid">
+            ${statTile("Promo", promoRedeemed, "riscattati")}
+            ${statTile("Archivio", Math.floor(this.state.collections.archivePoints || 0), "punti assist")}
+            ${statTile("Goal pronti", readyGoals, `${goals.length} attivi`)}
+            ${statTile("Sync", this.sharedGoalStatus.replace("Sync community ", ""), "stato")}
+            ${statTile("Reward case", rewardCases, "locker")}
+          </div>
+        </section>
+        <section class="community-main-grid">
+          <article class="community-promo-panel">
+            <div>
+              <span class="marketplace-kicker">${iconMarkup("ticket", "button-icon")} Promo</span>
+              <h3>Codice evento</h3>
+            </div>
+            <div class="community-promo-actions">
+              <input id="promoCodeInput" value="${escapeHtml(this.promoCodeDraft)}" placeholder="Inserisci codice" />
+              <button class="primary-button" data-action="redeem-promo">${iconMarkup("gift", "button-icon")} Riscatta</button>
+            </div>
+          </article>
+          <div class="community-goal-grid redesigned">
+            ${goals.map((goal) => {
+              const isShared = goal.scope === "community";
+              const busy = this.goalSyncBusy.has(goal.id);
+              const canClaim = goal.ready && !goal.claimed;
+              return `
+              <article class="community-goal-card ${goal.ready ? "is-ready" : ""} ${goal.claimed ? "is-claimed" : ""}">
+                <div class="community-goal-top">
+                  <span>${goal.scope === "solo" ? "Singolo" : "Community"} - ${compactTime(goal.endsAt - Date.now())}</span>
+                  <h3>${escapeHtml(goal.label)}</h3>
+                </div>
+                <div class="progress-line"><i style="width:${percent(goal.progress)}"></i></div>
+                <div class="community-goal-meta">
+                  <strong>${formatCredits(goal.contributed, true)} / ${formatCredits(goal.target, true)}</strong>
+                  <small>${goal.claimed
+                    ? "Reward ritirato"
+                    : isShared
+                      ? `${formatCredits(goal.personalContributed, true)} tuoi - ${formatCredits(goal.sharedContributed, true)} community`
+                      : goal.ready ? "Pronto" : `Tier ${goal.rewardTier} - ${goal.rewardCount} reward`}</small>
+                </div>
+                <div class="game-controls compact-goal-controls">
+                  <input data-goal-deposit-input="${goal.id}" value="${escapeHtml(this.goalDepositAmounts[goal.id] || "")}" placeholder="Crediti" />
+                  <button class="ghost-button small" data-action="deposit-goal" data-id="${goal.id}" ${goal.claimed || busy ? "disabled" : ""}>${busy ? "Sync..." : "Deposita"}</button>
+                  <button class="primary-button small" data-action="claim-goal" data-id="${goal.id}" ${canClaim ? "" : "disabled"}>Ritira</button>
+                </div>
+              </article>
+            `;
+            }).join("")}
+          </div>
+        </section>
       </div>
     `;
   }
@@ -5787,6 +5888,9 @@ const now = Date.now();
     }
     if (this.activeTab === "community" && Date.now() - this.lastSharedGoalSyncAt > 30000) {
       this.refreshCommunityGoals({ silent: true });
+    }
+    if (this.activeTab === "market" && !this.isEditingAppControl()) {
+      this.renderTab();
     }
     if (this.activeTab === "games" && isSharedGamesAvailable() && Date.now() - this.lastSharedGamesSyncAt > 30000) {
       this.refreshSharedGames({ silent: true });

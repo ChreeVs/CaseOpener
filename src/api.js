@@ -750,17 +750,19 @@ function unlockTierFromReleaseRank(index, total) {
 }
 
 function assignPrestigeUnlocks(cases) {
+  const freeSlots = Math.min(6, cases.length);
+  const spread = Math.max(1, cases.length - freeSlots);
   return cases.map((caseDef, index) => {
-    if (index < 5) {
+    if (index < freeSlots) {
       return {
         ...caseDef,
         unlockPrestige: 0
       };
     }
-    const unlockPrestige = Math.max(
-      unlockTierFromReleaseRank(index, cases.length),
-      unlockTierFromPrice(caseDef.fallbackPrice || caseDef.price)
-    );
+    const releaseProgress = (index - freeSlots) / spread;
+    const releaseTier = clampNumber(1 + Math.floor(releaseProgress * CASE_MAX_PRESTIGE_UNLOCK), 1, CASE_MAX_PRESTIGE_UNLOCK);
+    const priceTier = unlockTierFromPrice(caseDef.fallbackPrice || caseDef.price);
+    const unlockPrestige = clampNumber(Math.max(releaseTier, Math.min(priceTier, releaseTier + 2)), 1, CASE_MAX_PRESTIGE_UNLOCK);
     return {
       ...caseDef,
       unlockPrestige
@@ -863,7 +865,9 @@ export function buildSkinData(rawSkins, rawCrates = []) {
     });
   }
 
-  const balancedCases = cases.map((caseDef) => ensureAdvancedLowTierPool(caseDef, globalPool));
+  const balancedCases = cases
+    .map((caseDef) => ensureAdvancedLowTierPool(caseDef, globalPool))
+    .map((caseDef) => rebalanceCaseDefinition(caseDef));
 
   return {
     skins,

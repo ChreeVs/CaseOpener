@@ -7,20 +7,20 @@ export const CASE_PRICE_CREDIT_MULTIPLIER = 100;
 export const CASE_MAX_PRESTIGE_UNLOCK = 15;
 
 export const CASE_PRESTIGE_ECONOMY = [
-  { minPrice: 1, maxPrice: 38, valueScale: 1, targetRoi: 0.74 },
-  { minPrice: 32, maxPrice: 70, valueScale: 1.8, targetRoi: 0.72 },
-  { minPrice: 58, maxPrice: 130, valueScale: 3.2, targetRoi: 0.7 },
-  { minPrice: 105, maxPrice: 260, valueScale: 6, targetRoi: 0.69 },
-  { minPrice: 220, maxPrice: 560, valueScale: 12, targetRoi: 0.68 },
-  { minPrice: 520, maxPrice: 1250, valueScale: 25, targetRoi: 0.67 },
-  { minPrice: 1050, maxPrice: 2600, valueScale: 52, targetRoi: 0.66 },
-  { minPrice: 2300, maxPrice: 5400, valueScale: 105, targetRoi: 0.65 },
-  { minPrice: 5200, maxPrice: 9800, valueScale: 165, targetRoi: 0.64 },
-  { minPrice: 8500, maxPrice: 17000, valueScale: 260, targetRoi: 0.63 },
-  { minPrice: 13500, maxPrice: 29000, valueScale: 420, targetRoi: 0.62 },
-  { minPrice: 22000, maxPrice: 50000, valueScale: 680, targetRoi: 0.61 },
-  { minPrice: 36000, maxPrice: 85000, valueScale: 1100, targetRoi: 0.6 },
-  { minPrice: 60000, maxPrice: 145000, valueScale: 1750, targetRoi: 0.59 },
-  { minPrice: 98000, maxPrice: 240000, valueScale: 2750, targetRoi: 0.58 },
-  { minPrice: 160000, maxPrice: 390000, valueScale: 4200, targetRoi: 0.57 }
+  { minPrice: 1, maxPrice: 95, valueScale: 1, targetRoi: 0.74 },
+  { minPrice: 75, maxPrice: 190, valueScale: 1.85, targetRoi: 0.72 },
+  { minPrice: 155, maxPrice: 380, valueScale: 3.35, targetRoi: 0.7 },
+  { minPrice: 320, maxPrice: 760, valueScale: 6.4, targetRoi: 0.69 },
+  { minPrice: 650, maxPrice: 1500, valueScale: 12.8, targetRoi: 0.68 },
+  { minPrice: 1300, maxPrice: 3100, valueScale: 25.8, targetRoi: 0.67 },
+  { minPrice: 2700, maxPrice: 6200, valueScale: 53, targetRoi: 0.66 },
+  { minPrice: 5400, maxPrice: 11800, valueScale: 108, targetRoi: 0.65 },
+  { minPrice: 9800, maxPrice: 20500, valueScale: 172, targetRoi: 0.64 },
+  { minPrice: 17000, maxPrice: 35000, valueScale: 275, targetRoi: 0.63 },
+  { minPrice: 28500, maxPrice: 56000, valueScale: 445, targetRoi: 0.62 },
+  { minPrice: 46000, maxPrice: 90000, valueScale: 720, targetRoi: 0.61 },
+  { minPrice: 74000, maxPrice: 142000, valueScale: 1160, targetRoi: 0.6 },
+  { minPrice: 118000, maxPrice: 220000, valueScale: 1840, targetRoi: 0.59 },
+  { minPrice: 180000, maxPrice: 325000, valueScale: 2860, targetRoi: 0.58 },
+  { minPrice: 260000, maxPrice: 470000, valueScale: 4300, targetRoi: 0.57 }
 ];
