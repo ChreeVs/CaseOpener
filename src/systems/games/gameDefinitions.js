@@ -51,6 +51,6 @@ export const MINIGAME_DEFINITIONS = [
     stake: "skin",
     reward: "pot",
     serverAuthoritative: false,
-    description: "Jackpot skin realtime con ticket proporzionali al numero di skin e tier separati per prestige."
+    description: "Jackpot skin realtime con ticket proporzionali al valore depositato e cap di valore per tier prestige."
   }
 ];

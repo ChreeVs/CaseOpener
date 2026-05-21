@@ -41,6 +41,8 @@ import {
   getJackpotTier,
   getJackpotTierForPrestige,
   getJackpotWinner,
+  isJackpotEntryAllowed,
+  isJackpotValueAllowedForTier,
   isJackpotRealtimeAvailable,
   JACKPOT_FLOW,
   JACKPOT_TIERS,
@@ -158,7 +160,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.7.2";
+const GAME_VERSION = "v1.7.3";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -1139,9 +1141,12 @@ export class CaseOpenerUI {
     if (!entry?.id || this.jackpotEntries.has(entry.id) || !Array.isArray(entry.items) || !entry.items.length) {
       return false;
     }
+    if (!isJackpotEntryAllowed(entry)) {
+      return false;
+    }
     this.jackpotEntries.set(entry.id, {
       ...entry,
-      itemCount: Number(entry.itemCount || entry.items.length),
+      itemCount: entry.items.length,
       totalValue: Number(Number(entry.totalValue || entry.items.reduce((sum, item) => sum + Number(item.value || 0), 0)).toFixed(2)),
       at: Number(entry.at || Date.now())
     });
@@ -1175,6 +1180,9 @@ export class CaseOpenerUI {
       .filter((entry) => entry.mode === "jackpot_deposit" && Number(entry.payload?.entry?.roundId) === Number(roundId) && entry.payload?.entry?.tierId === tierId)
       .forEach((event) => {
         const entry = event.payload.entry;
+        if (!isJackpotEntryAllowed(entry)) {
+          return;
+        }
         if (!merged.has(entry.id)) {
           merged.set(entry.id, entry);
         }
@@ -1190,7 +1198,7 @@ export class CaseOpenerUI {
 
   getJackpotEligibleItems() {
     return [...(this.state.inventory || [])]
-      .filter((item) => !item.locked && !item.favorite && !isPermanentMalusItem(item) && item.type !== "rewardCase" && Number(item.value || 0) >= 0)
+      .filter((item) => !item.locked && !item.favorite && !isPermanentMalusItem(item) && item.type !== "rewardCase" && Number(item.value || 0) > 0)
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
   }
 
@@ -1233,6 +1241,10 @@ export class CaseOpenerUI {
     return this.activeTab === "games" && this.miniGamesView === view;
   }
 
+  formatJackpotTierValueLimit(tier) {
+    return `${formatCredits(tier.minValue || 0, true)} - ${formatCredits(tier.maxValue || 0, true)}`;
+  }
+
   playMiniGameTone(view, kind = "neutral", strength = 0.5) {
     if (!this.isMiniGameAudioActive(view)) {
       return;
@@ -1271,6 +1283,11 @@ export class CaseOpenerUI {
       this.toast("Seleziona almeno una skin.");
       return;
     }
+    const selectedValue = Number(items.reduce((sum, item) => sum + Number(item.value || 0), 0).toFixed(2));
+    if (!isJackpotValueAllowedForTier(selectedValue, tier.id)) {
+      this.toast(`Limite ${tier.label}: ${this.formatJackpotTierValueLimit(tier)}.`);
+      return;
+    }
     const profile = this.getVisiblePlayerProfile();
     const entry = {
       id: `${this.accountSessionId}-${tier.id}-${round.roundId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1301,7 +1318,7 @@ export class CaseOpenerUI {
         crit: item.crit
       })),
       itemCount: items.length,
-      totalValue: Number(items.reduce((sum, item) => sum + Number(item.value || 0), 0).toFixed(2)),
+      totalValue: selectedValue,
       at: Date.now()
     };
     const itemIds = new Set(items.map((item) => item.id));
@@ -1317,14 +1334,14 @@ export class CaseOpenerUI {
       }
       this.publishSharedGameResult("jackpot_deposit", {
         game: "Jackpot",
-        detail: `${tier.label}: ${items.length} skin depositate`,
+        detail: `${tier.label}: ${formatCredits(entry.totalValue, true)} depositati`,
         label: "Deposito skin",
         bet: entry.totalValue,
         payout: 0,
         profit: 0,
         outcome: tier.label
       }, { entry });
-      this.toast(`Jackpot ${tier.label}: depositate ${items.length} skin.`);
+      this.toast(`Jackpot ${tier.label}: depositate ${items.length} skin (${formatCredits(entry.totalValue, true)}).`);
       this.queueSocialProfileSync();
     } catch (error) {
       this.jackpotEntries.delete(entry.id);
@@ -1416,7 +1433,7 @@ export class CaseOpenerUI {
       round.phase.key,
       Math.ceil(round.phase.remaining / 1000),
       this.jackpotTierId,
-      entries.map((entry) => `${entry.id}:${entry.itemCount}`).join("|"),
+      entries.map((entry) => `${entry.id}:${entry.totalValue}:${entry.itemCount}`).join("|"),
       selectedSignature,
       this.jackpotRealtimeStatus
     ].join("::");
@@ -4707,7 +4724,7 @@ this.refreshIcons();
               <div class="roulette-reel-item jackpot-reel-item ${index === targetIndex ? "is-target" : ""}" style="--jackpot-accent:${escapeHtml(participantAccent)}">
                 ${this.renderJackpotAvatar(participant)}
                 <strong title="${escapeHtml(participant.name)}">${escapeHtml(participant.name)}</strong>
-                <span>${Number(participant.itemCount || 0)} skin</span>
+                <span>${formatCredits(participant.totalValue || 0, true)}</span>
               </div>
             `;
           }).join("")}
@@ -4732,7 +4749,7 @@ this.refreshIcons();
             type="button"
           >
             <span>${escapeHtml(tier.label)}</span>
-            <strong>${escapeHtml(tier.detail)}</strong>
+            <strong>${escapeHtml(tier.detail)} - max ${formatCredits(tier.maxValue || 0, true)}</strong>
           </button>
         `).join("")}
       </div>
@@ -4748,7 +4765,7 @@ this.refreshIcons();
       <section class="roulette-side-panel jackpot-pot-panel">
         <div class="roulette-panel-head">
           <strong>${iconMarkup("users-round", "button-icon")} Piatto ${escapeHtml(tier.label)}</strong>
-          <small>${participants.length} player - ${totalItems} skin</small>
+          <small>${participants.length} player - ${totalItems} skin - max ${formatCredits(tier.maxValue || 0, true)}</small>
         </div>
         <div class="jackpot-pot-summary">
           <span>Valore stimato</span>
@@ -4756,7 +4773,7 @@ this.refreshIcons();
         </div>
         <div class="jackpot-participant-list">
           ${participants.length ? participants.map((participant) => {
-            const chance = totalItems > 0 ? (Number(participant.itemCount || 0) / totalItems) * 100 : 0;
+            const chance = totalValue > 0 ? (Number(participant.totalValue || 0) / totalValue) * 100 : 0;
             const isWinner = winner && winner.playerId === participant.playerId;
             const rawAccent = String(participant.accent || "#64d7e3");
             const accent = /^#[0-9a-f]{3,8}$/i.test(rawAccent) ? rawAccent : "#64d7e3";
@@ -4783,19 +4800,22 @@ this.refreshIcons();
     const selectedItems = this.getJackpotSelectedItems();
     const selectedValue = selectedItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
     const ownTierSelected = tier.id === ownTier.id;
-    const canDeposit = ownTierSelected && round.phase.key === "deposit" && isJackpotRealtimeAvailable() && selectedItems.length > 0;
+    const valueAllowed = isJackpotValueAllowedForTier(selectedValue, tier.id);
+    const canDeposit = ownTierSelected && round.phase.key === "deposit" && isJackpotRealtimeAvailable() && selectedItems.length > 0 && valueAllowed;
     const disabledReason = !ownTierSelected
       ? `Deposito disponibile nel tier ${ownTier.label}.`
       : round.phase.key !== "deposit"
         ? "Depositi chiusi in questa fase."
         : !isJackpotRealtimeAvailable()
           ? "Realtime jackpot non disponibile."
+          : selectedItems.length && !valueAllowed
+            ? `Limite ${tier.label}: ${this.formatJackpotTierValueLimit(tier)}.`
           : "Seleziona almeno una skin.";
     return `
       <section class="roulette-side-panel jackpot-inventory-panel">
         <div class="roulette-panel-head">
           <strong>${iconMarkup("briefcase", "button-icon")} Skin deposito</strong>
-          <small>${eligibleItems.length} disponibili</small>
+          <small>${eligibleItems.length} disponibili - ${this.formatJackpotTierValueLimit(tier)}</small>
         </div>
         <div class="jackpot-selection-summary">
           <div>
@@ -4849,7 +4869,7 @@ this.refreshIcons();
         <div class="games-header mini-games-header jackpot-games-header">
           ${statTile("Fase", round.phase.label, this.formatRouletteTimer(round.phase.remaining))}
           ${statTile("Tier", tier.label, ownTier.id === tier.id ? "il tuo tier" : `tu: ${ownTier.label}`)}
-          ${statTile("Pot skin", potItems, formatCredits(potValue, true))}
+          ${statTile("Pot valore", formatCredits(potValue, true), `${potItems} skin`)}
           ${statTile("Selezione", selectedItems.length, formatCredits(selectedValue, true))}
         </div>
         <section class="roulette-live-layout jackpot-live-layout">

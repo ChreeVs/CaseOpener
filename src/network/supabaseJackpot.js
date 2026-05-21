@@ -9,10 +9,10 @@ export const JACKPOT_FLOW = {
 };
 
 export const JACKPOT_TIERS = [
-  { id: "rookie", label: "Rookie", detail: "Prestige 0-2", minPrestige: 0, maxPrestige: 2 },
-  { id: "veteran", label: "Veteran", detail: "Prestige 3-6", minPrestige: 3, maxPrestige: 6 },
-  { id: "elite", label: "Elite", detail: "Prestige 7-12", minPrestige: 7, maxPrestige: 12 },
-  { id: "master", label: "Master", detail: "Prestige 13+", minPrestige: 13, maxPrestige: Infinity }
+  { id: "rookie", label: "Rookie", detail: "Prestige 0-2", minPrestige: 0, maxPrestige: 2, minValue: 1, maxValue: 25000 },
+  { id: "veteran", label: "Veteran", detail: "Prestige 3-6", minPrestige: 3, maxPrestige: 6, minValue: 1, maxValue: 250000 },
+  { id: "elite", label: "Elite", detail: "Prestige 7-12", minPrestige: 7, maxPrestige: 12, minValue: 1, maxValue: 2500000 },
+  { id: "master", label: "Master", detail: "Prestige 13+", minPrestige: 13, maxPrestige: Infinity, minValue: 1, maxValue: 25000000 }
 ];
 
 const CHANNEL_NAME = "case-opener-live-jackpot-v1";
@@ -52,6 +52,12 @@ export function getJackpotTier(tierId) {
 export function getJackpotTierForPrestige(prestige = 0) {
   const level = Math.max(0, Number(prestige) || 0);
   return JACKPOT_TIERS.find((tier) => level >= tier.minPrestige && level <= tier.maxPrestige) || JACKPOT_TIERS.at(-1);
+}
+
+export function isJackpotValueAllowedForTier(value = 0, tierId = "rookie") {
+  const tier = getJackpotTier(tierId);
+  const amount = money(value);
+  return amount >= Number(tier.minValue || 0) && amount <= Number(tier.maxValue || Infinity);
 }
 
 export function getJackpotRound(now = Date.now()) {
@@ -128,17 +134,22 @@ export function normalizeJackpotEntry(payload = {}) {
     avatarImage: String(payload.avatarImage || ""),
     accent: cleanText(payload.accent, "#7fe37c", 24),
     items,
-    itemCount: Math.max(items.length, Number(payload.itemCount || 0)),
-    totalValue: money(payload.totalValue || items.reduce((sum, item) => sum + Number(item.value || 0), 0)),
+    itemCount: items.length,
+    totalValue: money(items.reduce((sum, item) => sum + Number(item.value || 0), 0)),
     at: Number(payload.at || Date.now())
   };
+}
+
+export function isJackpotEntryAllowed(entry = {}) {
+  const normalized = normalizeJackpotEntry(entry);
+  return normalized.items.length > 0 && isJackpotValueAllowedForTier(normalized.totalValue, normalized.tierId);
 }
 
 export function getJackpotParticipants(entries = []) {
   const grouped = new Map();
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
     const normalized = normalizeJackpotEntry(entry);
-    if (!normalized.items.length) {
+    if (!normalized.items.length || !isJackpotValueAllowedForTier(normalized.totalValue, normalized.tierId)) {
       return;
     }
     const id = normalized.playerId || normalized.sessionId || normalized.playerName;
@@ -162,7 +173,26 @@ export function getJackpotParticipants(entries = []) {
     grouped.set(id, existing);
   });
   return [...grouped.values()]
-    .sort((a, b) => Number(b.itemCount || 0) - Number(a.itemCount || 0) || Number(b.totalValue || 0) - Number(a.totalValue || 0));
+    .sort((a, b) => Number(b.totalValue || 0) - Number(a.totalValue || 0) || Number(b.itemCount || 0) - Number(a.itemCount || 0));
+}
+
+function jackpotWeight(participant = {}) {
+  return Math.max(1, Math.round(Number(participant.totalValue || 0) * 100));
+}
+
+function pickWeightedParticipant(participants = [], seed = "") {
+  const totalWeight = participants.reduce((sum, participant) => sum + jackpotWeight(participant), 0);
+  if (!participants.length || totalWeight <= 0) {
+    return null;
+  }
+  let cursor = (hashText(seed) / 0x100000000) * totalWeight;
+  for (const participant of participants) {
+    cursor -= jackpotWeight(participant);
+    if (cursor < 0) {
+      return participant;
+    }
+  }
+  return participants[0] || null;
 }
 
 export function getJackpotWinner(entries = [], roundId = 0, tierId = "rookie") {
@@ -170,15 +200,7 @@ export function getJackpotWinner(entries = [], roundId = 0, tierId = "rookie") {
   if (participants.length < 2) {
     return null;
   }
-  const totalTickets = participants.reduce((sum, participant) => sum + Math.max(1, Number(participant.itemCount || 0)), 0);
-  let cursor = hashText(`jackpot:${tierId}:${roundId}`) % Math.max(1, totalTickets);
-  for (const participant of participants) {
-    cursor -= Math.max(1, Number(participant.itemCount || 0));
-    if (cursor < 0) {
-      return participant;
-    }
-  }
-  return participants[0] || null;
+  return pickWeightedParticipant(participants, `jackpot:${tierId}:${roundId}`);
 }
 
 export function buildJackpotReelEntries(entries = [], roundId = 0, tierId = "rookie", targetIndex = 46, total = 66) {
@@ -187,14 +209,11 @@ export function buildJackpotReelEntries(entries = [], roundId = 0, tierId = "roo
   if (!participants.length) {
     return Array.from({ length: total }, () => null);
   }
-  const tickets = participants.flatMap((participant) =>
-    Array.from({ length: Math.max(1, Number(participant.itemCount || 0)) }, () => participant)
-  );
   return Array.from({ length: total }, (_, index) => {
     if (index === targetIndex) {
       return winner;
     }
-    return tickets[hashText(`jackpot-reel:${tierId}:${roundId}:${index}`) % tickets.length] || participants[0];
+    return pickWeightedParticipant(participants, `jackpot-reel:${tierId}:${roundId}:${index}`) || participants[0];
   });
 }
 
@@ -222,7 +241,7 @@ async function ensureJackpotChannel() {
       channel
         .on("broadcast", { event: "jackpot_entry" }, ({ payload }) => {
           const entry = normalizeJackpotEntry(payload);
-          if (!entry.items.length) {
+          if (!isJackpotEntryAllowed(entry)) {
             return;
           }
           entryListeners.forEach((listener) => listener(entry));
@@ -260,8 +279,8 @@ export async function publishJackpotEntry(entry) {
     throw new Error("Jackpot realtime non configurato.");
   }
   const payload = normalizeJackpotEntry(entry);
-  if (!payload.items.length) {
-    throw new Error("Deposito jackpot non valido.");
+  if (!isJackpotEntryAllowed(payload)) {
+    throw new Error("Valore deposito fuori dai limiti del tier.");
   }
   return activeChannel.send({
     type: "broadcast",
