@@ -145,7 +145,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.7.0";
+const GAME_VERSION = "v1.7.1";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -204,6 +204,10 @@ export class CaseOpenerUI {
     this.rouletteMessages = [];
     this.rouletteChatDraft = "";
     this.rouletteChatBusy = false;
+    this.rouletteLastBet = null;
+    this.rouletteAutoBetEnabled = false;
+    this.rouletteAutoBetBusy = false;
+    this.rouletteAutoBetRoundId = null;
     this.unsubscribeRouletteBets = null;
     this.unsubscribeRouletteMessages = null;
     this.rouletteTickTimer = null;
@@ -752,6 +756,29 @@ export class CaseOpenerUI {
       .filter((bet) => bet.playerId === playerId || bet.sessionId === this.accountSessionId);
   }
 
+  getRoulettePreviousBet() {
+    const remembered = this.rouletteLastBet;
+    if (remembered?.choice && Number(remembered.amount || 0) > 0) {
+      return {
+        choice: remembered.choice,
+        amount: Number(remembered.amount),
+        at: Number(remembered.at || 0)
+      };
+    }
+    const playerId = this.getRoulettePlayerId();
+    const previous = [...this.rouletteBets.values()]
+      .filter((bet) => (bet.playerId === playerId || bet.sessionId === this.accountSessionId) && Number(bet.amount || 0) > 0)
+      .sort((a, b) => Number(b.at || 0) - Number(a.at || 0))[0];
+    if (!previous) {
+      return null;
+    }
+    return {
+      choice: previous.choice,
+      amount: Number(previous.amount),
+      at: Number(previous.at || 0)
+    };
+  }
+
   parseRouletteBetAmount(value = this.rouletteBetAmount) {
     const amount = Number(String(value || "").replace(",", "."));
     if (!Number.isFinite(amount)) {
@@ -767,24 +794,43 @@ export class CaseOpenerUI {
     }
   }
 
-  async placeRouletteBet(choice) {
+  async placeRouletteBet(choice, { amountOverride = null, exactAmount = false, source = "manual" } = {}) {
     const round = getRouletteRound();
     if (round.phase.key !== "betting") {
-      this.toast("Le puntate sono chiuse per questo giro.");
-      return;
+      if (source !== "auto") {
+        this.toast("Le puntate sono chiuse per questo giro.");
+      }
+      return false;
     }
     if (!isRouletteRealtimeAvailable()) {
-      this.toast("Roulette online non disponibile.");
-      return;
+      if (source !== "auto") {
+        this.toast("Roulette online non disponibile.");
+      }
+      return false;
     }
     const normalizedChoice = ROULETTE_CHOICES[choice]?.id || "";
     if (!normalizedChoice) {
-      return;
+      return false;
     }
-    const amount = Math.min(this.parseRouletteBetAmount(), Number(this.state.credits || 0));
+    const requestedAmount = this.parseRouletteBetAmount(amountOverride ?? this.rouletteBetAmount);
+    if (exactAmount && Number(this.state.credits || 0) < requestedAmount) {
+      if (source === "auto") {
+        this.rouletteAutoBetEnabled = false;
+        this.toast("Autobet interrotto: crediti insufficienti.");
+      } else {
+        this.toast(`Servono ${formatCredits(requestedAmount, true)} per ripetere la puntata.`);
+      }
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+      return false;
+    }
+    const amount = exactAmount ? requestedAmount : Math.min(requestedAmount, Number(this.state.credits || 0));
     if (amount <= 0) {
-      this.toast("Crediti insufficienti.");
-      return;
+      if (source !== "auto") {
+        this.toast("Crediti insufficienti.");
+      }
+      return false;
     }
     const profile = this.getVisiblePlayerProfile();
     const bet = {
@@ -822,19 +868,100 @@ export class CaseOpenerUI {
         choice: normalizedChoice,
         amount
       });
-      this.toast(`Puntati ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(normalizedChoice)}.`);
+      this.rouletteLastBet = {
+        choice: normalizedChoice,
+        amount,
+        at: Date.now()
+      };
+      if (source !== "auto") {
+        this.toast(`Puntati ${formatCredits(amount, true)} su ${getRouletteChoiceLabel(normalizedChoice)}.`);
+      }
       this.queueSocialProfileSync();
+      return true;
     } catch (error) {
       this.state.credits = Number((Number(this.state.credits || 0) + amount).toFixed(2));
       this.rouletteBets.delete(bet.id);
       this.rouletteMessages = this.rouletteMessages.filter((entry) => entry.id !== `bet-log-${bet.id}`);
-      this.toast(error?.message || "Puntata non inviata.");
+      if (source === "auto") {
+        this.rouletteAutoBetEnabled = false;
+      }
+      if (source !== "auto") {
+        this.toast(error?.message || "Puntata non inviata.");
+      }
       this.renderTopStats();
+      return false;
     } finally {
       if (this.activeTab === "games") {
         this.renderTab();
       }
     }
+  }
+
+  repeatRouletteBet() {
+    const previous = this.getRoulettePreviousBet();
+    if (!previous) {
+      this.toast("Nessuna puntata precedente da ripetere.");
+      return;
+    }
+    this.rouletteBetAmount = String(previous.amount);
+    this.placeRouletteBet(previous.choice, {
+      amountOverride: previous.amount,
+      exactAmount: true,
+      source: "repeat"
+    });
+  }
+
+  toggleRouletteAutoBet() {
+    const next = !this.rouletteAutoBetEnabled;
+    if (next && !this.getRoulettePreviousBet()) {
+      this.toast("Fai prima una puntata: l'autobet ripete l'ultima giocata.");
+      return;
+    }
+    this.rouletteAutoBetEnabled = next;
+    if (next) {
+      this.tryRouletteAutoBet(getRouletteRound());
+    }
+    if (this.activeTab === "games") {
+      this.renderTab();
+    }
+  }
+
+  tryRouletteAutoBet(round = getRouletteRound()) {
+    if (!this.rouletteAutoBetEnabled || this.rouletteAutoBetBusy || round.phase.key !== "betting" || !isRouletteRealtimeAvailable()) {
+      return;
+    }
+    if (this.rouletteAutoBetRoundId === round.roundId) {
+      return;
+    }
+    if (this.getLocalRouletteBetsForRound(round.roundId).length) {
+      this.rouletteAutoBetRoundId = round.roundId;
+      return;
+    }
+    const previous = this.getRoulettePreviousBet();
+    if (!previous) {
+      this.rouletteAutoBetEnabled = false;
+      return;
+    }
+    if (Number(this.state.credits || 0) < Number(previous.amount || 0)) {
+      this.rouletteAutoBetEnabled = false;
+      this.toast("Autobet interrotto: crediti insufficienti.");
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+      return;
+    }
+    this.rouletteAutoBetBusy = true;
+    this.rouletteAutoBetRoundId = round.roundId;
+    this.placeRouletteBet(previous.choice, {
+      amountOverride: previous.amount,
+      exactAmount: true,
+      source: "auto"
+    }).finally(() => {
+      this.rouletteAutoBetBusy = false;
+      if (this.activeTab === "games") {
+        this.renderTab();
+      }
+    });
   }
 
   settleRouletteRound(roundId) {
@@ -913,6 +1040,7 @@ export class CaseOpenerUI {
       }
     });
     this.pruneRouletteBets();
+    this.tryRouletteAutoBet(round);
     if (this.activeTab !== "games") {
       return;
     }
@@ -921,7 +1049,7 @@ export class CaseOpenerUI {
       .join("|");
     const payout = this.rouletteRoundPayouts.get(round.roundId);
     const chatSignature = this.getRouletteChatItems()
-      .slice(-12)
+      .slice(0, 12)
       .map((entry) => `${entry.id || entry.at}:${entry.text}`)
       .join("|");
     const sharedSignature = (this.sharedGameEvents || [])
@@ -929,6 +1057,12 @@ export class CaseOpenerUI {
       .slice(0, 8)
       .map((entry) => entry.id)
       .join("|");
+    const previousBet = this.getRoulettePreviousBet();
+    const automationSignature = [
+      this.rouletteAutoBetEnabled ? "auto" : "manual",
+      this.rouletteAutoBetBusy ? "busy" : "idle",
+      previousBet ? `${previousBet.choice}:${previousBet.amount}` : "none"
+    ].join(":");
     const renderKey = [
       round.roundId,
       round.phase.key,
@@ -937,6 +1071,7 @@ export class CaseOpenerUI {
       payout ? `${payout.stake}:${payout.payout}` : "",
       chatSignature,
       sharedSignature,
+      automationSignature,
       this.rouletteRealtimeStatus
     ].join("::");
     const minDelay = round.phase.key === "spin" ? 150 : 500;
@@ -1993,6 +2128,12 @@ if (target.matches("#coinflipSide")) {
         break;
       case "roulette-set-bet":
         this.setRouletteBetAmount(data.amount);
+        break;
+      case "roulette-repeat-bet":
+        this.repeatRouletteBet();
+        break;
+      case "roulette-toggle-autobet":
+        this.toggleRouletteAutoBet();
         break;
       case "set-chat-team":
         this.setChatTeam(data.team);
@@ -3271,8 +3412,11 @@ this.refreshIcons();
       }
     }
     const rouletteChatLog = content.querySelector(".roulette-chat-log");
-    if (rouletteChatLog && !focusedId) {
-      rouletteChatLog.scrollTop = rouletteChatLog.scrollHeight;
+    if (rouletteChatLog) {
+      rouletteChatLog.scrollTop = 0;
+      window.requestAnimationFrame?.(() => {
+        rouletteChatLog.scrollTop = 0;
+      });
     }
   }
 
@@ -3852,6 +3996,12 @@ this.refreshIcons();
     const onlineReady = isRouletteRealtimeAvailable();
     const amount = this.parseRouletteBetAmount();
     const canBet = bettingOpen && onlineReady && amount > 0 && Number(this.state.credits || 0) >= amount;
+    const previousBet = this.getRoulettePreviousBet();
+    const previousAmount = Number(previousBet?.amount || 0);
+    const canRepeat = bettingOpen && onlineReady && previousBet && Number(this.state.credits || 0) >= previousAmount;
+    const previousLabel = previousBet
+      ? `${getRouletteChoiceLabel(previousBet.choice)} - ${formatCredits(previousAmount, true)}`
+      : "Nessuna puntata precedente";
     const quickAmounts = [10, 50, 100, 500];
     return `
       <div class="roulette-controls">
@@ -3880,6 +4030,19 @@ this.refreshIcons();
             <strong>x35</strong>
           </button>
         </div>
+        <div class="roulette-automation-panel">
+          <div class="roulette-previous-summary">
+            <span>Bet precedente</span>
+            <strong>${escapeHtml(previousLabel)}</strong>
+          </div>
+          <button class="ghost-button small" data-action="roulette-repeat-bet" type="button" ${canRepeat ? "" : "disabled"}>
+            ${iconMarkup("history", "button-icon")} Bet precedente
+          </button>
+          <button class="ghost-button small roulette-auto-button ${this.rouletteAutoBetEnabled ? "is-active" : ""}" data-action="roulette-toggle-autobet" type="button" ${previousBet && onlineReady ? "" : "disabled"}>
+            ${iconMarkup(this.rouletteAutoBetEnabled ? "bot-off" : "bot", "button-icon")} Autobet ${this.rouletteAutoBetEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
+        <small class="roulette-auto-note">${this.rouletteAutoBetEnabled ? "Autobet attivo: ripete una volta per round la puntata precedente." : "Autobet usa colore e importo dell'ultima puntata confermata."}</small>
         <small>${bettingOpen ? "Puntate aperte: scegli un colore." : "Puntate chiuse per questa fase."}</small>
       </div>
     `;
@@ -4026,7 +4189,8 @@ this.refreshIcons();
       });
     return [...unique.values()]
       .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
-      .slice(-80);
+      .slice(-80)
+      .sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
   }
 
   renderRouletteChat() {

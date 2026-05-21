@@ -15136,6 +15136,53 @@ textarea {
   opacity: 0.45;
 }
 
+.roulette-automation-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.roulette-previous-summary {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.roulette-previous-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.roulette-previous-summary strong {
+  min-width: 0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.roulette-automation-panel > button {
+  min-width: 142px;
+  justify-content: center;
+}
+
+.roulette-auto-button.is-active {
+  color: #06180e !important;
+  border-color: rgba(82, 230, 149, 0.48) !important;
+  background: linear-gradient(135deg, rgba(82, 230, 149, 0.95), rgba(14, 124, 79, 0.95)) !important;
+}
+
+.roulette-auto-note {
+  color: #baf7d1 !important;
+}
+
 .roulette-controls > small {
   color: var(--muted);
   font-size: 11px;
@@ -15311,6 +15358,7 @@ textarea {
 .roulette-chat-log {
   max-height: 300px;
   padding-right: 4px;
+  overflow-anchor: none;
 }
 
 .roulette-chat-compose {
@@ -15376,8 +15424,13 @@ textarea {
   }
 
   .roulette-choice-grid,
-  .roulette-total-grid {
+  .roulette-total-grid,
+  .roulette-automation-panel {
     grid-template-columns: 1fr;
+  }
+
+  .roulette-automation-panel > button {
+    min-width: 0;
   }
 }
 
