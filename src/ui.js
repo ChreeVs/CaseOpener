@@ -160,7 +160,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.7.4";
+const GAME_VERSION = "v1.7.5";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -2059,7 +2059,14 @@ export class CaseOpenerUI {
 
   bindEvents() {
     this.root.addEventListener("click", (event) => {
-      if (this.techMenuOpen && !event.target.closest(".player-dock")) {
+      if (event.target.closest("#techMenu")) {
+        const target = event.target.closest("[data-action]");
+        if (target) {
+          this.handleAction(target.dataset.action, target.dataset, target);
+        }
+        return;
+      }
+      if (this.techMenuOpen && !event.target.closest(".player-dock, #techMenu, .tech-menu-card")) {
         this.techMenuOpen = false;
         this.renderTechMenu();
       }

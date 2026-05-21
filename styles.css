@@ -3823,6 +3823,7 @@ body {
 
 .topbar {
   position: relative;
+  z-index: 120;
   top: auto;
   display: grid;
   grid-template-columns: minmax(260px, 0.68fr) minmax(0, 1.32fr);
@@ -3840,6 +3841,7 @@ body {
 
 .player-dock {
   position: relative;
+  z-index: 130;
   display: flex;
   justify-content: flex-end;
 }
@@ -3893,7 +3895,8 @@ body {
   top: calc(100% + 10px);
   right: 0;
   width: min(290px, calc(100vw - 36px));
-  z-index: 40;
+  z-index: 240;
+  pointer-events: auto;
 }
 
 .tech-menu-card {
