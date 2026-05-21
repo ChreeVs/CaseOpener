@@ -1,7 +1,7 @@
 import { getSupabaseClient, isSupabaseConfigured } from "./supabaseClient.js";
 
 export const ROULETTE_FLOW = {
-  delay: 5000,
+  delay: 8000,
   betting: 12000,
   closing: 2500,
   spin: 4700,

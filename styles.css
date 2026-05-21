@@ -15395,6 +15395,377 @@ textarea {
   color: #ff9aa0;
 }
 
+.mini-games-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(83, 232, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(7, 11, 20, 0.72);
+}
+
+.mini-games-subnav button {
+  min-width: 148px;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.026);
+  cursor: pointer;
+}
+
+.mini-games-subnav button span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mini-games-subnav button small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.mini-games-subnav button.is-active {
+  border-color: rgba(83, 232, 255, 0.42);
+  background:
+    linear-gradient(135deg, rgba(83, 232, 255, 0.18), rgba(82, 230, 149, 0.1)),
+    rgba(255, 255, 255, 0.035);
+  box-shadow: 0 0 0 1px rgba(83, 232, 255, 0.08);
+}
+
+.mini-game-view,
+.roulette-game-shell,
+.jackpot-game-shell {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.jackpot-live-card {
+  background:
+    radial-gradient(circle at 78% 8%, rgba(242, 184, 75, 0.11), transparent 24rem),
+    radial-gradient(circle at 16% 12%, rgba(100, 215, 227, 0.12), transparent 20rem),
+    rgba(255, 255, 255, 0.028);
+}
+
+.roulette-phase-pill.deposit {
+  border-color: rgba(82, 230, 149, 0.3);
+  background: rgba(82, 230, 149, 0.08);
+}
+
+.jackpot-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.jackpot-tier-button {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(126, 151, 179, 0.14);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.026);
+  cursor: pointer;
+}
+
+.jackpot-tier-button span,
+.jackpot-tier-button strong {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.jackpot-tier-button span {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.jackpot-tier-button strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.jackpot-tier-button.is-active {
+  border-color: rgba(100, 215, 227, 0.42);
+  background: rgba(100, 215, 227, 0.1);
+}
+
+.jackpot-tier-button.is-own-tier {
+  box-shadow: inset 0 -2px 0 rgba(82, 230, 149, 0.52);
+}
+
+.jackpot-case-reel {
+  --roulette-result: #64d7e3;
+}
+
+.jackpot-reel-item {
+  align-content: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--jackpot-accent, #64d7e3), transparent 70%), transparent 4rem),
+    linear-gradient(135deg, #18263a, #070b12);
+}
+
+.jackpot-reel-item.is-empty {
+  opacity: 0.68;
+}
+
+.jackpot-reel-item strong {
+  max-width: 76px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.jackpot-reel-item span:not(.jackpot-avatar) {
+  font-size: 9px;
+}
+
+.jackpot-avatar {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  overflow: hidden;
+  border: 2px solid var(--jackpot-accent, #64d7e3);
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--jackpot-accent, #64d7e3), #172131);
+  color: #061018;
+  font-size: 13px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.jackpot-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.jackpot-avatar span {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.jackpot-result-readout strong {
+  max-width: 56%;
+  font-size: 24px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.jackpot-round-note,
+.jackpot-selection-summary,
+.jackpot-pot-summary {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid rgba(126, 151, 179, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.jackpot-round-note span,
+.jackpot-selection-summary span,
+.jackpot-pot-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.jackpot-round-note strong,
+.jackpot-selection-summary strong,
+.jackpot-pot-summary strong {
+  min-width: 0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 950;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.jackpot-participant-list {
+  display: grid;
+  gap: 7px;
+  max-height: 270px;
+  overflow: auto;
+}
+
+.jackpot-participant-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 9px;
+  border: 1px solid rgba(126, 151, 179, 0.12);
+  border-left: 3px solid var(--jackpot-accent, #64d7e3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.jackpot-participant-row.is-winner {
+  border-color: rgba(82, 230, 149, 0.38);
+  background: rgba(82, 230, 149, 0.07);
+}
+
+.jackpot-participant-row .jackpot-avatar {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+}
+
+.jackpot-participant-row div,
+.jackpot-participant-row strong,
+.jackpot-participant-row small {
+  min-width: 0;
+}
+
+.jackpot-participant-row div {
+  display: grid;
+  gap: 2px;
+}
+
+.jackpot-participant-row strong {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.jackpot-participant-row small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.jackpot-participant-row em {
+  color: #fff2c3;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.jackpot-deposit-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.jackpot-disabled-note {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.jackpot-inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.jackpot-skin-tile {
+  min-width: 0;
+  min-height: 146px;
+  display: grid;
+  grid-template-rows: 58px minmax(34px, auto) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--rarity), transparent 55%);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 50% 8%, color-mix(in srgb, var(--rarity), transparent 82%), transparent 5rem),
+    rgba(255, 255, 255, 0.026);
+  cursor: pointer;
+}
+
+.jackpot-skin-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.jackpot-skin-tile.is-selected {
+  border-color: rgba(82, 230, 149, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(82, 230, 149, 0.2);
+}
+
+.jackpot-skin-tile img {
+  width: 100%;
+  height: 58px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.42));
+}
+
+.jackpot-skin-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.jackpot-skin-tile strong,
+.jackpot-skin-tile span {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.jackpot-skin-tile strong {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1.18;
+}
+
+.jackpot-skin-tile span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
 @keyframes rouletteCaseReelSpin {
   from {
     transform: translateX(0);
@@ -15425,12 +15796,22 @@ textarea {
 
   .roulette-choice-grid,
   .roulette-total-grid,
-  .roulette-automation-panel {
+  .roulette-automation-panel,
+  .jackpot-tier-grid {
     grid-template-columns: 1fr;
   }
 
   .roulette-automation-panel > button {
     min-width: 0;
+  }
+
+  .mini-games-subnav button {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+
+  .jackpot-inventory-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

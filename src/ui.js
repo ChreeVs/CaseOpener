@@ -35,6 +35,19 @@ import {
   subscribeRouletteMessages
 } from "./network/supabaseRoulette.js";
 import {
+  buildJackpotReelEntries,
+  getJackpotParticipants,
+  getJackpotRound,
+  getJackpotTier,
+  getJackpotTierForPrestige,
+  getJackpotWinner,
+  isJackpotRealtimeAvailable,
+  JACKPOT_FLOW,
+  JACKPOT_TIERS,
+  publishJackpotEntry,
+  subscribeJackpotEntries
+} from "./network/supabaseJackpot.js";
+import {
   fetchCommunityGoalTotals,
   isCommunityGoalsSyncAvailable,
   submitCommunityGoalContribution,
@@ -145,7 +158,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.7.1";
+const GAME_VERSION = "v1.7.2";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -194,6 +207,7 @@ export class CaseOpenerUI {
     this.unsubscribeSharedGameEvents = null;
     this.unsubscribeSharedPresence = null;
     this.unsubscribeGlobalAuctions = null;
+    this.miniGamesView = "roulette";
     this.rouletteBetAmount = "10";
     this.rouletteBets = new Map();
     this.rouletteSettledBetIds = new Set();
@@ -211,6 +225,14 @@ export class CaseOpenerUI {
     this.unsubscribeRouletteBets = null;
     this.unsubscribeRouletteMessages = null;
     this.rouletteTickTimer = null;
+    this.jackpotEntries = new Map();
+    this.jackpotSelectedItemIds = new Set();
+    this.jackpotTierId = getJackpotTierForPrestige(this.state.prestige?.level || 0).id;
+    this.jackpotSettledRoundKeys = new Set();
+    this.jackpotLastRenderKey = "";
+    this.jackpotLastRenderAt = 0;
+    this.jackpotRealtimeStatus = isJackpotRealtimeAvailable() ? "Jackpot realtime in attesa" : "Jackpot realtime non configurato";
+    this.unsubscribeJackpotEntries = null;
     this.globalPromoCodes = [];
     this.globalPromoStatus = isGlobalPromoCodesAvailable() ? "Promo globali in attesa" : "Promo globali non configurati";
     this.adminPromoCode = "";
@@ -289,13 +311,17 @@ export class CaseOpenerUI {
     this.initCommunityGoalsSync();
     this.initSharedGamesSync();
     this.initRouletteRealtime();
+    this.initJackpotRealtime();
     this.initGlobalPromoCodes();
     this.initCloudChat();
     this.refreshCloudSession();
     this.refreshChat();
     this.chatPollTimer = window.setInterval(() => this.refreshChat(), 15000);
     this.liveSyncTimer = window.setInterval(() => this.refreshLiveSync({ silent: true }), 15000);
-    this.rouletteTickTimer = window.setInterval(() => this.updateRouletteRuntime(), 250);
+    this.rouletteTickTimer = window.setInterval(() => {
+      this.updateRouletteRuntime();
+      this.updateJackpotRuntime();
+    }, 250);
   }
 
   dispose() {
@@ -315,6 +341,8 @@ export class CaseOpenerUI {
     this.unsubscribeRouletteBets = null;
     this.unsubscribeRouletteMessages?.();
     this.unsubscribeRouletteMessages = null;
+    this.unsubscribeJackpotEntries?.();
+    this.unsubscribeJackpotEntries = null;
     if (this.chatPollTimer) {
       window.clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
@@ -618,6 +646,27 @@ export class CaseOpenerUI {
       );
     } catch (error) {
       this.rouletteRealtimeStatus = "Roulette realtime non disponibile";
+    }
+  }
+
+  async initJackpotRealtime() {
+    if (!isJackpotRealtimeAvailable() || this.unsubscribeJackpotEntries) {
+      return;
+    }
+    try {
+      this.unsubscribeJackpotEntries = await subscribeJackpotEntries(
+        (entry) => this.applyJackpotEntry(entry),
+        (status) => {
+          this.jackpotRealtimeStatus = status === "SUBSCRIBED"
+            ? "Jackpot realtime live"
+            : `Jackpot realtime ${String(status || "in attesa").toLowerCase()}`;
+          if (this.activeTab === "games") {
+            this.renderTab();
+          }
+        }
+      );
+    } catch (error) {
+      this.jackpotRealtimeStatus = "Jackpot realtime non disponibile";
     }
   }
 
@@ -1078,6 +1127,302 @@ export class CaseOpenerUI {
     if (renderKey !== this.rouletteLastRenderKey && Date.now() - this.rouletteLastRenderAt >= minDelay) {
       this.rouletteLastRenderKey = renderKey;
       this.rouletteLastRenderAt = Date.now();
+      this.renderTab();
+    }
+  }
+
+  getJackpotOwnTier() {
+    return getJackpotTierForPrestige(this.state.prestige?.level || 0);
+  }
+
+  applyJackpotEntry(entry) {
+    if (!entry?.id || this.jackpotEntries.has(entry.id) || !Array.isArray(entry.items) || !entry.items.length) {
+      return false;
+    }
+    this.jackpotEntries.set(entry.id, {
+      ...entry,
+      itemCount: Number(entry.itemCount || entry.items.length),
+      totalValue: Number(Number(entry.totalValue || entry.items.reduce((sum, item) => sum + Number(item.value || 0), 0)).toFixed(2)),
+      at: Number(entry.at || Date.now())
+    });
+    if (this.activeTab === "games") {
+      this.renderTab();
+    }
+    return true;
+  }
+
+  pruneJackpotEntries() {
+    const currentRound = getJackpotRound().roundId;
+    [...this.jackpotEntries.entries()].forEach(([id, entry]) => {
+      if (Number(entry.roundId || 0) < currentRound - 6) {
+        this.jackpotEntries.delete(id);
+      }
+    });
+    [...this.jackpotSettledRoundKeys].forEach((key) => {
+      const roundId = Number(String(key).split(":").at(1) || 0);
+      if (roundId < currentRound - 10) {
+        this.jackpotSettledRoundKeys.delete(key);
+      }
+    });
+  }
+
+  getJackpotEntriesForRound(roundId, tierId = this.jackpotTierId) {
+    const merged = new Map();
+    [...this.jackpotEntries.values()]
+      .filter((entry) => Number(entry.roundId) === Number(roundId) && entry.tierId === tierId)
+      .forEach((entry) => merged.set(entry.id, entry));
+    (this.sharedGameEvents || [])
+      .filter((entry) => entry.mode === "jackpot_deposit" && Number(entry.payload?.entry?.roundId) === Number(roundId) && entry.payload?.entry?.tierId === tierId)
+      .forEach((event) => {
+        const entry = event.payload.entry;
+        if (!merged.has(entry.id)) {
+          merged.set(entry.id, entry);
+        }
+      });
+    return [...merged.values()].sort((a, b) => Number(a.at || 0) - Number(b.at || 0));
+  }
+
+  getJackpotLocalEntriesForRound(roundId, tierId = this.jackpotTierId) {
+    const playerId = this.getRoulettePlayerId();
+    return this.getJackpotEntriesForRound(roundId, tierId)
+      .filter((entry) => entry.playerId === playerId || entry.sessionId === this.accountSessionId);
+  }
+
+  getJackpotEligibleItems() {
+    return [...(this.state.inventory || [])]
+      .filter((item) => !item.locked && !item.favorite && !isPermanentMalusItem(item) && item.type !== "rewardCase" && Number(item.value || 0) >= 0)
+      .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  }
+
+  getJackpotSelectedItems() {
+    const eligibleIds = new Set(this.getJackpotEligibleItems().map((item) => item.id));
+    [...this.jackpotSelectedItemIds].forEach((id) => {
+      if (!eligibleIds.has(id)) {
+        this.jackpotSelectedItemIds.delete(id);
+      }
+    });
+    return this.getJackpotEligibleItems().filter((item) => this.jackpotSelectedItemIds.has(item.id));
+  }
+
+  toggleJackpotItem(itemId) {
+    const item = this.getJackpotEligibleItems().find((candidate) => candidate.id === itemId);
+    if (!item) {
+      this.toast("Skin non disponibile per il jackpot.");
+      return;
+    }
+    if (this.jackpotSelectedItemIds.has(itemId)) {
+      this.jackpotSelectedItemIds.delete(itemId);
+    } else {
+      this.jackpotSelectedItemIds.add(itemId);
+    }
+    this.renderTab();
+  }
+
+  setJackpotTier(tierId) {
+    this.jackpotTierId = getJackpotTier(tierId).id;
+    this.jackpotSelectedItemIds.clear();
+    this.renderTab();
+  }
+
+  setMiniGamesView(view) {
+    this.miniGamesView = view === "jackpot" ? "jackpot" : "roulette";
+    this.renderTab();
+  }
+
+  isMiniGameAudioActive(view) {
+    return this.activeTab === "games" && this.miniGamesView === view;
+  }
+
+  playMiniGameTone(view, kind = "neutral", strength = 0.5) {
+    if (!this.isMiniGameAudioActive(view)) {
+      return;
+    }
+    this.playUiPulse(kind, strength);
+  }
+
+  cloneJackpotItem(item) {
+    return {
+      ...item,
+      id: `jackpot-${item.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      locked: false,
+      favorite: false,
+      obtainedAt: Date.now()
+    };
+  }
+
+  async depositJackpotSkins() {
+    const round = getJackpotRound();
+    const tier = getJackpotTier(this.jackpotTierId);
+    const ownTier = this.getJackpotOwnTier();
+    if (tier.id !== ownTier.id) {
+      this.toast(`Puoi depositare solo nel tier ${ownTier.label}.`);
+      return;
+    }
+    if (round.phase.key !== "deposit") {
+      this.toast("Depositi chiusi per questo round.");
+      return;
+    }
+    if (!isJackpotRealtimeAvailable()) {
+      this.toast("Jackpot online non disponibile.");
+      return;
+    }
+    const items = this.getJackpotSelectedItems();
+    if (!items.length) {
+      this.toast("Seleziona almeno una skin.");
+      return;
+    }
+    const profile = this.getVisiblePlayerProfile();
+    const entry = {
+      id: `${this.accountSessionId}-${tier.id}-${round.roundId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      roundId: round.roundId,
+      tierId: tier.id,
+      playerId: this.getRoulettePlayerId(),
+      sessionId: this.accountSessionId,
+      playerName: profile.name || "Operatore",
+      prestige: Number(this.state.prestige?.level || 0),
+      avatarIcon: this.getProfileIconId(),
+      avatarImage: profile.avatarSrc || "",
+      accent: profile.accent || "#7fe37c",
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        image: item.image,
+        rarity: item.rarity,
+        rarityColor: item.rarityColor,
+        wear: item.wear,
+        value: Number(item.value || 0),
+        weapon: item.weapon,
+        category: item.category,
+        collection: item.collection,
+        float: item.float,
+        caseName: item.caseName,
+        stattrak: item.stattrak,
+        souvenir: item.souvenir,
+        crit: item.crit
+      })),
+      itemCount: items.length,
+      totalValue: Number(items.reduce((sum, item) => sum + Number(item.value || 0), 0).toFixed(2)),
+      at: Date.now()
+    };
+    const itemIds = new Set(items.map((item) => item.id));
+    this.state.inventory = this.state.inventory.filter((item) => !itemIds.has(item.id));
+    this.jackpotSelectedItemIds.clear();
+    this.applyJackpotEntry(entry);
+    this.setSaved(false);
+    this.renderAll();
+    try {
+      const status = await publishJackpotEntry(entry);
+      if (status && status !== "ok") {
+        throw new Error("Jackpot realtime non raggiungibile.");
+      }
+      this.publishSharedGameResult("jackpot_deposit", {
+        game: "Jackpot",
+        detail: `${tier.label}: ${items.length} skin depositate`,
+        label: "Deposito skin",
+        bet: entry.totalValue,
+        payout: 0,
+        profit: 0,
+        outcome: tier.label
+      }, { entry });
+      this.toast(`Jackpot ${tier.label}: depositate ${items.length} skin.`);
+      this.queueSocialProfileSync();
+    } catch (error) {
+      this.jackpotEntries.delete(entry.id);
+      this.receiveInventoryItems(items.map((item) => ({ ...item, locked: false, favorite: false })));
+      this.toast(error?.message || "Deposito jackpot non inviato.");
+      this.renderAll();
+    }
+  }
+
+  settleJackpotRound(roundId, tierId) {
+    const key = `${tierId}:${roundId}`;
+    if (this.jackpotSettledRoundKeys.has(key)) {
+      return;
+    }
+    const localEntries = this.getJackpotLocalEntriesForRound(roundId, tierId);
+    if (!localEntries.length) {
+      return;
+    }
+    const entries = this.getJackpotEntriesForRound(roundId, tierId);
+    const participants = getJackpotParticipants(entries);
+    const localItems = localEntries.flatMap((entry) => entry.items || []);
+    this.jackpotSettledRoundKeys.add(key);
+    if (participants.length < 2) {
+      const returned = this.receiveInventoryItems(localItems.map((item) => this.cloneJackpotItem(item)));
+      this.toast(`Jackpot: round annullato, ${returned.length} skin restituite.`);
+      this.setSaved(false);
+      this.renderAll();
+      return;
+    }
+    const winner = getJackpotWinner(entries, roundId, tierId);
+    const isLocalWinner = winner && (winner.playerId === this.getRoulettePlayerId() || winner.sessionId === this.accountSessionId);
+    const potItems = entries.flatMap((entry) => entry.items || []);
+    if (isLocalWinner) {
+      const received = this.receiveInventoryItems(potItems.map((item) => this.cloneJackpotItem(item)));
+      this.toast(`Jackpot vinto: ${received.length} skin ricevute.`);
+      this.playMiniGameTone("jackpot", "jackpot", 0.9);
+      this.state.stats.jackpotHits += 1;
+    } else {
+      this.toast(`Jackpot perso: vince ${winner?.name || "un altro player"}.`);
+    }
+    this.publishSharedGameResult("jackpot", {
+      game: "Jackpot",
+      detail: `${getJackpotTier(tierId).label}: ${winner?.name || "Nessun vincitore"}`,
+      label: "Jackpot",
+      bet: localItems.reduce((sum, item) => sum + Number(item.value || 0), 0),
+      payout: isLocalWinner ? potItems.reduce((sum, item) => sum + Number(item.value || 0), 0) : 0,
+      profit: isLocalWinner
+        ? potItems.reduce((sum, item) => sum + Number(item.value || 0), 0) - localItems.reduce((sum, item) => sum + Number(item.value || 0), 0)
+        : -localItems.reduce((sum, item) => sum + Number(item.value || 0), 0),
+      outcome: winner?.name || "",
+      playerWon: isLocalWinner
+    }, {
+      tierId,
+      roundId,
+      winnerId: winner?.playerId || "",
+      winnerName: winner?.name || "",
+      potItemCount: potItems.length
+    });
+    this.setSaved(false);
+    this.renderAll();
+    this.queueSocialProfileSync();
+  }
+
+  updateJackpotRuntime() {
+    const round = getJackpotRound();
+    const candidateKeys = new Set(
+      [...this.jackpotEntries.values()]
+        .map((entry) => `${entry.tierId}:${Number(entry.roundId)}`)
+        .filter((key) => {
+          const roundId = Number(key.split(":").at(1));
+          return Number.isFinite(roundId) && roundId <= round.roundId && roundId >= round.roundId - 4;
+        })
+    );
+    candidateKeys.forEach((key) => {
+      const [tierId, roundText] = key.split(":");
+      const roundId = Number(roundText);
+      if (roundId < round.roundId || (roundId === round.roundId && round.phase.key === "release")) {
+        this.settleJackpotRound(roundId, tierId);
+      }
+    });
+    this.pruneJackpotEntries();
+    if (this.activeTab !== "games" || this.miniGamesView !== "jackpot") {
+      return;
+    }
+    const entries = this.getJackpotEntriesForRound(round.roundId, this.jackpotTierId);
+    const selectedSignature = [...this.jackpotSelectedItemIds].sort().join("|");
+    const renderKey = [
+      round.roundId,
+      round.phase.key,
+      Math.ceil(round.phase.remaining / 1000),
+      this.jackpotTierId,
+      entries.map((entry) => `${entry.id}:${entry.itemCount}`).join("|"),
+      selectedSignature,
+      this.jackpotRealtimeStatus
+    ].join("::");
+    if (renderKey !== this.jackpotLastRenderKey && Date.now() - this.jackpotLastRenderAt >= 500) {
+      this.jackpotLastRenderKey = renderKey;
+      this.jackpotLastRenderAt = Date.now();
       this.renderTab();
     }
   }
@@ -2123,6 +2468,9 @@ if (target.matches("#coinflipSide")) {
       case "send-roulette-chat":
         this.sendRouletteChat();
         break;
+      case "mini-games-view":
+        this.setMiniGamesView(data.view);
+        break;
       case "roulette-bet":
         this.placeRouletteBet(data.choice);
         break;
@@ -2134,6 +2482,19 @@ if (target.matches("#coinflipSide")) {
         break;
       case "roulette-toggle-autobet":
         this.toggleRouletteAutoBet();
+        break;
+      case "jackpot-tier":
+        this.setJackpotTier(data.tier);
+        break;
+      case "jackpot-toggle-item":
+        this.toggleJackpotItem(data.id);
+        break;
+      case "jackpot-clear-selection":
+        this.jackpotSelectedItemIds.clear();
+        this.renderTab();
+        break;
+      case "jackpot-deposit":
+        this.depositJackpotSkins();
         break;
       case "set-chat-team":
         this.setChatTeam(data.team);
@@ -4225,7 +4586,7 @@ this.refreshIcons();
     `;
   }
 
-  renderMiniGames() {
+  renderRouletteMiniGame() {
     const round = getRouletteRound();
     const onlinePlayers = Array.isArray(this.socialState?.players) ? this.socialState.players : [];
     const currentBets = this.getRouletteBetsForRound(round.roundId);
@@ -4234,7 +4595,7 @@ this.refreshIcons();
     const roundStake = currentBets.reduce((sum, bet) => sum + Number(bet.amount || 0), 0);
     const payout = this.rouletteRoundPayouts.get(round.roundId);
     return `
-      <div class="games-shell mini-games-shell">
+      <div class="roulette-game-shell">
         <div class="games-header mini-games-header">
           ${statTile("Fase", round.phase.label, this.formatRouletteTimer(round.phase.remaining))}
           ${statTile("Online", onlinePlayers.length || "-", this.rouletteRealtimeStatus.replace("Roulette realtime ", ""))}
@@ -4245,7 +4606,7 @@ this.refreshIcons();
           <article class="game-card roulette-live-card">
             <div class="roulette-live-head">
               <div>
-                <span>${iconMarkup("disc-3", "button-icon")} Mini-Games</span>
+                <span>${iconMarkup("disc-3", "button-icon")} Roulette</span>
                 <h3>Roulette Online</h3>
               </div>
               <div class="roulette-phase-pill ${round.phase.key}">
@@ -4269,6 +4630,265 @@ this.refreshIcons();
             ${this.renderRouletteChat()}
           </div>
         </section>
+      </div>
+    `;
+  }
+
+  renderMiniGamesNav() {
+    const views = [
+      { id: "roulette", label: "Roulette", detail: "crediti live", icon: "disc-3" },
+      { id: "jackpot", label: "Jackpot", detail: "skin pot", icon: "circle-dot" }
+    ];
+    return `
+      <nav class="mini-games-subnav" aria-label="Mini-Games">
+        ${views.map((view) => `
+          <button class="${this.miniGamesView === view.id ? "is-active" : ""}" data-action="mini-games-view" data-view="${view.id}" type="button">
+            <span>${iconMarkup(view.icon, "button-icon")} ${escapeHtml(view.label)}</span>
+            <small>${escapeHtml(view.detail)}</small>
+          </button>
+        `).join("")}
+      </nav>
+    `;
+  }
+
+  renderJackpotAvatar(participant, extraClass = "") {
+    const name = participant?.name || participant?.playerName || "Player";
+    const rawAccent = String(participant?.accent || "#64d7e3");
+    const accent = /^#[0-9a-f]{3,8}$/i.test(rawAccent) ? rawAccent : "#64d7e3";
+    const initials = escapeHtml(String(name || "JP").slice(0, 2).toUpperCase());
+    return `
+      <span class="jackpot-avatar ${extraClass}" style="--jackpot-accent:${escapeHtml(accent)}">
+        ${participant?.avatarImage
+          ? `<img src="${escapeHtml(participant.avatarImage)}" alt="${escapeHtml(name)}" loading="lazy" />`
+          : `<span>${initials || "JP"}</span>`}
+      </span>
+    `;
+  }
+
+  renderJackpotReel(round, entries, tier) {
+    const targetIndex = 46;
+    const itemStep = 96;
+    const itemCenter = 48;
+    const participants = getJackpotParticipants(entries);
+    const winner = getJackpotWinner(entries, round.roundId, tier.id);
+    const reelEntries = buildJackpotReelEntries(entries, round.roundId, tier.id, targetIndex, 66);
+    const isSpinning = round.phase.key === "spin";
+    const isRelease = round.phase.key === "release";
+    const spinElapsed = isSpinning ? Math.min(round.phase.elapsed, JACKPOT_FLOW.spin) : JACKPOT_FLOW.spin;
+    const rawAccent = String(winner?.accent || "#64d7e3");
+    const resultAccent = /^#[0-9a-f]{3,8}$/i.test(rawAccent) ? rawAccent : "#64d7e3";
+    const resultText = participants.length < 2
+      ? "Serve un altro player"
+      : isSpinning
+        ? "Giro in corso"
+        : isRelease
+          ? "Vincitore round"
+          : "Pot in formazione";
+    return `
+      <div
+        class="roulette-case-reel jackpot-case-reel ${isSpinning ? "is-spinning" : "is-settled"}"
+        style="--roulette-target-shift:calc(-${itemCenter}px - ${targetIndex * itemStep}px); --roulette-duration:${JACKPOT_FLOW.spin}ms; --roulette-spin-delay:-${spinElapsed}ms; --roulette-result:${escapeHtml(resultAccent)}"
+      >
+        <div class="reel-marker"></div>
+        <div class="roulette-reel-track">
+          ${reelEntries.map((participant, index) => {
+            if (!participant) {
+              return `
+                <div class="roulette-reel-item jackpot-reel-item is-empty ${index === targetIndex ? "is-target" : ""}">
+                  <span class="jackpot-avatar"><span>?</span></span>
+                  <strong>In attesa</strong>
+                  <span>Jackpot</span>
+                </div>
+              `;
+            }
+            const rawParticipantAccent = String(participant.accent || "#64d7e3");
+            const participantAccent = /^#[0-9a-f]{3,8}$/i.test(rawParticipantAccent) ? rawParticipantAccent : "#64d7e3";
+            return `
+              <div class="roulette-reel-item jackpot-reel-item ${index === targetIndex ? "is-target" : ""}" style="--jackpot-accent:${escapeHtml(participantAccent)}">
+                ${this.renderJackpotAvatar(participant)}
+                <strong title="${escapeHtml(participant.name)}">${escapeHtml(participant.name)}</strong>
+                <span>${Number(participant.itemCount || 0)} skin</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+      <div class="roulette-result-readout jackpot-result-readout">
+        <strong>${winner && (isSpinning || isRelease) ? escapeHtml(winner.name) : participants.length}</strong>
+        <span>${escapeHtml(resultText)}</span>
+      </div>
+    `;
+  }
+
+  renderJackpotTierSelector() {
+    const ownTier = this.getJackpotOwnTier();
+    return `
+      <div class="jackpot-tier-grid">
+        ${JACKPOT_TIERS.map((tier) => `
+          <button
+            class="jackpot-tier-button ${this.jackpotTierId === tier.id ? "is-active" : ""} ${ownTier.id === tier.id ? "is-own-tier" : ""}"
+            data-action="jackpot-tier"
+            data-tier="${tier.id}"
+            type="button"
+          >
+            <span>${escapeHtml(tier.label)}</span>
+            <strong>${escapeHtml(tier.detail)}</strong>
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  renderJackpotPotPanel(round, tier, entries) {
+    const participants = getJackpotParticipants(entries);
+    const totalItems = participants.reduce((sum, participant) => sum + Number(participant.itemCount || 0), 0);
+    const totalValue = participants.reduce((sum, participant) => sum + Number(participant.totalValue || 0), 0);
+    const winner = round.phase.key === "release" ? getJackpotWinner(entries, round.roundId, tier.id) : null;
+    return `
+      <section class="roulette-side-panel jackpot-pot-panel">
+        <div class="roulette-panel-head">
+          <strong>${iconMarkup("users-round", "button-icon")} Piatto ${escapeHtml(tier.label)}</strong>
+          <small>${participants.length} player - ${totalItems} skin</small>
+        </div>
+        <div class="jackpot-pot-summary">
+          <span>Valore stimato</span>
+          <strong>${formatCredits(totalValue, true)}</strong>
+        </div>
+        <div class="jackpot-participant-list">
+          ${participants.length ? participants.map((participant) => {
+            const chance = totalItems > 0 ? (Number(participant.itemCount || 0) / totalItems) * 100 : 0;
+            const isWinner = winner && winner.playerId === participant.playerId;
+            const rawAccent = String(participant.accent || "#64d7e3");
+            const accent = /^#[0-9a-f]{3,8}$/i.test(rawAccent) ? rawAccent : "#64d7e3";
+            return `
+              <div class="jackpot-participant-row ${isWinner ? "is-winner" : ""}" style="--jackpot-accent:${escapeHtml(accent)}">
+                ${this.renderJackpotAvatar(participant)}
+                <div>
+                  <strong>${escapeHtml(participant.name)}</strong>
+                  <small>P${Number(participant.prestige || 0)} - ${Number(participant.itemCount || 0)} skin - ${formatCredits(participant.totalValue || 0, true)}</small>
+                </div>
+                <em>${chance.toFixed(chance >= 10 ? 0 : 1)}%</em>
+              </div>
+            `;
+          }).join("") : `<div class="empty-state small">Nessuna skin depositata in questo tier.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  renderJackpotInventoryPanel(round, tier) {
+    const ownTier = this.getJackpotOwnTier();
+    const eligibleItems = this.getJackpotEligibleItems();
+    const visibleItems = eligibleItems.slice(0, 72);
+    const selectedItems = this.getJackpotSelectedItems();
+    const selectedValue = selectedItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    const ownTierSelected = tier.id === ownTier.id;
+    const canDeposit = ownTierSelected && round.phase.key === "deposit" && isJackpotRealtimeAvailable() && selectedItems.length > 0;
+    const disabledReason = !ownTierSelected
+      ? `Deposito disponibile nel tier ${ownTier.label}.`
+      : round.phase.key !== "deposit"
+        ? "Depositi chiusi in questa fase."
+        : !isJackpotRealtimeAvailable()
+          ? "Realtime jackpot non disponibile."
+          : "Seleziona almeno una skin.";
+    return `
+      <section class="roulette-side-panel jackpot-inventory-panel">
+        <div class="roulette-panel-head">
+          <strong>${iconMarkup("briefcase", "button-icon")} Skin deposito</strong>
+          <small>${eligibleItems.length} disponibili</small>
+        </div>
+        <div class="jackpot-selection-summary">
+          <div>
+            <span>Selezione</span>
+            <strong>${selectedItems.length} skin - ${formatCredits(selectedValue, true)}</strong>
+          </div>
+          <button class="ghost-button tiny" data-action="jackpot-clear-selection" type="button" ${selectedItems.length ? "" : "disabled"}>
+            ${iconMarkup("x", "button-icon")} Reset
+          </button>
+        </div>
+        <button class="primary-button jackpot-deposit-button" data-action="jackpot-deposit" type="button" ${canDeposit ? "" : "disabled"}>
+          ${iconMarkup("send", "button-icon")} Deposita ${selectedItems.length || ""} skin
+        </button>
+        ${canDeposit ? "" : `<small class="jackpot-disabled-note">${escapeHtml(disabledReason)}</small>`}
+        <div class="jackpot-inventory-grid">
+          ${visibleItems.length ? visibleItems.map((item) => {
+            const selected = this.jackpotSelectedItemIds.has(item.id);
+            const rarityColor = item.rarityColor || RARITIES[item.rarity]?.color || "#64d7e3";
+            return `
+              <button
+                class="jackpot-skin-tile ${selected ? "is-selected" : ""}"
+                data-action="jackpot-toggle-item"
+                data-id="${escapeHtml(item.id)}"
+                type="button"
+                style="--rarity:${escapeHtml(rarityColor)}"
+                ${ownTierSelected ? "" : "disabled"}
+              >
+                ${item.image ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : `<span class="jackpot-skin-fallback">${iconMarkup("package", "button-icon")}</span>`}
+                <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+                <span>${formatCredits(item.value || 0, true)}</span>
+              </button>
+            `;
+          }).join("") : `<div class="empty-state small">Nessuna skin valida da depositare.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  renderJackpotMiniGame() {
+    const round = getJackpotRound();
+    const tier = getJackpotTier(this.jackpotTierId);
+    const ownTier = this.getJackpotOwnTier();
+    const entries = this.getJackpotEntriesForRound(round.roundId, tier.id);
+    const participants = getJackpotParticipants(entries);
+    const potItems = participants.reduce((sum, participant) => sum + Number(participant.itemCount || 0), 0);
+    const potValue = participants.reduce((sum, participant) => sum + Number(participant.totalValue || 0), 0);
+    const selectedItems = this.getJackpotSelectedItems();
+    const selectedValue = selectedItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    return `
+      <div class="jackpot-game-shell">
+        <div class="games-header mini-games-header jackpot-games-header">
+          ${statTile("Fase", round.phase.label, this.formatRouletteTimer(round.phase.remaining))}
+          ${statTile("Tier", tier.label, ownTier.id === tier.id ? "il tuo tier" : `tu: ${ownTier.label}`)}
+          ${statTile("Pot skin", potItems, formatCredits(potValue, true))}
+          ${statTile("Selezione", selectedItems.length, formatCredits(selectedValue, true))}
+        </div>
+        <section class="roulette-live-layout jackpot-live-layout">
+          <article class="game-card roulette-live-card jackpot-live-card">
+            <div class="roulette-live-head">
+              <div>
+                <span>${iconMarkup("circle-dot", "button-icon")} Mini-Games</span>
+                <h3>Jackpot Skin</h3>
+              </div>
+              <div class="roulette-phase-pill ${round.phase.key}">
+                <strong>${escapeHtml(round.phase.label)}</strong>
+                <small>${this.formatRouletteTimer(round.phase.remaining)}</small>
+              </div>
+            </div>
+            <div class="roulette-phase-bar"><i style="width:${percent(round.phase.progress)}"></i></div>
+            ${this.renderJackpotTierSelector()}
+            ${this.renderJackpotReel(round, entries, tier)}
+            <div class="jackpot-round-note">
+              <span>Round #${round.roundId}</span>
+              <strong>${escapeHtml(this.jackpotRealtimeStatus.replace("Jackpot realtime ", ""))}</strong>
+            </div>
+          </article>
+          <div class="roulette-side-stack jackpot-side-stack">
+            ${this.renderJackpotPotPanel(round, tier, entries)}
+            ${this.renderJackpotInventoryPanel(round, tier)}
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  renderMiniGames() {
+    const view = this.miniGamesView === "jackpot" ? "jackpot" : "roulette";
+    return `
+      <div class="games-shell mini-games-shell">
+        ${this.renderMiniGamesNav()}
+        <div class="mini-game-view">
+          ${view === "jackpot" ? this.renderJackpotMiniGame() : this.renderRouletteMiniGame()}
+        </div>
       </div>
     `;
   }

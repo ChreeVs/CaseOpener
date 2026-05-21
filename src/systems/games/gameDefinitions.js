@@ -47,10 +47,10 @@ export const MINIGAME_DEFINITIONS = [
   {
     id: "jackpot",
     name: "Jackpot",
-    mode: "pot",
+    mode: "skin-pot-live",
     stake: "skin",
     reward: "pot",
-    serverAuthoritative: true,
-    description: "Ticket proporzionali al valore del piatto, un vincitore prende tutto."
+    serverAuthoritative: false,
+    description: "Jackpot skin realtime con ticket proporzionali al numero di skin e tier separati per prestige."
   }
 ];
