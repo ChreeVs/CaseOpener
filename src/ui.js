@@ -160,7 +160,7 @@ import {
 import { exportState, importState, resetState, saveState } from "./store.js";
 import { escapeHtml, percent, clamp, rarityClass, compactTime, casePoolPreview, formatPercent, parseTransformX, dropFeedHeadline, upgradeBranch, iconMarkup, profileAvatarMarkup, tabIcon, hashText, upgradeEffectText, itemCard, statTile, casePriceLabel, reelDisplayItem, PROFILE_ICON_OPTIONS, NAV_TABS, ADMIN_STORAGE_KEY, ADMIN_USER_ID, ADMIN_ACCESS_CODE_HASH, ADMIN_ONLY_ACTIONS, LOGIN_GATE_ACTIONS, TAB_GROUPS, TAB_PARENT } from "./ui/components/uiElements.js";
 
-const GAME_VERSION = "v1.7.3";
+const GAME_VERSION = "v1.7.4";
 
 export class CaseOpenerUI {
   constructor(root, state, skinData, metadata) {
@@ -231,6 +231,11 @@ export class CaseOpenerUI {
     this.jackpotSelectedItemIds = new Set();
     this.jackpotTierId = getJackpotTierForPrestige(this.state.prestige?.level || 0).id;
     this.jackpotSettledRoundKeys = new Set();
+    this.jackpotInventoryRarity = "all";
+    this.jackpotInventoryValueRange = "all";
+    this.jackpotInventorySort = "valueDesc";
+    this.jackpotInventoryPage = 1;
+    this.jackpotInventoryPageSize = 6;
     this.jackpotLastRenderKey = "";
     this.jackpotLastRenderAt = 0;
     this.jackpotRealtimeStatus = isJackpotRealtimeAvailable() ? "Jackpot realtime in attesa" : "Jackpot realtime non configurato";
@@ -1202,6 +1207,62 @@ export class CaseOpenerUI {
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
   }
 
+  getJackpotValueRanges() {
+    return [
+      { id: "all", label: "Tutti i valori", min: 0, max: Infinity },
+      { id: "under10k", label: `Fino a ${formatCredits(10000, true)}`, min: 0, max: 10000 },
+      { id: "10k100k", label: `${formatCredits(10000, true)} - ${formatCredits(100000, true)}`, min: 10000, max: 100000 },
+      { id: "100k1m", label: `${formatCredits(100000, true)} - ${formatCredits(1000000, true)}`, min: 100000, max: 1000000 },
+      { id: "over1m", label: `Oltre ${formatCredits(1000000, true)}`, min: 1000000, max: Infinity }
+    ];
+  }
+
+  getJackpotFilteredItems() {
+    const range = this.getJackpotValueRanges().find((entry) => entry.id === this.jackpotInventoryValueRange) || this.getJackpotValueRanges()[0];
+    const rarityTier = (item) => RARITIES[item.rarity]?.tier ?? RARITY_ORDER.indexOf(item.rarity);
+    return this.getJackpotEligibleItems()
+      .filter((item) => this.jackpotInventoryRarity === "all" || item.rarity === this.jackpotInventoryRarity)
+      .filter((item) => {
+        const value = Number(item.value || 0);
+        return value >= range.min && value <= range.max;
+      })
+      .sort((a, b) => {
+        if (this.jackpotInventorySort === "valueAsc") {
+          return Number(a.value || 0) - Number(b.value || 0);
+        }
+        if (this.jackpotInventorySort === "rarityDesc") {
+          return rarityTier(b) - rarityTier(a) || Number(b.value || 0) - Number(a.value || 0);
+        }
+        if (this.jackpotInventorySort === "rarityAsc") {
+          return rarityTier(a) - rarityTier(b) || Number(a.value || 0) - Number(b.value || 0);
+        }
+        return Number(b.value || 0) - Number(a.value || 0);
+      });
+  }
+
+  updateJackpotInventoryFilters() {
+    this.jackpotInventoryRarity = this.root.querySelector("#jackpotRarityFilter")?.value || "all";
+    this.jackpotInventoryValueRange = this.root.querySelector("#jackpotValueFilter")?.value || "all";
+    this.jackpotInventorySort = this.root.querySelector("#jackpotSortFilter")?.value || "valueDesc";
+    this.jackpotInventoryPage = 1;
+    this.renderTab();
+  }
+
+  resetJackpotInventoryFilters() {
+    this.jackpotInventoryRarity = "all";
+    this.jackpotInventoryValueRange = "all";
+    this.jackpotInventorySort = "valueDesc";
+    this.jackpotInventoryPage = 1;
+    this.renderTab();
+  }
+
+  changeJackpotInventoryPage(delta = 0) {
+    const filteredCount = this.getJackpotFilteredItems().length;
+    const totalPages = Math.max(1, Math.ceil(filteredCount / Math.max(1, this.jackpotInventoryPageSize)));
+    this.jackpotInventoryPage = clamp(Number(this.jackpotInventoryPage || 1) + Number(delta || 0), 1, totalPages);
+    this.renderTab();
+  }
+
   getJackpotSelectedItems() {
     const eligibleIds = new Set(this.getJackpotEligibleItems().map((item) => item.id));
     [...this.jackpotSelectedItemIds].forEach((id) => {
@@ -1229,6 +1290,7 @@ export class CaseOpenerUI {
   setJackpotTier(tierId) {
     this.jackpotTierId = getJackpotTier(tierId).id;
     this.jackpotSelectedItemIds.clear();
+    this.jackpotInventoryPage = 1;
     this.renderTab();
   }
 
@@ -2150,6 +2212,9 @@ if (target.matches("#gameInventorySearch")) {
       if (target.matches("#gameInventoryType")) {
         this.renderTab();
       }
+      if (target.matches("#jackpotRarityFilter, #jackpotValueFilter, #jackpotSortFilter")) {
+        this.updateJackpotInventoryFilters();
+      }
       if (target.matches("#caseStatus")) {
         this.caseStatus = target.value;
         this.caseCarouselPage = 0;
@@ -2509,6 +2574,12 @@ if (target.matches("#coinflipSide")) {
       case "jackpot-clear-selection":
         this.jackpotSelectedItemIds.clear();
         this.renderTab();
+        break;
+      case "jackpot-page":
+        this.changeJackpotInventoryPage(data.delta);
+        break;
+      case "jackpot-reset-filters":
+        this.resetJackpotInventoryFilters();
         break;
       case "jackpot-deposit":
         this.depositJackpotSkins();
@@ -4796,7 +4867,12 @@ this.refreshIcons();
   renderJackpotInventoryPanel(round, tier) {
     const ownTier = this.getJackpotOwnTier();
     const eligibleItems = this.getJackpotEligibleItems();
-    const visibleItems = eligibleItems.slice(0, 72);
+    const filteredItems = this.getJackpotFilteredItems();
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / Math.max(1, this.jackpotInventoryPageSize)));
+    const page = clamp(Number(this.jackpotInventoryPage || 1), 1, totalPages);
+    this.jackpotInventoryPage = page;
+    const startIndex = (page - 1) * this.jackpotInventoryPageSize;
+    const visibleItems = filteredItems.slice(startIndex, startIndex + this.jackpotInventoryPageSize);
     const selectedItems = this.getJackpotSelectedItems();
     const selectedValue = selectedItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
     const ownTierSelected = tier.id === ownTier.id;
@@ -4815,7 +4891,25 @@ this.refreshIcons();
       <section class="roulette-side-panel jackpot-inventory-panel">
         <div class="roulette-panel-head">
           <strong>${iconMarkup("briefcase", "button-icon")} Skin deposito</strong>
-          <small>${eligibleItems.length} disponibili - ${this.formatJackpotTierValueLimit(tier)}</small>
+          <small>${filteredItems.length}/${eligibleItems.length} disponibili - ${this.formatJackpotTierValueLimit(tier)}</small>
+        </div>
+        <div class="jackpot-filter-row">
+          <select id="jackpotRarityFilter" aria-label="Filtro rarita' jackpot">
+            <option value="all" ${this.jackpotInventoryRarity === "all" ? "selected" : ""}>Tutte le rarita'</option>
+            ${RARITY_ORDER.map((rarity) => `<option value="${escapeHtml(rarity)}" ${this.jackpotInventoryRarity === rarity ? "selected" : ""}>${escapeHtml(rarity)}</option>`).join("")}
+          </select>
+          <select id="jackpotValueFilter" aria-label="Filtro valore jackpot">
+            ${this.getJackpotValueRanges().map((range) => `<option value="${range.id}" ${this.jackpotInventoryValueRange === range.id ? "selected" : ""}>${escapeHtml(range.label)}</option>`).join("")}
+          </select>
+          <select id="jackpotSortFilter" aria-label="Ordina skin jackpot">
+            <option value="valueDesc" ${this.jackpotInventorySort === "valueDesc" ? "selected" : ""}>Valore alto</option>
+            <option value="valueAsc" ${this.jackpotInventorySort === "valueAsc" ? "selected" : ""}>Valore basso</option>
+            <option value="rarityDesc" ${this.jackpotInventorySort === "rarityDesc" ? "selected" : ""}>Rarita' alta</option>
+            <option value="rarityAsc" ${this.jackpotInventorySort === "rarityAsc" ? "selected" : ""}>Rarita' bassa</option>
+          </select>
+          <button class="ghost-button tiny" data-action="jackpot-reset-filters" type="button">
+            ${iconMarkup("rotate-ccw", "button-icon")} Reset
+          </button>
         </div>
         <div class="jackpot-selection-summary">
           <div>
@@ -4830,25 +4924,37 @@ this.refreshIcons();
           ${iconMarkup("send", "button-icon")} Deposita ${selectedItems.length || ""} skin
         </button>
         ${canDeposit ? "" : `<small class="jackpot-disabled-note">${escapeHtml(disabledReason)}</small>`}
-        <div class="jackpot-inventory-grid">
-          ${visibleItems.length ? visibleItems.map((item) => {
-            const selected = this.jackpotSelectedItemIds.has(item.id);
-            const rarityColor = item.rarityColor || RARITIES[item.rarity]?.color || "#64d7e3";
-            return `
-              <button
-                class="jackpot-skin-tile ${selected ? "is-selected" : ""}"
-                data-action="jackpot-toggle-item"
-                data-id="${escapeHtml(item.id)}"
-                type="button"
-                style="--rarity:${escapeHtml(rarityColor)}"
-                ${ownTierSelected ? "" : "disabled"}
-              >
-                ${item.image ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : `<span class="jackpot-skin-fallback">${iconMarkup("package", "button-icon")}</span>`}
-                <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
-                <span>${formatCredits(item.value || 0, true)}</span>
-              </button>
-            `;
-          }).join("") : `<div class="empty-state small">Nessuna skin valida da depositare.</div>`}
+        <div class="jackpot-inventory-pager">
+          <button class="jackpot-page-arrow" data-action="jackpot-page" data-delta="-1" type="button" aria-label="Pagina precedente" ${page <= 1 ? "disabled" : ""}>
+            ${iconMarkup("chevron-left", "button-icon")}
+          </button>
+          <div class="jackpot-inventory-grid">
+            ${visibleItems.length ? visibleItems.map((item) => {
+              const selected = this.jackpotSelectedItemIds.has(item.id);
+              const rarityColor = item.rarityColor || RARITIES[item.rarity]?.color || "#64d7e3";
+              return `
+                <button
+                  class="jackpot-skin-tile ${selected ? "is-selected" : ""}"
+                  data-action="jackpot-toggle-item"
+                  data-id="${escapeHtml(item.id)}"
+                  type="button"
+                  style="--rarity:${escapeHtml(rarityColor)}"
+                  ${ownTierSelected ? "" : "disabled"}
+                >
+                  ${item.image ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : `<span class="jackpot-skin-fallback">${iconMarkup("package", "button-icon")}</span>`}
+                  <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+                  <span>${formatCredits(item.value || 0, true)}</span>
+                </button>
+              `;
+            }).join("") : `<div class="empty-state small">Nessuna skin con questi filtri.</div>`}
+          </div>
+          <button class="jackpot-page-arrow" data-action="jackpot-page" data-delta="1" type="button" aria-label="Pagina successiva" ${page >= totalPages ? "disabled" : ""}>
+            ${iconMarkup("chevron-right", "button-icon")}
+          </button>
+        </div>
+        <div class="jackpot-page-meta">
+          <span>Pagina ${page}/${totalPages}</span>
+          <strong>${filteredItems.length ? `${startIndex + 1}-${Math.min(startIndex + visibleItems.length, filteredItems.length)}` : "0"} di ${filteredItems.length}</strong>
         </div>
       </section>
     `;

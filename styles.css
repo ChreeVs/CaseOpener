@@ -15694,13 +15694,69 @@ textarea {
   font-weight: 800;
 }
 
+.jackpot-filter-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.jackpot-filter-row select {
+  min-width: 0;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: rgba(6, 10, 17, 0.78);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.jackpot-filter-row button {
+  min-height: 36px;
+  justify-content: center;
+}
+
+.jackpot-inventory-pager {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.jackpot-page-arrow {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 100%;
+  border: 1px solid rgba(126, 151, 179, 0.16);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.034);
+  cursor: pointer;
+}
+
+.jackpot-page-arrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .jackpot-inventory-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
   gap: 8px;
-  max-height: 420px;
-  overflow: auto;
-  padding-right: 2px;
+  align-content: start;
+  min-height: 300px;
+  overflow: visible;
+}
+
+.jackpot-inventory-grid .empty-state {
+  grid-column: 1 / -1;
+  align-self: stretch;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
 }
 
 .jackpot-skin-tile {
@@ -15766,6 +15822,31 @@ textarea {
   font-weight: 900;
 }
 
+.jackpot-page-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 151, 179, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.jackpot-page-meta span,
+.jackpot-page-meta strong {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.jackpot-page-meta strong {
+  color: #fff;
+}
+
 @keyframes rouletteCaseReelSpin {
   from {
     transform: translateX(0);
@@ -15812,6 +15893,15 @@ textarea {
 
   .jackpot-inventory-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jackpot-filter-row,
+  .jackpot-inventory-pager {
+    grid-template-columns: 1fr;
+  }
+
+  .jackpot-page-arrow {
+    min-height: 36px;
   }
 }
 

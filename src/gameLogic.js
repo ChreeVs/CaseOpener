@@ -32,6 +32,7 @@ const MARKETPLACE_ACTIVE_LISTING_LIMIT = 5;
 const MARKETPLACE_MAX_PRICE = 1000000;
 const MALUS_MIN_PRESTIGE_LEVEL = 2;
 const MALUS_RARITY_COLOR = "#ff5e73";
+const MALUS_VALUE_MULTIPLIER = 2;
 const MALUS_LABELS = [
   "Red Ledger",
   "Debt Mark",
@@ -436,15 +437,15 @@ function estimateMalusPenaltyValue(state, caseDef = {}, item = null) {
   const casePrestige = Math.max(MALUS_MIN_PRESTIGE_LEVEL, Number(caseDef?.unlockPrestige) || MALUS_MIN_PRESTIGE_LEVEL);
   const prestigeStep = Math.max(0, casePrestige - MALUS_MIN_PRESTIGE_LEVEL);
   const anchor = getMalusPriceAnchor(caseDef, item);
-  // Scales from 22% at P2 to ~45% at P15; Risk Cases add +40%
+  // Scales from 44% at P2 to ~90% at P15; Risk Cases add +40%.
   const isRisk = Boolean(caseDef?.malusEnabled || caseDef?.riskCase);
   const baseMultiplier = 0.22 + Math.min(0.23, prestigeStep * 0.018);
   const riskBoost = isRisk ? 1.4 : 1;
-  const multiplier = baseMultiplier * riskBoost;
+  const multiplier = baseMultiplier * riskBoost * MALUS_VALUE_MULTIPLIER;
   // Net worth drag scales more aggressively with prestige
-  const netWorthDrag = Math.max(0, getNetWorth(state)) * Math.min(0.004, 0.0008 + prestigeStep * 0.00018);
-  const floor = Math.max(1, anchor * 0.12);
-  const cap = anchor * (0.55 + Math.min(0.25, prestigeStep * 0.016));
+  const netWorthDrag = Math.max(0, getNetWorth(state)) * Math.min(0.004, 0.0008 + prestigeStep * 0.00018) * MALUS_VALUE_MULTIPLIER;
+  const floor = Math.max(1, anchor * 0.12 * MALUS_VALUE_MULTIPLIER);
+  const cap = anchor * (0.55 + Math.min(0.25, prestigeStep * 0.016)) * MALUS_VALUE_MULTIPLIER;
   const penalty = Math.min(cap, Math.max(floor, anchor * multiplier + netWorthDrag));
   return -Number(penalty.toFixed(2));
 }
@@ -453,8 +454,8 @@ function rollMalusPenaltyValue(state, caseDef = {}, item = null) {
   const estimate = Math.abs(estimateMalusPenaltyValue(state, caseDef, item));
   const anchor = getMalusPriceAnchor(caseDef, item);
   const variance = 0.72 + Math.random() * 0.56;
-  const cap = anchor * 0.78;
-  const penalty = Math.min(cap, Math.max(anchor * 0.12, estimate * variance));
+  const cap = anchor * 0.78 * MALUS_VALUE_MULTIPLIER;
+  const penalty = Math.min(cap, Math.max(anchor * 0.12 * MALUS_VALUE_MULTIPLIER, estimate * variance));
   return -Number(penalty.toFixed(2));
 }
 
